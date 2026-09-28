@@ -1,0 +1,30 @@
+# HTTPS automático (Let's Encrypt). Os endereços vêm do start.sh (SITE_ADDRESSES).
+{
+	admin off
+	# Na porta extra (IPv4), quem chegar por http:// é redirecionado para https:// em vez de ver erro
+	servers :{$PUBLIC_PORT:8443} {
+		listener_wrappers {
+			http_redirect
+			tls
+		}
+	}
+}
+
+{$SITE_ADDRESSES} {
+	encode gzip
+
+	# Conexão do LiveKit (sinalização via WebSocket)
+	@livekit path /rtc /rtc/*
+	reverse_proxy @livekit 127.0.0.1:7880
+
+	# Site + geração de tokens
+	reverse_proxy 127.0.0.1:3000
+
+	log {
+		# Guarda no máximo 3 arquivos de 10 MB (o mais antigo é apagado)
+		output file ./caddy.log {
+			roll_size 10MiB
+			roll_keep 3
+		}
+	}
+}

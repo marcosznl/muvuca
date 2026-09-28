@@ -1,0 +1,21 @@
+# Dependências (voltam com npm install)
+node_modules/
+
+# Segredos e dados de verdade (senhas, banco, fotos, anexos, chaves das notificações, backups)
+.env
+data/
+
+# Registros e estado local do serviço
+logs/
+caddy.log*
+.modo-local
+.rooms-check.mjs
+.robo-*.mjs
+
+# Cópias da pasta do site usadas na publicação (a fonte é public/)
+public_next/
+public_old/
+public_antigo/
+public_antes_da_musica/
+
+.DS_Store

@@ -1,0 +1,74 @@
+#!/bin/zsh
+# Sobe o servidor de mídia (LiveKit), o app e o HTTPS (Caddy). Ctrl+C encerra tudo.
+cd "$(dirname "$0")"
+set -a; source .env; set +a
+
+if lsof -nP -iTCP:3000 -iTCP:7881 -iTCP:443 -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "O CallDireta (ou outro programa) já está usando as portas 443/3000/7881."
+  echo "Feche a outra cópia antes (Ctrl+C na janela onde ela roda)."
+  exit 1
+fi
+# Com DuckDNS configurado, o endereço público passa a ser o domínio fixo.
+# Aceita vários separados por vírgula (ex.: "muvuca,malegna"): o primeiro é o principal,
+# os outros continuam funcionando (links antigos)
+domains=()
+if [[ -n "$DUCKDNS_SUBDOMAIN" ]]; then
+  for sub in ${(s:,:)DUCKDNS_SUBDOMAIN}; do domains+=("${sub// /}.duckdns.org"); done
+  export DOMAIN="${domains[1]}"
+else
+  domains=("$DOMAIN")
+fi
+# O site atende na 443 (IPv6 e certificado) e, se definida, numa porta extra para o IPv4
+addrs=()
+for d in $domains; do
+  addrs+=("$d")
+  [[ -n "$PUBLIC_PORT" && "$PUBLIC_PORT" != 443 ]] && addrs+=("$d:$PUBLIC_PORT")
+done
+export SITE_ADDRESSES="${(j:, :)addrs}"
+PUBLIC_URL="https://$DOMAIN"
+[[ -n "$PUBLIC_PORT" && "$PUBLIC_PORT" != 443 ]] && PUBLIC_URL="https://$DOMAIN:$PUBLIC_PORT"
+export LIVEKIT_URL="${PUBLIC_URL/https:/wss:}"
+
+pids=()
+trap 'kill $pids 2>/dev/null' EXIT INT TERM
+
+# Modo local (./malegna-service.sh local): só neste Mac, em http://localhost:3000 — para testar
+# fora de casa. Sem HTTPS nem DNS, e a voz anuncia os IPs da rede local em vez do IP público.
+if [[ -f .modo-local ]]; then
+  mkdir -p logs
+  sed 's/use_external_ip: true/use_external_ip: false/' livekit.yaml > logs/livekit-local.yaml
+  LIVEKIT_KEYS="$LIVEKIT_API_KEY: $LIVEKIT_API_SECRET" \
+    livekit-server --config logs/livekit-local.yaml --bind 127.0.0.1 &
+  pids+=($!)
+  unset LIVEKIT_URL # o app entrega ws://localhost:7880 para quem abre pelo localhost
+  PUBLIC_URL="http://localhost:3000"
+  echo "[$(date '+%F %T')] MODO LOCAL: só neste Mac"
+else
+  # API/sinalização do LiveKit só na máquina local (o Caddy expõe via HTTPS);
+  # as portas de mídia (7881 TCP e 50000-50200 UDP) ficam abertas para a internet.
+  LIVEKIT_KEYS="$LIVEKIT_API_KEY: $LIVEKIT_API_SECRET" \
+    livekit-server --config livekit.yaml --bind 127.0.0.1 &
+  pids+=($!)
+
+  # Também avisa quando o IP público muda (Mac em outra rede): aí tudo reinicia com o endereço novo
+  ./ddns-update.sh --loop &
+  pids+=($!)
+
+  caddy run --config Caddyfile --adapter caddyfile &
+  pids+=($!)
+fi
+
+node server.js &
+pids+=($!)
+
+echo "Link para os amigos: $PUBLIC_URL/"
+# Se qualquer parte cair (voz, HTTPS, DNS ou o app), encerra tudo: rodando como serviço,
+# o macOS sobe tudo de novo em seguida (ver malegna-service.sh)
+while sleep 5; do
+  for pid in $pids; do
+    if ! kill -0 $pid 2>/dev/null; then
+      echo "[$(date '+%F %T')] um dos processos ($pid) parou; encerrando para reiniciar tudo"
+      exit 1
+    fi
+  done
+done

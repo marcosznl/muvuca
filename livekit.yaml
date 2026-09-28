@@ -1,0 +1,13 @@
+# Configuração do servidor de mídia LiveKit
+port: 7880
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 50200
+  # Descobre e anuncia o IPv4 público da casa (sem CGNAT desde a liberação da operadora)
+  use_external_ip: true
+room:
+  max_participants: 6
+  empty_timeout: 300
+logging:
+  level: warn   # "info" anotava cada consulta das salas (1 linha a cada 1,5 s)

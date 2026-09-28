@@ -1,0 +1,20 @@
+{
+  "name": "calldireta",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test test/",
+    "start": "./start.sh"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "livekit-client": "^2.22.3",
+    "livekit-server-sdk": "^2.19.1",
+    "ws": "^8.22.0",
+    "web-push": "^3.6.7"
+  }
+}

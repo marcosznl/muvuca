@@ -1,0 +1,73 @@
+// Contas: cadastro e login (HTTP), com limite de tentativas por IP
+import { ACCESS_PASSWORD, OWNER_USERNAME } from './config.js';
+import { db, HOME_SERVER } from './store.js';
+import { announceJoin } from './welcome.js';
+import { pushServer } from './realtime.js';
+import { HttpError, readBody, sameSecret, clean, clientIp, sleep } from './util.js';
+
+// Limite de tentativas de login/cadastro por IP (evita adivinhar senhas)
+const authFails = new Map(); // ip -> { count, until }
+
+function checkAuthRate(ip) {
+  const f = authFails.get(ip);
+  if (f && f.until > Date.now()) throw new HttpError(429, 'Muitas tentativas. Espere um minuto e tente de novo.');
+}
+
+async function authFailed(ip, message) {
+  const f = authFails.get(ip) ?? { count: 0, until: 0 };
+  f.count++;
+  if (f.count >= 5) { f.until = Date.now() + 60_000; f.count = 0; }
+  authFails.set(ip, f);
+  await sleep(800);
+  throw new HttpError(401, message);
+}
+
+export function cleanupAuthFails() {
+  for (const [ip, f] of authFails) if (f.until < Date.now() && f.count === 0) authFails.delete(ip);
+}
+
+// POST /api/register
+export async function register(req) {
+  const ip = clientIp(req);
+  checkAuthRate(ip);
+  const body = await readBody(req);
+  const username = String(body.username ?? '').trim();
+  const displayName = clean(body.name, 32) || username;
+  const password = String(body.password ?? '');
+  const invite = String(body.invite ?? '').trim();
+
+  if (!/^[a-zA-Z0-9_.]{3,20}$/.test(username)) {
+    throw new HttpError(400, 'O usuário deve ter de 3 a 20 caracteres: letras, números, ponto ou _.');
+  }
+  if (password.length < 6 || password.length > 200) throw new HttpError(400, 'A senha deve ter pelo menos 6 caracteres.');
+
+  // Só entra quem tem o código de acesso ou um convite válido de algum servidor
+  const inviteInfo = db.invite(invite);
+  const viaAccessCode = sameSecret(invite, ACCESS_PASSWORD);
+  if (!viaAccessCode && !inviteInfo) await authFailed(ip, 'Código de convite inválido.');
+  if (db.usernameTaken(username)) throw new HttpError(409, 'Esse nome de usuário já existe.');
+
+  const user = await db.createUser({ username, displayName, password });
+  const serverId = viaAccessCode ? HOME_SERVER : inviteInfo.serverId;
+  db.addMember(serverId, user);
+  if (inviteInfo) db.useInvite(inviteInfo.code);
+  // Dono do servidor principal: o usuário de OWNER_USERNAME (no .env) ou, sem ele, o primeiro a se cadastrar
+  if (!db.server(HOME_SERVER).owner_id && (!OWNER_USERNAME || OWNER_USERNAME.toLowerCase() === username.toLowerCase())) {
+    db.addMember(HOME_SERVER, user);
+    db.setOwner(HOME_SERVER, user);
+  }
+  pushServer(serverId); // quem já está online vê o membro novo na hora
+  announceJoin(serverId, user);
+  return { token: db.createSession(user), serverId };
+}
+
+// POST /api/login
+export async function login(req) {
+  const ip = clientIp(req);
+  checkAuthRate(ip);
+  const body = await readBody(req);
+  const user = await db.checkLogin(String(body.username ?? '').trim(), String(body.password ?? ''));
+  if (!user) await authFailed(ip, 'Usuário ou senha incorretos.');
+  authFails.delete(ip);
+  return { token: db.createSession(user) };
+}

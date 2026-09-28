@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Muvuca</title>
+  <meta name="theme-color" content="#1e1f22">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Muvuca">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- Entrar / criar conta (montado pelo auth.js) -->
+  <section id="auth" class="auth" hidden></section>
+
+  <!-- App -->
+  <div id="app" class="app" hidden>
+    <div id="banner" class="banner" hidden></div>
+
+    <!-- Coluna de servidores -->
+    <nav id="server-rail" class="server-rail" aria-label="Servidores"></nav>
+
+    <!-- Canais do servidor -->
+    <nav id="sidebar" class="sidebar">
+      <button id="server-name" class="server-name"></button>
+      <div id="channel-list" class="channels"></div>
+
+      <div id="music-panel" class="music-panel" hidden>
+        <div class="vp-info">
+          <div class="mp-status"><span data-icon="headphones" data-size="16"></span>Tocando agora</div>
+          <div id="mp-title" class="mp-title"></div>
+          <button id="mp-channel" class="vp-channel link"></button>
+        </div>
+        <button id="mp-mute" class="icon-btn" title="Silenciar música"></button>
+        <button id="mp-leave" class="icon-btn danger-hover" title="Sair do canal de música" data-icon="close"></button>
+      </div>
+
+      <div id="voice-panel" class="voice-panel" hidden>
+        <div class="vp-info">
+          <div class="vp-status">
+            <span id="vp-signal" class="vp-signal" data-icon="signal" data-size="18"></span>Voz conectada
+            <div id="ping-tip" class="ping-tip"></div>
+          </div>
+          <button id="vp-channel" class="vp-channel link"></button>
+        </div>
+        <button id="btn-music-mode" class="icon-btn" data-icon="waveform"></button>
+        <button id="btn-disconnect" class="icon-btn danger-hover" title="Desconectar" data-icon="phone-off"></button>
+        <div class="vp-actions">
+          <button id="vp-cam" class="vp-action" title="Ligar câmera" data-icon="video" data-size="20"></button>
+          <button id="vp-screen" class="vp-action" title="Transmitir tela" data-icon="monitor-up" data-size="20"></button>
+        </div>
+      </div>
+
+      <div class="user-panel">
+        <div id="me-avatar" class="avatar sm"></div>
+        <div class="me-info">
+          <div id="me-name" class="me-name"></div>
+          <div id="me-status" class="me-status">Online</div>
+        </div>
+        <button id="btn-mic" class="icon-btn" title="Silenciar microfone"></button>
+        <button id="btn-deaf" class="icon-btn" title="Ensurdecer"></button>
+        <button id="btn-logout" class="icon-btn" title="Sair da conta" data-icon="log-out"></button>
+      </div>
+    </nav>
+
+    <main class="main">
+      <header class="main-header">
+        <button id="btn-menu" class="icon-btn only-mobile" title="Canais" data-icon="menu"></button>
+        <span id="view-icon" class="view-icon"></span>
+        <strong id="view-title"></strong>
+        <button id="btn-search" class="icon-btn push-right" title="Buscar mensagens (Ctrl+F)" data-icon="search" hidden></button>
+        <button id="btn-pins" class="icon-btn" title="Mensagens fixadas" data-icon="pin" hidden></button>
+        <button id="btn-members" class="icon-btn" title="Membros" data-icon="users"></button>
+        <div id="pins-panel" class="pins-panel" hidden></div>
+        <div id="search-panel" class="pins-panel search-panel" hidden></div>
+      </header>
+
+      <!-- Nenhum canal aberto (ex.: servidor sem canais) -->
+      <section id="empty-view" class="empty-view" hidden>
+        <p class="muted">Escolha um canal na lista ao lado.</p>
+      </section>
+
+      <!-- Canal de texto -->
+      <section id="text-view" class="text-view">
+        <div id="drop-overlay" class="drop-overlay" hidden><div>Solte para enviar no chat</div></div>
+        <div id="messages" class="messages"></div>
+        <form id="chat-form" class="chat-form">
+          <div id="emoji-panel" class="picker" hidden></div>
+          <div id="reply-bar" class="reply-bar" hidden></div>
+          <div id="mention-list" class="mention-list" hidden></div>
+          <div id="attach-tray" class="attach-tray" hidden></div>
+          <div class="chat-box">
+            <button id="btn-attach" type="button" class="icon-btn attach-btn" title="Enviar imagem ou vídeo" data-icon="plus" data-size="20"></button>
+            <input id="chat-input" maxlength="2000" autocomplete="off">
+            <button id="btn-gif" type="button" class="icon-btn" title="GIFs" data-icon="gif" data-size="24"></button>
+            <button id="btn-emoji" type="button" class="icon-btn" title="Emojis" data-icon="smile" data-size="22"></button>
+          </div>
+          <div id="typing-bar" class="typing-bar" aria-live="polite"></div>
+        </form>
+      </section>
+
+      <!-- Área de jogos (ícone fixo 🎮) -->
+      <section id="games-view" class="games-view" hidden></section>
+
+      <!-- Canal de voz -->
+      <section id="voice-view" class="voice-view" hidden>
+        <div id="stage" class="stage"></div>
+        <footer class="controls">
+          <button id="btn-cam" class="ctrl round" title="Ligar câmera"></button>
+          <button id="btn-screen" class="ctrl round" title="Transmitir tela" data-icon="monitor-up"></button>
+          <button id="btn-stats" class="ctrl round" title="Mostrar qualidade" data-icon="bar-chart"></button>
+          <button id="btn-leave" class="ctrl round danger" title="Desconectar" data-icon="phone-off"></button>
+        </footer>
+      </section>
+      <!-- Canal de música: o player fica sempre montado (fora da tela quando você está em outro canal) -->
+      <section id="music-view" class="music-view offscreen">
+        <div class="music-stage">
+          <div class="music-screen">
+            <div id="music-player" class="music-player"></div>
+            <div id="music-overlay" class="music-overlay"></div>
+          </div>
+          <div id="music-info" class="music-info"></div>
+        </div>
+        <div id="music-resizer" class="music-resizer" role="separator" aria-orientation="horizontal" tabindex="0"
+          title="Arraste para aumentar o vídeo ou o chat (duplo clique volta ao padrão)"></div>
+        <div id="music-chat-slot" class="music-chat"></div>
+      </section>
+    </main>
+
+    <aside id="members" class="members">
+      <ul id="member-list" class="member-list"></ul>
+    </aside>
+
+    <div id="scrim" class="scrim" hidden></div>
+  </div>
+
+  <!-- Janelas, menus e configurações abrem aqui por cima de tudo -->
+  <div id="overlay-layer"></div>
+
+  <script src="/livekit-client.js"></script>
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

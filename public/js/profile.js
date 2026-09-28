@@ -1,0 +1,224 @@
+// Perfil: editor (foto, nome, cor do banner, "Sobre mim") e o cartão que aparece ao clicar em alguém
+import { h, hue, makeAvatar, showBanner, toast } from './util.js';
+import { state, serverById, permsIn, PERMS, profileOf } from './state.js';
+import { can, topPosition, nameColor } from './permissions.js';
+import { request, upload } from './net.js';
+import { openModal, button } from './dialogs.js';
+import { colorPicker, kickMember, openMemberRoles, canManageMember, myTop } from './settings.js';
+
+const BIO_MAX = 190;
+
+// ---------- Imagens (foto de perfil e ícone do servidor) ----------
+
+// Fotos comuns: recorta o centro em quadrado e reduz para 256 px (fica leve e redonda sem distorcer).
+// GIF vai como está, para continuar animado.
+export async function prepareImage(file) {
+  if (file.type === 'image/gif') {
+    if (file.size > 2 * 1024 * 1024) throw new Error('O GIF deve ter no máximo 2 MB.');
+    return file;
+  }
+  const bitmap = await createImageBitmap(file).catch(() => { throw new Error('Não consegui abrir essa imagem.'); });
+  const side = Math.min(bitmap.width, bitmap.height);
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = Math.min(256, side);
+  canvas.getContext('2d').drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, canvas.width, canvas.height);
+  return new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.9));
+}
+
+// Abre o seletor de arquivo e entrega a imagem já preparada
+export function pickImage(onPicked) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/png,image/jpeg,image/gif,image/webp';
+  input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+    try { await onPicked(await prepareImage(file)); } catch (err) { showBanner(err.message, { timeout: 4500 }); }
+  };
+  input.click();
+}
+
+// ---------- Cartão de perfil ----------
+
+// Sem cor escolhida, o banner usa a cor da pessoa (a mesma da inicial)
+const bannerColor = (p) => p.banner || `hsl(${hue(p.name)} 45% 38%)`;
+const fmtDate = (ts) => new Date(ts).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', year: 'numeric' });
+
+// Monta o cartão (usado no clique em alguém e na prévia do editor)
+function profileCard(p, { server = null, preview = false } = {}) {
+  const card = h('div', 'profile-card');
+  const banner = h('div', 'profile-banner');
+  banner.style.background = bannerColor(p);
+  const avatar = makeAvatar(p.name, 'xl', preview ? null : p.id);
+  if (preview && p.avatar) { // na prévia, a foto vem do rascunho
+    avatar.classList.add('photo');
+    avatar.textContent = '';
+    avatar.style.backgroundImage = `url("/img/${p.avatar}")`;
+  }
+  avatar.classList.add('profile-card-avatar');
+  const body = h('div', 'profile-card-body');
+  const name = h('div', 'profile-card-name', p.name || '…');
+  const color = server && nameColor(server, p.id);
+  if (color) name.style.color = color;
+  body.append(name, h('div', 'muted', `@${p.username}`));
+  if (p.statusText && !preview) body.append(h('div', 'profile-card-status', p.statusText));
+
+  const section = (title, content) => {
+    const box = h('div', 'profile-card-section');
+    box.append(h('div', 'profile-card-title', title), content);
+    body.append(box);
+  };
+  if (p.bio) section('Sobre mim', h('div', 'profile-card-bio', p.bio));
+  if (server && p.joinedAt) section(`Membro de ${server.name} desde`, h('div', 'small', fmtDate(p.joinedAt)));
+  if (server) {
+    const roles = server.roles.filter((r) => !r.isDefault && p.roles?.includes(r.id)).sort((a, b) => b.position - a.position);
+    if (roles.length) {
+      const chips = h('div', 'role-chips');
+      for (const r of roles) {
+        const chip = h('span', 'role-chip');
+        const dot = h('span', 'role-dot');
+        dot.style.background = r.color || '#99aab5';
+        chip.append(dot, r.name);
+        chips.append(chip);
+      }
+      section('Cargos', chips);
+    }
+  }
+  card.append(banner, avatar, body);
+  return { card, body };
+}
+
+let openCard = null;
+export function closeProfileCard() {
+  openCard?.remove();
+  openCard = null;
+  document.removeEventListener('mousedown', outsideCard, true);
+}
+function outsideCard(e) { if (openCard && !openCard.contains(e.target)) closeProfileCard(); }
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeProfileCard(); });
+
+// Clique em alguém (lista de membros, nome ou foto no chat): mostra o perfil perto do clique
+export function openProfileCard(userId, x, y, serverId = state.view.serverId) {
+  closeProfileCard();
+  const s = serverById(serverId);
+  const p = profileOf(userId, s);
+  if (!p) return;
+  const { card, body } = profileCard(p, { server: s });
+
+  const actions = h('div', 'profile-card-actions');
+  if (userId === state.me?.id) {
+    const edit = button('Editar perfil', { kind: 'secondary' });
+    edit.onclick = () => { closeProfileCard(); openProfileEditor(); };
+    actions.append(edit);
+  } else if (s) {
+    const perms = permsIn(s);
+    if (can(perms, PERMS.MANAGE_ROLES) && canManageMember(s, p)) {
+      const roles = button('Cargos…', { kind: 'secondary' });
+      roles.onclick = () => { closeProfileCard(); openMemberRoles(s.id, p.id); };
+      actions.append(roles);
+    }
+    if (can(perms, PERMS.KICK_MEMBERS) && p.id !== s.ownerId && topPosition(s, p.id) < myTop(s)) {
+      const kick = button('Expulsar', { kind: 'danger-outline' });
+      kick.onclick = () => { closeProfileCard(); kickMember(s, p); };
+      actions.append(kick);
+    }
+  }
+  if (actions.children.length) body.append(actions);
+
+  card.classList.add('floating');
+  document.getElementById('overlay-layer').append(card);
+  // Fica dentro da tela, ao lado do clique
+  const r = card.getBoundingClientRect();
+  const left = x + r.width + 16 > innerWidth ? x - r.width - 16 : x + 16;
+  card.style.left = `${Math.max(8, Math.min(left, innerWidth - r.width - 8))}px`;
+  card.style.top = `${Math.max(8, Math.min(y - 60, innerHeight - r.height - 8))}px`;
+  openCard = card;
+  setTimeout(() => document.addEventListener('mousedown', outsideCard, true), 0);
+}
+
+// ---------- Editor de perfil ----------
+
+export function openProfileEditor() {
+  if (!state.me) return;
+  closeProfileCard();
+  const draft = { ...state.me };
+  const layout = h('div', 'profile-editor');
+  const form = h('div', 'form profile-form');
+  const previewBox = h('div', 'profile-preview');
+  layout.append(form, previewBox);
+
+  const paintPreview = () => {
+    previewBox.replaceChildren(h('div', 'field-label', 'Prévia'), profileCard(draft, { preview: true }).card);
+    removePhoto.hidden = !draft.avatar;
+  };
+
+  // Foto (troca na hora, como no Discord)
+  const photoField = h('div', 'field');
+  const photoBtns = h('div', 'profile-buttons');
+  const changePhoto = button('Trocar foto', { kind: 'secondary' });
+  const removePhoto = button('Remover foto', { kind: 'link' });
+  photoBtns.append(changePhoto, removePhoto);
+  photoField.append(h('span', 'field-label', 'Foto de perfil'), photoBtns,
+    h('p', 'muted small', 'PNG, JPG, WEBP ou GIF (GIF fica animado, até 2 MB). A foto é recortada em quadrado.'));
+  changePhoto.onclick = () => pickImage(async (file) => {
+    changePhoto.disabled = true;
+    try {
+      const res = await upload('/api/image', { for: 'avatar' }, file);
+      draft.avatar = state.me.avatar = res.id;
+      paintPreview();
+    } finally { changePhoto.disabled = false; }
+  });
+  removePhoto.onclick = async () => {
+    try {
+      await request({ t: 'avatar:remove' });
+      draft.avatar = state.me.avatar = null;
+      paintPreview();
+    } catch (err) { showBanner(err.message, { timeout: 4000 }); }
+  };
+
+  // Nome de exibição
+  const nameField = h('label', 'field');
+  const name = h('input');
+  Object.assign(name, { value: draft.name, maxLength: 32 });
+  name.oninput = () => { draft.name = name.value.trim(); paintPreview(); };
+  nameField.append(h('span', 'field-label', 'Nome de exibição'), name,
+    h('span', 'muted small', `Seu usuário continua @${draft.username} (é com ele que você entra).`));
+
+  // Cor do banner
+  const bannerField = h('div', 'field');
+  const picker = colorPicker(draft.banner, { allowNone: true });
+  const onColor = () => { draft.banner = picker.value; paintPreview(); };
+  picker.el.addEventListener('click', onColor);
+  picker.el.addEventListener('input', onColor);
+  bannerField.append(h('span', 'field-label', 'Cor do banner'), picker.el);
+
+  // Sobre mim
+  const bioField = h('label', 'field');
+  const bio = h('textarea', 'profile-bio-input');
+  Object.assign(bio, { value: draft.bio ?? '', maxLength: BIO_MAX, rows: 4, placeholder: 'Conte um pouco sobre você' });
+  const counter = h('span', 'muted small bio-counter');
+  const count = () => { counter.textContent = `${bio.value.length}/${BIO_MAX}`; };
+  bio.oninput = () => { draft.bio = bio.value; count(); paintPreview(); };
+  count();
+  bioField.append(h('span', 'field-label', 'Sobre mim'), bio, counter);
+
+  form.append(photoField, nameField, bannerField, bioField);
+  paintPreview();
+
+  const save = button('Salvar');
+  const cancel = button('Cancelar', { kind: 'link' });
+  const modal = openModal({ title: 'Editar perfil', content: layout, actions: [cancel, save], wide: true });
+  cancel.onclick = () => modal.close();
+  save.onclick = async () => {
+    if (!name.value.trim()) return name.focus();
+    save.disabled = true;
+    try {
+      await request({ t: 'profile:update', name: name.value.trim(), bio: bio.value, banner: picker.value ?? '' });
+      modal.close();
+      toast('Perfil atualizado!');
+    } catch (err) {
+      showBanner(err.message, { timeout: 4000 });
+    } finally { save.disabled = false; }
+  };
+}
+

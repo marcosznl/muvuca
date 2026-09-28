@@ -1,0 +1,11 @@
+{
+  "serverName": "Malegna",
+  "text": [
+    { "id": "geral", "name": "geral" },
+    { "id": "jogos", "name": "jogos" }
+  ],
+  "voice": [
+    { "id": "sala-1", "name": "Sala 1" },
+    { "id": "sala-2", "name": "Sala 2" }
+  ]
+}
