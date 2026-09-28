@@ -113,6 +113,22 @@ test('fixar: aparece na lista do pininho; sem a permissão, não dá', async () 
 
 // ---------- Anexos ----------
 
+test('anexo: documento vai sempre como download (nunca abre como página do site)', async () => {
+  const html = Buffer.from('<html><script>alert(1)</script></html>');
+  const up = await ana.upload('/api/attach', { channel: 'geral', name: 'relatório final.pdf' }, html);
+  assert.equal(up.status, 200);
+  assert.equal(up.body.kind, 'file');
+  assert.equal(up.body.name, 'relatório final.pdf');
+  const msg = await ana.say('geral', '', { attachments: [up.body.id] });
+  assert.equal(msg.attachments[0].kind, 'file');
+  const file = await fetch(server.base + msg.attachments[0].url);
+  assert.equal(file.status, 200);
+  assert.equal(file.headers.get('content-type'), 'application/octet-stream');
+  assert.match(file.headers.get('content-disposition'), /^attachment; filename\*=UTF-8''relat%C3%B3rio%20final\.pdf$/);
+  assert.equal(file.headers.get('content-security-policy'), 'sandbox');
+  assert.equal(Buffer.from(await file.arrayBuffer()).equals(html), true);
+});
+
 test('anexo: envia, vira parte da mensagem e só então pode ser baixado', async () => {
   const up = await ana.upload('/api/attach', { channel: 'geral', name: 'foto.png', w: 1, h: 1 }, PNG);
   assert.equal(up.status, 200);
@@ -131,14 +147,14 @@ test('anexo: envia, vira parte da mensagem e só então pode ser baixado', async
   assert.equal((await fetch(server.base + msg.attachments[0].url)).status, 404);
 });
 
-test('anexo: vídeo aceita pedaços (Range); arquivo que não é mídia é recusado', async () => {
+test('anexo: vídeo aceita pedaços (Range); programa é recusado', async () => {
   const up = await ana.upload('/api/attach', { channel: 'geral', name: 'v.webm' }, WEBM);
   assert.equal(up.body.kind, 'video');
   const msg = await ana.say('geral', 'video', { attachments: [up.body.id] });
   const part = await fetch(server.base + msg.attachments[0].url, { headers: { Range: 'bytes=0-3' } });
   assert.equal(part.status, 206);
   assert.equal(part.headers.get('content-range'), `bytes 0-3/${WEBM.length}`);
-  const bad = await ana.upload('/api/attach', { channel: 'geral' }, Buffer.from('não sou mídia'));
+  const bad = await ana.upload('/api/attach', { channel: 'geral', name: 'virus.exe' }, Buffer.from('MZ não sou mídia'));
   assert.equal(bad.status, 400);
   const semLogin = await fetch(`${server.base}/api/attach?channel=geral`, { method: 'POST', body: PNG });
   assert.equal(semLogin.status, 401);
@@ -239,6 +255,81 @@ test('foto de perfil: enviar, ver e remover', async () => {
   assert.equal(ana.me.avatar, null);
   assert.equal((await fetch(`${server.base}/img/${up.body.id}`)).status, 404);
   assert.equal((await ana.upload('/api/image', { for: 'server', server: home }, PNG)).status, 403); // ícone: só quem gerencia
+});
+
+test('banner do perfil: GIF animado maior que a foto; remover apaga o arquivo', async () => {
+  const gif = Buffer.concat([Buffer.from('GIF89a'), Buffer.alloc(3 * 1024 * 1024)]); // 3 MB: passa do limite da foto, cabe no banner
+  assert.equal((await ana.upload('/api/image', { for: 'avatar' }, gif)).status, 413);
+  const up = await ana.upload('/api/image', { for: 'banner' }, gif);
+  assert.equal(up.status, 200);
+  await sleep(150);
+  assert.equal(ana.me.bannerImage, up.body.id);
+  const img = await fetch(`${server.base}/img/${up.body.id}`);
+  assert.equal(img.headers.get('content-type'), 'image/gif');
+  await ana.request({ t: 'banner:remove' });
+  await sleep(150);
+  assert.equal(ana.me.bannerImage, null);
+  assert.equal((await fetch(`${server.base}/img/${up.body.id}`)).status, 404);
+});
+
+test('amigos: pedir pelo @usuário, aceitar e desfazer; os dois lados veem na hora', async () => {
+  assert.match((await ana.request({ t: 'friend:add', username: '@ninguem-aqui' })).message, /Não achei/);
+  assert.match((await ana.request({ t: 'friend:add', userId: ana.me.id })).message, /si mesmo/);
+  const res = await ana.request({ t: 'friend:add', username: '@DONO' });
+  assert.equal(res.status, 'outgoing');
+  const pedido = await dono.waitFor('friends', (e) => e.friends.some((f) => f.user.id === ana.me.id));
+  assert.equal(pedido.friends.find((f) => f.user.id === ana.me.id).status, 'incoming');
+  assert.match((await ana.request({ t: 'friend:add', userId: dono.me.id })).message, /já mandou/);
+  assert.equal((await dono.request({ t: 'friend:accept', userId: ana.me.id })).t, 'ok');
+  const aceito = await ana.waitFor('friends', (e) => e.friends.some((f) => f.user.id === dono.me.id && f.status === 'friend'));
+  assert.equal(aceito.friends[0].user.username, 'dono');
+  await dono.request({ t: 'friend:remove', userId: ana.me.id });
+  await ana.waitFor('friends', (e) => !e.friends.length);
+  // Pedido cruzado vira amizade direto
+  await ana.request({ t: 'friend:add', userId: dono.me.id });
+  assert.equal((await dono.request({ t: 'friend:add', userId: ana.me.id })).status, 'friend');
+  await ana.request({ t: 'friend:remove', userId: dono.me.id });
+});
+
+test('ligação direta: conversa tem canal de chamada; toca, recusa e fica o aviso de chamada perdida', async () => {
+  await ana.request({ t: 'dm:open', userIds: [dono.me.id] });
+  const conv = (await ana.waitFor('server', (e) => e.server.kind === 'dm')).server;
+  const call = conv.channels.find((c) => c.type === 'voice');
+  assert.ok(call, 'conversa sem canal de chamada');
+  const tok = await ana.post('/token', { channel: call.id });
+  assert.equal(tok.status, 200); // DM deixa entrar na voz
+  const start = await ana.request({ t: 'call:start', serverId: conv.id });
+  assert.equal(start.channelId, call.id);
+  const ring = await dono.waitFor('call:ring', (e) => e.serverId === conv.id);
+  assert.equal(ring.from.id, ana.me.id);
+  await dono.request({ t: 'call:decline', serverId: conv.id });
+  const stop = await ana.waitFor('call:stop', (e) => e.serverId === conv.id);
+  assert.equal(stop.reason, 'declined');
+  // Liga de novo e desiste: aviso de chamada perdida na conversa
+  await ana.request({ t: 'call:start', serverId: conv.id });
+  await dono.waitFor('call:ring');
+  await ana.request({ t: 'call:cancel', serverId: conv.id });
+  const missed = await dono.waitFor('msg', (e) => e.msg.system && e.msg.kind === 'call' && /perdida/.test(e.msg.text));
+  assert.match(missed.msg.text, new RegExp(ana.me.id));
+  // Servidor comum não tem ligação direta
+  assert.match((await ana.request({ t: 'call:start', serverId: home })).message, /mensagens diretas/);
+});
+
+test('grupo: qualquer pessoa renomeia; conversa a dois não tem nome', async () => {
+  const caio = await new Person(server, 'caio3').register();
+  await ana.request({ t: 'dm:open', userIds: [dono.me.id, caio.me.id] });
+  const grupo = (await ana.waitFor('server', (e) => e.server.kind === 'dm' && e.server.members.length === 3)).server;
+  assert.equal(grupo.dmName, null);
+  await caio.request({ t: 'dm:rename', serverId: grupo.id, name: '  Galera do  Bomberman 💣 ' });
+  const renamed = await ana.waitFor('server', (e) => e.server.id === grupo.id && e.server.dmName);
+  assert.equal(renamed.server.dmName, 'Galera do Bomberman 💣');
+  const aviso = await ana.waitFor('msg', (e) => e.msg.kind === 'rename');
+  assert.match(aviso.msg.text, /Galera do Bomberman/);
+  await dono.request({ t: 'dm:rename', serverId: grupo.id, name: '' });
+  await ana.waitFor('server', (e) => e.server.id === grupo.id && e.server.dmName === null);
+  const dupla = (await ana.request({ t: 'dm:open', userIds: [dono.me.id] }), ana.servers.find((s) => s.kind === 'dm' && s.members.length === 2));
+  if (dupla) assert.match((await ana.request({ t: 'dm:rename', serverId: dupla.id, name: 'x' })).message, /grupos/);
+  caio.close();
 });
 
 // ---------- Site e voz ----------
@@ -392,7 +483,7 @@ test('jogos: quem assistia entra para jogar quando a partida acaba', async () =>
 test('jogos: todos os jogos da lista abrem, rodam e aceitam comandos', async () => {
   const { games } = await ana.request({ t: 'games:list' });
   assert.ok(games.some((g) => g.id === 'tron'));
-  for (const g of games) {
+  for (const g of games.filter((x) => x.minPlayers <= 1)) {
     const { room } = await ana.request({ t: 'game:create', game: g.id });
     assert.equal(room.maxPlayers, g.maxPlayers);
     assert.equal((await ana.request({ t: 'game:start', roomId: room.id })).t, 'ok');

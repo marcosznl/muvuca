@@ -1,16 +1,20 @@
-// Envio de imagens e vídeos: "+", colar (⌘V) e arrastar; miniaturas com progresso acima do campo
+// Envio de imagens, vídeos e documentos: "+", colar (⌘V) e arrastar; miniaturas com progresso acima do campo
 import { $, h, showBanner } from './util.js';
+import { contextMenu } from './dialogs.js';
+import { openPollDialog } from './chat-polls.js';
 import { icon } from './icons.js';
 import { state, findChannel, canIn, PERMS } from './state.js';
 import { sessionToken } from './net.js';
 
 const MAX_IMAGE = 10 * 1024 * 1024;
-const MAX_VIDEO = 50 * 1024 * 1024;
+const MAX_VIDEO = 50 * 1024 * 1024; // vale também para documentos
+// Programas e scripts não podem ser enviados (o servidor confere de novo)
+const BLOCKED = /\.(exe|msi|bat|cmd|com|scr|pif|cpl|vbs|vbe|js|jse|wsf|wsh|ps1|psm1|jar|lnk|reg|hta|msc|app|command|sh|apk|dll|sys)$/i;
 const MAX_ITEMS = 10;
 let pendingChannel = null;
 let pending = []; // anexos escolhidos para a próxima mensagem: { kind, url, name, progress, error, xhr, done }
 
-const fmtSize = (b) => (b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1).replace('.', ',')} MB` : `${Math.ceil(b / 1024)} KB`);
+export const fmtSize = (b) => (b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1).replace('.', ',')} MB` : `${Math.ceil(b / 1024)} KB`);
 
 // Fotos grandes viram WebP de até 2560 px (uma foto de celular cai de ~5 MB para ~500 KB). GIF vai como está.
 async function prepareImage(file) {
@@ -46,13 +50,16 @@ export function addFiles(files) {
   const { channel, server } = findChannel(state.view.channelId);
   if (!channel || channel.type === 'voice' || !canIn(server, PERMS.SEND_MESSAGES)) return;
   for (const original of files) {
-    const kind = original.type.startsWith('video/') ? 'video' : original.type.startsWith('image/') ? 'image' : null;
-    if (!kind) { showBanner(`"${original.name}" não é imagem nem vídeo.`, { timeout: 4000 }); continue; }
+    // SVG e formatos que o navegador não mostra vão como documento
+    const kind = /^video\/(mp4|quicktime|webm)$/.test(original.type) ? 'video'
+      : /^image\/(png|jpeg|gif|webp)$/.test(original.type) ? 'image' : 'file';
+    if (kind === 'file' && BLOCKED.test(original.name)) { showBanner(`"${original.name}" é um programa ou script e não pode ser enviado.`, { timeout: 5000 }); continue; }
     if (pending.length >= MAX_ITEMS) { showBanner(`Até ${MAX_ITEMS} arquivos por mensagem.`, { timeout: 4000 }); break; }
-    if (kind === 'video' && original.size > MAX_VIDEO) { showBanner(`"${original.name}" tem ${fmtSize(original.size)}: o limite de vídeo é 50 MB.`, { timeout: 5000 }); continue; }
-    const item = { kind, url: URL.createObjectURL(original), name: original.name, progress: 0, error: null, xhr: null };
+    if (kind !== 'image' && original.size > MAX_VIDEO) { showBanner(`"${original.name}" tem ${fmtSize(original.size)}: o limite é 50 MB.`, { timeout: 5000 }); continue; }
+    const item = { kind, url: URL.createObjectURL(original), name: original.name, size: original.size, progress: 0, error: null, xhr: null };
     item.done = (async () => {
-      const prepared = kind === 'image' ? await prepareImage(original) : { file: original, ...(await videoSize(item.url)) };
+      const prepared = kind === 'image' ? await prepareImage(original)
+        : kind === 'video' ? { file: original, ...(await videoSize(item.url)) } : { file: original };
       if (kind === 'image' && prepared.file.size > MAX_IMAGE) throw new Error(`"${original.name}" é maior que 10 MB.`);
       return upload(item, prepared, channel.id);
     })().catch((err) => {
@@ -110,6 +117,9 @@ export function attachmentsFollow(channelId) {
   if (pendingChannel !== channelId) { clearPending(); pendingChannel = channelId; }
 }
 
+// Extensão curta para o selo do documento ("PDF", "DOCX"…)
+export const extLabel = (name) => (/\.([a-z0-9]{1,5})$/i.exec(name ?? '')?.[1] ?? 'arquivo').toUpperCase();
+
 function renderTray() {
   const tray = $('attach-tray');
   tray.hidden = !pending.length;
@@ -120,11 +130,15 @@ function renderTray() {
       const img = h('img');
       img.src = p.url;
       card.append(img);
-    } else {
+    } else if (p.kind === 'video') {
       const v = h('video');
       v.src = p.url;
       v.muted = true;
       card.append(v, h('span', 'attach-badge', 'VÍDEO'));
+    } else {
+      const doc = h('div', 'attach-doc');
+      doc.append(icon('file', 30), h('span', 'attach-doc-size', fmtSize(p.size)));
+      card.append(doc, h('span', 'attach-badge', extLabel(p.name)));
     }
     const bar = h('div', 'attach-progress');
     bar.style.width = `${Math.round(p.progress * 100)}%`;
@@ -143,14 +157,22 @@ function renderTray() {
   }
 }
 
-// "+" abre o seletor; colar (⌘V) e arrastar para o chat também funcionam
-$('btn-attach').onclick = () => {
+// "+" abre um menu: enviar foto/vídeo/documento ou criar enquete; colar (⌘V) e arrastar para o chat também funcionam
+function pickFiles() {
   const input = document.createElement('input');
   input.type = 'file';
   input.multiple = true;
-  input.accept = 'image/*,video/*';
   input.onchange = () => addFiles([...input.files]);
   input.click();
+}
+$('btn-attach').onclick = (e) => {
+  e.stopPropagation();
+  const r = $('btn-attach').getBoundingClientRect();
+  const channel = state.view.channelId;
+  contextMenu(r.left, r.top - 96, [
+    { label: 'Enviar foto, vídeo ou arquivo', icon: 'plus', onClick: pickFiles },
+    { label: 'Criar enquete', icon: 'bar-chart', onClick: () => openPollDialog(channel) },
+  ]);
 };
 $('chat-input').addEventListener('paste', (e) => {
   const files = [...(e.clipboardData?.files ?? [])];

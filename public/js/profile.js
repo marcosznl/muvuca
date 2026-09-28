@@ -1,5 +1,9 @@
-// Perfil: editor (foto, nome, cor do banner, "Sobre mim") e o cartão que aparece ao clicar em alguém
+// Perfil: editor (foto, banner com imagem/GIF ou cor, nome, "Sobre mim") e o cartão que aparece ao clicar em alguém
 import { h, hue, makeAvatar, showBanner, toast } from './util.js';
+import { startDm } from './dms.js';
+import { friendStatus, addFriend } from './friends.js';
+import { selectGames } from './app.js';
+import { enterRoom } from './games.js';
 import { state, serverById, permsIn, PERMS, profileOf } from './state.js';
 import { can, topPosition, nameColor } from './permissions.js';
 import { request, upload } from './net.js';
@@ -25,15 +29,34 @@ export async function prepareImage(file) {
   return new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.9));
 }
 
+// Banner: recorta o centro na proporção do cartão (17:6) e reduz para 1020 px de largura.
+// GIF vai como está (até 5 MB), para continuar animado.
+const BANNER_RATIO = 17 / 6;
+async function prepareBanner(file) {
+  if (file.type === 'image/gif') {
+    if (file.size > 5 * 1024 * 1024) throw new Error('O GIF do banner deve ter no máximo 5 MB.');
+    return file;
+  }
+  const bitmap = await createImageBitmap(file).catch(() => { throw new Error('Não consegui abrir essa imagem.'); });
+  let sw = bitmap.width;
+  let sh = Math.round(sw / BANNER_RATIO);
+  if (sh > bitmap.height) { sh = bitmap.height; sw = Math.round(sh * BANNER_RATIO); }
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.min(1020, sw);
+  canvas.height = Math.round(canvas.width / BANNER_RATIO);
+  canvas.getContext('2d').drawImage(bitmap, (bitmap.width - sw) / 2, (bitmap.height - sh) / 2, sw, sh, 0, 0, canvas.width, canvas.height);
+  return new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.9));
+}
+
 // Abre o seletor de arquivo e entrega a imagem já preparada
-export function pickImage(onPicked) {
+export function pickImage(onPicked, prepare = prepareImage) {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/png,image/jpeg,image/gif,image/webp';
   input.onchange = async () => {
     const file = input.files[0];
     if (!file) return;
-    try { await onPicked(await prepareImage(file)); } catch (err) { showBanner(err.message, { timeout: 4500 }); }
+    try { await onPicked(await prepare(file)); } catch (err) { showBanner(err.message, { timeout: 4500 }); }
   };
   input.click();
 }
@@ -47,8 +70,9 @@ const fmtDate = (ts) => new Date(ts).toLocaleDateString('pt-BR', { day: 'numeric
 // Monta o cartão (usado no clique em alguém e na prévia do editor)
 function profileCard(p, { server = null, preview = false } = {}) {
   const card = h('div', 'profile-card');
-  const banner = h('div', 'profile-banner');
+  const banner = h('div', p.bannerImage ? 'profile-banner with-image' : 'profile-banner');
   banner.style.background = bannerColor(p);
+  if (p.bannerImage) banner.style.backgroundImage = `url("/img/${p.bannerImage}")`;
   const avatar = makeAvatar(p.name, 'xl', preview ? null : p.id);
   if (preview && p.avatar) { // na prévia, a foto vem do rascunho
     avatar.classList.add('photo');
@@ -110,7 +134,24 @@ export function openProfileCard(userId, x, y, serverId = state.view.serverId) {
     const edit = button('Editar perfil', { kind: 'secondary' });
     edit.onclick = () => { closeProfileCard(); openProfileEditor(); };
     actions.append(edit);
-  } else if (s) {
+  } else {
+    // Conversa privada com a pessoa
+    const dm = button('Enviar mensagem');
+    dm.onclick = () => { closeProfileCard(); startDm([userId]); };
+    actions.append(dm);
+    // Amizade: adicionar, aceitar ou só mostrar que já são amigos / que o pedido foi enviado
+    const fs = friendStatus(userId);
+    const friend = button({ friend: 'Amigos ✓', outgoing: 'Pedido enviado', incoming: 'Aceitar amizade' }[fs] ?? 'Adicionar amigo', { kind: fs === 'incoming' ? 'primary' : 'secondary' });
+    friend.disabled = fs === 'friend' || fs === 'outgoing';
+    friend.onclick = async () => {
+      friend.disabled = true;
+      if (fs === 'incoming') await request({ t: 'friend:accept', userId }).catch((err) => showBanner(err.message, { timeout: 4000 }));
+      else if (await addFriend({ userId })) friend.textContent = 'Pedido enviado';
+      else friend.disabled = false;
+    };
+    actions.append(friend);
+  }
+  if (userId !== state.me?.id && s && s.kind !== 'dm') {
     const perms = permsIn(s);
     if (can(perms, PERMS.MANAGE_ROLES) && canManageMember(s, p)) {
       const roles = button('Cargos…', { kind: 'secondary' });
@@ -124,6 +165,31 @@ export function openProfileCard(userId, x, y, serverId = state.view.serverId) {
     }
   }
   if (actions.children.length) body.append(actions);
+  // Jogando agora + números e conquistas nos jogos (chega um instante depois)
+  const act = state.activity[userId];
+  if (act) {
+    const play = h('div', 'profile-playing');
+    const join = button('Entrar na sala', { kind: 'secondary' });
+    join.onclick = () => { closeProfileCard(); selectGames(); enterRoom(act.roomId); };
+    const what = h('span', '', 'Jogando ');
+    what.append(h('strong', '', act.name));
+    play.append(what, join);
+    body.append(play);
+  }
+  const games = h('div', 'profile-games');
+  body.append(games);
+  request({ t: 'games:stats', userId }).then((st) => {
+    const wins = st.byGame.reduce((n, g) => n + g.wins, 0);
+    const played = st.byGame.reduce((n, g) => n + g.played, 0);
+    if (!played) return;
+    games.append(h('div', 'profile-card-title', 'Jogos'), h('div', 'small', `${wins} ${wins === 1 ? 'vitória' : 'vitórias'} em ${played} ${played === 1 ? 'partida' : 'partidas'}`));
+    const got = st.achievements.filter((a) => a.got);
+    if (got.length) {
+      const badges = h('div', 'achievements');
+      for (const a of got) { const b = h('span', 'achievement', `${a.emoji} ${a.title}`); b.title = a.desc; badges.append(b); }
+      games.append(badges);
+    }
+  }).catch(() => {});
 
   card.classList.add('floating');
   document.getElementById('overlay-layer').append(card);
@@ -150,6 +216,7 @@ export function openProfileEditor() {
   const paintPreview = () => {
     previewBox.replaceChildren(h('div', 'field-label', 'Prévia'), profileCard(draft, { preview: true }).card);
     removePhoto.hidden = !draft.avatar;
+    removeBanner.hidden = !draft.bannerImage;
   };
 
   // Foto (troca na hora, como no Discord)
@@ -184,13 +251,34 @@ export function openProfileEditor() {
   nameField.append(h('span', 'field-label', 'Nome de exibição'), name,
     h('span', 'muted small', `Seu usuário continua @${draft.username} (é com ele que você entra).`));
 
-  // Cor do banner
+  // Banner: imagem ou GIF (troca na hora, como a foto); a cor aparece quando não há imagem
   const bannerField = h('div', 'field');
+  const bannerBtns = h('div', 'profile-buttons');
+  const changeBanner = button('Trocar banner', { kind: 'secondary' });
+  const removeBanner = button('Remover banner', { kind: 'link' });
+  bannerBtns.append(changeBanner, removeBanner);
   const picker = colorPicker(draft.banner, { allowNone: true });
   const onColor = () => { draft.banner = picker.value; paintPreview(); };
   picker.el.addEventListener('click', onColor);
   picker.el.addEventListener('input', onColor);
-  bannerField.append(h('span', 'field-label', 'Cor do banner'), picker.el);
+  bannerField.append(h('span', 'field-label', 'Banner'), bannerBtns,
+    h('p', 'muted small', 'PNG, JPG, WEBP ou GIF animado (até 5 MB). Tamanho ideal: 1020×360.'),
+    h('span', 'field-label profile-sub-label', 'Cor do banner (aparece sem imagem)'), picker.el);
+  changeBanner.onclick = () => pickImage(async (file) => {
+    changeBanner.disabled = true;
+    try {
+      const res = await upload('/api/image', { for: 'banner' }, file);
+      draft.bannerImage = state.me.bannerImage = res.id;
+      paintPreview();
+    } finally { changeBanner.disabled = false; }
+  }, prepareBanner);
+  removeBanner.onclick = async () => {
+    try {
+      await request({ t: 'banner:remove' });
+      draft.bannerImage = state.me.bannerImage = null;
+      paintPreview();
+    } catch (err) { showBanner(err.message, { timeout: 4000 }); }
+  };
 
   // Sobre mim
   const bioField = h('label', 'field');

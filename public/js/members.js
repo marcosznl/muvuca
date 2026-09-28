@@ -6,6 +6,8 @@ import { nameColor } from './permissions.js';
 import { openMemberMenu } from './settings.js';
 import { openProfileCard } from './profile.js';
 import { renderSide } from './music.js';
+import { selectGames } from './app.js';
+import { enterRoom } from './games.js';
 
 export function renderMembers() {
   const s = currentServer();
@@ -63,6 +65,14 @@ function memberRow(s, m, where, isOffline) {
   if (where && !isOffline) {
     const sub = h('div', where.streaming ? 'sub live' : 'sub');
     sub.append(icon(where.streaming ? 'monitor' : 'speaker', 12), ` ${where.streaming ? 'Ao vivo em' : 'Em'} ${where.channel}`);
+    info.append(sub);
+  } else if (state.activity[m.id] && !isOffline) {
+    // "Jogando Tron": clique entra na sala
+    const act = state.activity[m.id];
+    const sub = h('div', 'sub playing', 'Jogando ');
+    sub.append(h('strong', '', act.name));
+    sub.title = 'Entrar na sala';
+    sub.onclick = (e) => { e.stopPropagation(); selectGames(); enterRoom(act.roomId); };
     info.append(sub);
   } else if (m.statusText && !isOffline) {
     info.append(h('div', 'sub status-text', m.statusText)); // status personalizado

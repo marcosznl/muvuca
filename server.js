@@ -14,6 +14,7 @@ import { serveStatic } from './src/static.js';
 import { actions, RATE_FREE } from './src/actions/index.js';
 import { leaveRoom } from './src/games/lobby.js';
 import { publicKey } from './src/push.js';
+import { uploadSound, serveSound } from './src/soundboard.js';
 import { HttpError, ActionError, json, bearer } from './src/util.js';
 
 // ---------- HTTP ----------
@@ -27,6 +28,7 @@ const routes = {
   'POST /api/emojis': (req, url) => uploadEmoji(req, url),
   'POST /api/image': (req, url) => uploadImage(req, url),
   'POST /api/attach': (req, url) => uploadAttachment(req, url),
+  'POST /api/sound': (req, url) => uploadSound(req, url),
 };
 
 // Arquivos enviados pelas pessoas: /prefixo/<id>
@@ -34,6 +36,7 @@ const files = {
   '/file/': (req, res, id) => serveFile(req, res, id),
   '/img/': (req, res, id) => serveImage(res, id),
   '/emoji/': (req, res, id) => serveEmoji(req, res, id),
+  '/sound/': (req, res, id) => serveSound(req, res, id),
 };
 
 const startedAt = Date.now();
@@ -92,9 +95,12 @@ function welcome(ws, token) {
     servers: db.serverIdsOf(user).map((id) => db.snapshot(id)),
     online: presence.online,
     status: presence.status,
+    activity: presence.activity,
     voice: voiceFor(user.id),
     music: musicFor(user.id),
     unread: db.unread(user.id),
+    mutes: db.mutes(user.id),
+    friends: db.friendsOf(user.id),
     readState: db.readState(user.id),
   });
   music.cancelLeave(user.id); // voltou a tempo depois de uma queda: continua na sala de música

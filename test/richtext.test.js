@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   GIF_URL, isJumbo, usableEmojis, encodeCustomEmojis, encodeMentions, encodeMessage, decodeMessage, snippet, mentionSuggestions,
+  parseMarkdown, plainText,
 } from '../public/js/richtext.js';
 
 const emojis = [{ id: 'e-0000000001', name: 'legal', animated: false }, { id: 'e-0000000002', name: 'gato', animated: true }];
@@ -66,4 +67,19 @@ test('sugestões do @: sem acento, quem começa com o texto primeiro', () => {
   assert.deepEqual(mentionSuggestions(members, 'cla').map((m) => m.name), ['Ana Clara']);
   assert.deepEqual(mentionSuggestions(members, 'an').map((m) => m.name), ['Ana', 'Ana Clara']);
   assert.equal(mentionSuggestions(members, '').length, 3);
+});
+
+test('formatação: negrito, itálico, riscado, código, spoiler e citação', () => {
+  const types = (t) => parseMarkdown(t).map((n) => n.type);
+  assert.deepEqual(types('**a** *b* _c_ ~~d~~ `e` ||f||').filter((x) => x !== 'text'), ['bold', 'italic', 'italic', 'strike', 'code', 'spoiler']);
+  assert.deepEqual(types('> citado\n> também\nnormal'), ['quote', 'text']);
+  const block = parseMarkdown('```js\nconst a = **1**;\n```');
+  assert.deepEqual(block, [{ type: 'codeblock', lang: 'js', text: 'const a = **1**;' }]);
+});
+
+test('formatação não estraga links, menções, emojis nem snake_case', () => {
+  const one = (t) => { const n = parseMarkdown(t); return n.length === 1 && n[0].type === 'text'; };
+  assert.ok(one('https://x.com/a_b_c?q=*x*'));
+  assert.ok(one('snake_case_nome <:gato_feliz:e-0123456789> <@u12>'));
+  assert.equal(plainText('**oi** ||segredo|| _x_'), 'oi ▒▒▒ x');
 });

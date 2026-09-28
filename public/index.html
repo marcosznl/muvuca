@@ -5,6 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Muvuca</title>
   <meta name="theme-color" content="#1e1f22">
+  <script>
+    // Tema claro/automático antes de desenhar a página (sem piscar escuro)
+    try {
+      var t = localStorage.getItem('calldireta:theme');
+      if (t === 'light' || (t === 'auto' && matchMedia('(prefers-color-scheme: light)').matches)) document.documentElement.dataset.theme = 'light';
+    } catch (e) {}
+  </script>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
@@ -52,6 +59,8 @@
         <div class="vp-actions">
           <button id="vp-cam" class="vp-action" title="Ligar câmera" data-icon="video" data-size="20"></button>
           <button id="vp-screen" class="vp-action" title="Transmitir tela" data-icon="monitor-up" data-size="20"></button>
+          <button id="vp-soundboard" class="vp-action" title="Soundboard" data-icon="speaker" data-size="20"></button>
+          <button id="vp-settings" class="vp-action" title="Configurações de voz" data-icon="settings" data-size="20"></button>
         </div>
       </div>
 
@@ -61,8 +70,14 @@
           <div id="me-name" class="me-name"></div>
           <div id="me-status" class="me-status">Online</div>
         </div>
-        <button id="btn-mic" class="icon-btn" title="Silenciar microfone"></button>
-        <button id="btn-deaf" class="icon-btn" title="Ensurdecer"></button>
+        <div class="split-btn">
+          <button id="btn-mic" class="icon-btn" title="Silenciar microfone"></button>
+          <button id="btn-mic-menu" class="icon-btn split-arrow" title="Opções de entrada" data-icon="chevron-up" data-size="14"></button>
+        </div>
+        <div class="split-btn">
+          <button id="btn-deaf" class="icon-btn" title="Ensurdecer"></button>
+          <button id="btn-deaf-menu" class="icon-btn split-arrow" title="Opções de saída" data-icon="chevron-up" data-size="14"></button>
+        </div>
         <button id="btn-logout" class="icon-btn" title="Sair da conta" data-icon="log-out"></button>
       </div>
     </nav>
@@ -72,6 +87,8 @@
         <button id="btn-menu" class="icon-btn only-mobile" title="Canais" data-icon="menu"></button>
         <span id="view-icon" class="view-icon"></span>
         <strong id="view-title"></strong>
+        <span id="view-topic" class="view-topic"></span>
+        <button id="btn-call" class="icon-btn push-right" title="Iniciar chamada" data-icon="phone" hidden></button>
         <button id="btn-search" class="icon-btn push-right" title="Buscar mensagens (Ctrl+F)" data-icon="search" hidden></button>
         <button id="btn-pins" class="icon-btn" title="Mensagens fixadas" data-icon="pin" hidden></button>
         <button id="btn-members" class="icon-btn" title="Membros" data-icon="users"></button>
@@ -84,9 +101,13 @@
         <p class="muted">Escolha um canal na lista ao lado.</p>
       </section>
 
+      <!-- Amigos (mensagens diretas sem conversa aberta) -->
+      <section id="friends-view" class="friends-view" hidden></section>
+
       <!-- Canal de texto -->
       <section id="text-view" class="text-view">
         <div id="drop-overlay" class="drop-overlay" hidden><div>Solte para enviar no chat</div></div>
+        <div id="call-bar" class="call-bar" hidden></div>
         <div id="messages" class="messages"></div>
         <form id="chat-form" class="chat-form">
           <div id="emoji-panel" class="picker" hidden></div>
@@ -94,8 +115,9 @@
           <div id="mention-list" class="mention-list" hidden></div>
           <div id="attach-tray" class="attach-tray" hidden></div>
           <div class="chat-box">
-            <button id="btn-attach" type="button" class="icon-btn attach-btn" title="Enviar imagem ou vídeo" data-icon="plus" data-size="20"></button>
-            <input id="chat-input" maxlength="2000" autocomplete="off">
+            <button id="btn-attach" type="button" class="icon-btn attach-btn" title="Enviar foto, vídeo, arquivo ou enquete" data-icon="plus" data-size="20"></button>
+            <textarea id="chat-input" maxlength="2000" rows="1" autocomplete="off"></textarea>
+            <button id="btn-voice" type="button" class="icon-btn" title="Gravar mensagem de voz" data-icon="mic" data-size="20"></button>
             <button id="btn-gif" type="button" class="icon-btn" title="GIFs" data-icon="gif" data-size="24"></button>
             <button id="btn-emoji" type="button" class="icon-btn" title="Emojis" data-icon="smile" data-size="22"></button>
           </div>

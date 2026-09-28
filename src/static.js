@@ -6,7 +6,7 @@ import { json } from './util.js';
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
-  '.woff2': 'font/woff2', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json',
+  '.woff2': 'font/woff2', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json', '.wasm': 'application/wasm',
 };
 
 // Envia o arquivo, ou "não mudou" (304) se o navegador já tem esta versão.
@@ -26,6 +26,12 @@ async function sendFile(req, res, file, type) {
 }
 
 export async function serveStatic(req, res, pathname) {
+  // Supressão de ruído (RNNoise): só estes arquivos da biblioteca
+  const NOISE = { '/vendor/noise/index.js': 'index.js', '/vendor/noise/rnnoise/workletProcessor.js': 'rnnoise/workletProcessor.js',
+    '/vendor/noise/rnnoise.wasm': 'rnnoise.wasm', '/vendor/noise/rnnoise_simd.wasm': 'rnnoise_simd.wasm' };
+  if (NOISE[pathname]) {
+    return sendFile(req, res, path.join(ROOT, 'node_modules/@sapphi-red/web-noise-suppressor/dist', NOISE[pathname]), TYPES[path.extname(pathname)]);
+  }
   if (pathname === '/livekit-client.js') {
     return sendFile(req, res, path.join(ROOT, 'node_modules/livekit-client/dist/livekit-client.umd.js'), TYPES['.js']);
   }

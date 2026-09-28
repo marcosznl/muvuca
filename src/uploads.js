@@ -29,6 +29,35 @@ export function sniffMedia(head) {
   return null;
 }
 
+// Gravação de voz do site: WebM/Opus (Chrome, Firefox), MP4/AAC (Safari) ou Ogg
+export function sniffAudio(head) {
+  if (head.length >= 4 && head.readUInt32BE(0) === 0x1a45dfa3) return { kind: 'audio', mime: 'audio/webm' };
+  if (head.length >= 12 && head.toString('latin1', 4, 8) === 'ftyp') return { kind: 'audio', mime: 'audio/mp4' };
+  if (head.length >= 4 && head.toString('latin1', 0, 4) === 'OggS') return { kind: 'audio', mime: 'audio/ogg' };
+  return null;
+}
+
+// Documentos em geral (PDF, planilhas, zip…): o tipo vem da extensão, mas o arquivo é sempre entregue
+// como download. Programas e scripts ficam de fora (quem clica sem querer não roda nada).
+const BLOCKED_EXT = new Set(['exe', 'msi', 'bat', 'cmd', 'com', 'scr', 'pif', 'cpl', 'vbs', 'vbe', 'js', 'jse', 'wsf', 'wsh',
+  'ps1', 'psm1', 'jar', 'lnk', 'reg', 'hta', 'msc', 'app', 'command', 'sh', 'apk', 'dll', 'sys']);
+const DOC_MIME = {
+  pdf: 'application/pdf', txt: 'text/plain', md: 'text/plain', csv: 'text/csv', rtf: 'application/rtf', json: 'application/json',
+  doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  odt: 'application/vnd.oasis.opendocument.text', ods: 'application/vnd.oasis.opendocument.spreadsheet',
+  odp: 'application/vnd.oasis.opendocument.presentation', pages: 'application/octet-stream',
+  zip: 'application/zip', rar: 'application/vnd.rar', '7z': 'application/x-7z-compressed', gz: 'application/gzip',
+  mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', flac: 'audio/flac',
+};
+export const extOf = (name) => (/\.([a-z0-9]{1,10})$/i.exec(String(name ?? ''))?.[1] ?? '').toLowerCase();
+export function documentKind(name) {
+  const ext = extOf(name);
+  if (BLOCKED_EXT.has(ext)) return null;
+  return { kind: 'file', mime: DOC_MIME[ext] ?? 'application/octet-stream' };
+}
+
 // Recebe o corpo do pedido num arquivo temporário em `dir`. Passou de `max` bytes: descarta o resto
 // e avisa no fim (cortar a conexão esconderia a mensagem de erro do site).
 // Devolve { head, size, save(id), discard() }: `head` são os primeiros 64 KB, para descobrir o tipo.

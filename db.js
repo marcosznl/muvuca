@@ -127,7 +127,7 @@ export function openDb(file) {
     );
     CREATE INDEX IF NOT EXISTS emojis_by_server ON emojis(server_id);
 
-    -- Anexos do chat: imagens e vídeos (arquivo em data/files/<id>); sem mensagem = envio pendente
+    -- Anexos do chat: imagens, vídeos, voz e documentos (arquivo em data/files/<id>); sem mensagem = envio pendente
     CREATE TABLE IF NOT EXISTS files (
       id         TEXT    PRIMARY KEY,
       owner_id   INTEGER NOT NULL,
@@ -183,6 +183,43 @@ export function openDb(file) {
     );
     CREATE INDEX IF NOT EXISTS game_results_by_time ON game_results(created_at);
 
+    -- Sons do soundboard de cada servidor (arquivo em data/sounds/<id>)
+    CREATE TABLE IF NOT EXISTS sounds (
+      id         TEXT    PRIMARY KEY,
+      server_id  TEXT    NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+      name       TEXT    NOT NULL,
+      emoji      TEXT,
+      mime       TEXT    NOT NULL,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at INTEGER NOT NULL
+    );
+
+    -- Votos das enquetes (a enquete em si fica no meta da mensagem)
+    CREATE TABLE IF NOT EXISTS poll_votes (
+      message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      option     INTEGER NOT NULL,
+      PRIMARY KEY (message_id, user_id, option)
+    );
+
+    -- Canais ou servidores silenciados por cada pessoa (sem destaque, som ou notificação)
+    CREATE TABLE IF NOT EXISTS mutes (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      target  TEXT    NOT NULL,
+      PRIMARY KEY (user_id, target)
+    );
+
+    -- Amizades: um par por linha (a < b); accepted = 0 é pedido esperando resposta de quem não pediu
+    CREATE TABLE IF NOT EXISTS friends (
+      a          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      b          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      requester  INTEGER NOT NULL,
+      accepted   INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (a, b)
+    );
+    CREATE INDEX IF NOT EXISTS friends_by_b ON friends(b);
+
     -- Notificações no celular (Web Push): um registro por aparelho
     CREATE TABLE IF NOT EXISTS push_subs (
       endpoint   TEXT    PRIMARY KEY,
@@ -192,7 +229,9 @@ export function openDb(file) {
     );
   `);
   migrate(db);
-  return new Store(db);
+  const store = new Store(db);
+  store.ensureDmCalls();
+  return store;
 }
 
 // Taxa de bits da voz (kbps): o mesmo limite vale no site (controle deslizante)
@@ -249,6 +288,8 @@ function migrate(db) {
   const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
   if (!userCols.includes('bio')) db.exec('ALTER TABLE users ADD COLUMN bio TEXT');
   if (!userCols.includes('banner')) db.exec('ALTER TABLE users ADD COLUMN banner TEXT');
+  // Banner com imagem (ou GIF), como no Discord; a cor fica por baixo enquanto carrega
+  if (!userCols.includes('banner_image')) db.exec('ALTER TABLE users ADD COLUMN banner_image TEXT');
   // Qualidade do áudio por canal de voz (kbps; NULL = padrão)
   if (!db.prepare('PRAGMA table_info(channels)').all().some((c) => c.name === 'bitrate')) {
     db.exec('ALTER TABLE channels ADD COLUMN bitrate INTEGER');
@@ -282,6 +323,16 @@ function migrate(db) {
              ALTER TABLE servers ADD COLUMN leave_text TEXT;
              ALTER TABLE servers ADD COLUMN game_announce INTEGER NOT NULL DEFAULT 1;`);
   }
+  // Placar: vitória de várias pessoas na mesma partida (ex.: os inocentes no impostor)
+  if (!db.prepare('PRAGMA table_info(game_players)').all().some((c) => c.name === 'won')) db.exec('ALTER TABLE game_players ADD COLUMN won INTEGER NOT NULL DEFAULT 0');
+  // Mensagens diretas: "servidores" escondidos (kind = 'dm'); e tópico dos canais
+  if (!db.prepare('PRAGMA table_info(servers)').all().some((c) => c.name === 'kind')) db.exec("ALTER TABLE servers ADD COLUMN kind TEXT NOT NULL DEFAULT 'server'");
+  if (!db.prepare('PRAGMA table_info(channels)').all().some((c) => c.name === 'topic')) db.exec('ALTER TABLE channels ADD COLUMN topic TEXT');
+  // Nome escolhido para o grupo (sem nome: mostra os nomes das pessoas)
+  if (!db.prepare('PRAGMA table_info(servers)').all().some((c) => c.name === 'dm_name')) db.exec('ALTER TABLE servers ADD COLUMN dm_name TEXT');
+  // Convites com validade e limite de usos (os antigos continuam sem limite)
+  const invCols = db.prepare('PRAGMA table_info(invites)').all().map((c) => c.name);
+  if (!invCols.includes('expires_at')) db.exec('ALTER TABLE invites ADD COLUMN expires_at INTEGER; ALTER TABLE invites ADD COLUMN max_uses INTEGER;');
   // Dados extras de mensagens de sistema (ex.: a sala de jogo anunciada)
   if (!db.prepare('PRAGMA table_info(messages)').all().some((c) => c.name === 'meta')) db.exec('ALTER TABLE messages ADD COLUMN meta TEXT');
   // Status: online / ausente / não perturbe / invisível, e um texto livre
@@ -323,12 +374,15 @@ async function verifyPassword(password, stored) {
 
 const publicUser = (row) => row && {
   id: uid(row.id), username: row.username, name: row.display_name,
-  avatar: row.avatar ?? null, bio: row.bio ?? '', banner: row.banner ?? null,
+  avatar: row.avatar ?? null, bio: row.bio ?? '', banner: row.banner ?? null, bannerImage: row.banner_image ?? null,
   presence: row.presence ?? 'online', statusText: row.status_text ?? '',
 };
 
 // Tipos de mensagem de sistema (coluna messages.system)
-export const SYSTEM = { music: 1, join: 2, leave: 3, game: 4 };
+// Conversa direta: mensagens, fixar e ligar (voz, câmera e tela)
+const DM_PERMS = PERMS.SEND_MESSAGES | PERMS.PIN_MESSAGES | PERMS.CONNECT | PERMS.SPEAK | PERMS.VIDEO;
+
+export const SYSTEM = { music: 1, join: 2, leave: 3, game: 4, call: 5, rename: 6 };
 const SYSTEM_KIND = Object.fromEntries(Object.entries(SYSTEM).map(([k, v]) => [v, k]));
 
 // Textos padrão dos avisos ({user} = quem chegou/saiu, {server} = nome do servidor)
@@ -356,6 +410,18 @@ const toMessage = (row) => ({
   ...(row.system ? { system: true, kind: SYSTEM_KIND[row.system] ?? 'music' } : {}),
   ...(row.meta ? { meta: JSON.parse(row.meta) } : {}),
 });
+
+// Votos de enquete por opção: [{ option, users: [ids] }]
+function groupVotes(rows) {
+  const byMsg = new Map();
+  for (const r of rows) {
+    if (!byMsg.has(r.message_id)) byMsg.set(r.message_id, new Map());
+    const m = byMsg.get(r.message_id);
+    if (!m.has(r.option)) m.set(r.option, []);
+    m.get(r.option).push(uid(r.user_id));
+  }
+  return (id) => [...(byMsg.get(id) ?? [])].map(([option, users]) => ({ option, users }));
+}
 
 // Junta as reações por emoji, na ordem em que apareceram: [{ emoji, users: [ids] }]
 function groupReactions(rows) {
@@ -394,7 +460,7 @@ class Store {
       deleteServer: p('DELETE FROM servers WHERE id = ?'),
       ownedCount: p('SELECT COUNT(*) AS n FROM servers WHERE owner_id = ?'),
       serversOfUser: p('SELECT server_id FROM members WHERE user_id = ? ORDER BY joined_at'),
-      members: p(`SELECT u.id, u.username, u.display_name, u.avatar, u.bio, u.banner, u.status_text, m.joined_at FROM members m JOIN users u ON u.id = m.user_id
+      members: p(`SELECT u.id, u.username, u.display_name, u.avatar, u.bio, u.banner, u.banner_image, u.status_text, m.joined_at FROM members m JOIN users u ON u.id = m.user_id
                   WHERE m.server_id = ? ORDER BY m.joined_at`),
       memberRoles: p('SELECT user_id, role_id FROM member_roles WHERE server_id = ?'),
       isMember: p('SELECT 1 FROM members WHERE server_id = ? AND user_id = ?'),
@@ -435,10 +501,17 @@ class Store {
       setCategoryPos: p('UPDATE categories SET position = ? WHERE id = ?'),
       deleteCategory: p('DELETE FROM categories WHERE id = ?'),
       // convites
-      insertInvite: p('INSERT INTO invites (code, server_id, created_by, created_at) VALUES (?, ?, ?, ?)'),
+      insertInvite: p('INSERT INTO invites (code, server_id, created_by, created_at, expires_at, max_uses) VALUES (?, ?, ?, ?, ?, ?)'),
+      // Só vale se não venceu e ainda tem usos
       invite: p(`SELECT i.code, i.server_id, s.name, s.color, s.icon,
                         (SELECT COUNT(*) FROM members m WHERE m.server_id = s.id) AS member_count
-                 FROM invites i JOIN servers s ON s.id = i.server_id WHERE i.code = ?`),
+                 FROM invites i JOIN servers s ON s.id = i.server_id
+                 WHERE i.code = ? AND (i.expires_at IS NULL OR i.expires_at > ?) AND (i.max_uses IS NULL OR i.uses < i.max_uses)`),
+      invitesOf: p(`SELECT i.*, u.display_name FROM invites i LEFT JOIN users u ON u.id = i.created_by
+                    WHERE i.server_id = ? AND (i.expires_at IS NULL OR i.expires_at > ?) AND (i.max_uses IS NULL OR i.uses < i.max_uses)
+                    ORDER BY i.created_at DESC`),
+      inviteRow: p('SELECT * FROM invites WHERE code = ?'),
+      deleteInvite: p('DELETE FROM invites WHERE code = ?'),
       useInvite: p('UPDATE invites SET uses = uses + 1 WHERE code = ?'),
       // mensagens
       insertMessage: p('INSERT INTO messages (channel_id, user_id, author_name, text, created_at, reply_to, attachments) VALUES (?, ?, ?, ?, ?, ?, ?)'),
@@ -485,6 +558,7 @@ class Store {
       image: p('SELECT * FROM images WHERE id = ?'),
       deleteImage: p('DELETE FROM images WHERE id = ?'),
       setAvatar: p('UPDATE users SET avatar = ? WHERE id = ?'),
+      setBannerImage: p('UPDATE users SET banner_image = ? WHERE id = ?'),
       updateProfile: p('UPDATE users SET display_name = ?, bio = ?, banner = ? WHERE id = ?'),
       setServerIcon: p('UPDATE servers SET icon = ? WHERE id = ?'),
       // reações
@@ -520,9 +594,12 @@ class Store {
       insertSystemMeta: p("INSERT INTO messages (channel_id, user_id, author_name, text, created_at, system, meta) VALUES (?, NULL, '', ?, ?, ?, ?)"),
       // placar dos jogos
       insertResult: p('INSERT INTO game_results (game, winner_id, created_at) VALUES (?, ?, ?)'),
-      insertResultPlayer: p('INSERT OR IGNORE INTO game_players (result_id, user_id) VALUES (?, ?)'),
+      insertResultPlayer: p('INSERT OR IGNORE INTO game_players (result_id, user_id, won) VALUES (?, ?, ?)'),
+      statsOf: p(`SELECT gr.game, COUNT(*) AS played,
+                         SUM(CASE WHEN gp.won = 1 OR gr.winner_id = gp.user_id THEN 1 ELSE 0 END) AS wins
+                  FROM game_players gp JOIN game_results gr ON gr.id = gp.result_id WHERE gp.user_id = ? GROUP BY gr.game`),
       leaderboard: p(`SELECT gp.user_id, u.display_name, COUNT(*) AS played,
-                             SUM(CASE WHEN gr.winner_id = gp.user_id THEN 1 ELSE 0 END) AS wins
+                             SUM(CASE WHEN gp.won = 1 OR gr.winner_id = gp.user_id THEN 1 ELSE 0 END) AS wins
                       FROM game_players gp JOIN game_results gr ON gr.id = gp.result_id JOIN users u ON u.id = gp.user_id
                       WHERE gr.created_at >= ? GROUP BY gp.user_id ORDER BY wins DESC, played DESC LIMIT ?`),
       // notificações
@@ -530,6 +607,41 @@ class Store {
                      ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, keys = excluded.keys`),
       pushSubsOf: p('SELECT endpoint, keys FROM push_subs WHERE user_id = ?'),
       deletePushSub: p('DELETE FROM push_subs WHERE endpoint = ?'),
+      // soundboard
+      soundsOf: p('SELECT * FROM sounds WHERE server_id = ? ORDER BY created_at'),
+      sound: p('SELECT * FROM sounds WHERE id = ?'),
+      insertSound: p('INSERT INTO sounds (id, server_id, name, emoji, mime, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'),
+      deleteSound: p('DELETE FROM sounds WHERE id = ?'),
+      soundIdsOf: p('SELECT id FROM sounds WHERE server_id = ?'),
+      // enquetes
+      insertPoll: p('INSERT INTO messages (channel_id, user_id, author_name, text, created_at, meta) VALUES (?, ?, ?, ?, ?, ?)'),
+      votesOf: p('SELECT message_id, user_id, option FROM poll_votes WHERE message_id = ? ORDER BY rowid'),
+      votesIn: p(`SELECT v.message_id, v.user_id, v.option FROM poll_votes v JOIN messages m ON m.id = v.message_id
+                  WHERE m.channel_id = ? AND v.message_id BETWEEN ? AND ? ORDER BY v.rowid`),
+      addVote: p('INSERT OR IGNORE INTO poll_votes (message_id, user_id, option) VALUES (?, ?, ?)'),
+      removeVote: p('DELETE FROM poll_votes WHERE message_id = ? AND user_id = ? AND option = ?'),
+      clearVotes: p('DELETE FROM poll_votes WHERE message_id = ? AND user_id = ?'),
+      setMsgMeta: p('UPDATE messages SET meta = ? WHERE id = ?'),
+      // mensagens diretas, tópico e silenciados
+      setKind: p('UPDATE servers SET kind = ?, welcome_on = 0, game_announce = 0 WHERE id = ?'),
+      setRolePerms: p('UPDATE roles SET permissions = ? WHERE server_id = ? AND is_default = 1'),
+      findDm: p(`SELECT s.id FROM servers s WHERE s.kind = 'dm'
+                   AND (SELECT COUNT(*) FROM members m WHERE m.server_id = s.id) = 2
+                   AND EXISTS (SELECT 1 FROM members m WHERE m.server_id = s.id AND m.user_id = ?)
+                   AND EXISTS (SELECT 1 FROM members m WHERE m.server_id = s.id AND m.user_id = ?)`),
+      shareServer: p(`SELECT 1 FROM members a JOIN members b ON a.server_id = b.server_id JOIN servers s ON s.id = a.server_id
+                      WHERE a.user_id = ? AND b.user_id = ? AND s.kind = 'server' LIMIT 1`),
+      setTopic: p('UPDATE channels SET topic = ? WHERE id = ?'),
+      friendRows: p(`SELECT u.*, f.requester, f.accepted FROM friends f JOIN users u ON u.id = CASE WHEN f.a = ? THEN f.b ELSE f.a END
+                     WHERE f.a = ? OR f.b = ?`),
+      friendPair: p('SELECT * FROM friends WHERE a = ? AND b = ?'),
+      insertFriend: p('INSERT INTO friends (a, b, requester, accepted, created_at) VALUES (?, ?, ?, 0, ?)'),
+      acceptFriend: p('UPDATE friends SET accepted = 1 WHERE a = ? AND b = ?'),
+      deleteFriend: p('DELETE FROM friends WHERE a = ? AND b = ?'),
+      mutesOf: p('SELECT target FROM mutes WHERE user_id = ?'),
+      addMute: p('INSERT OR IGNORE INTO mutes (user_id, target) VALUES (?, ?)'),
+      removeMute: p('DELETE FROM mutes WHERE user_id = ? AND target = ?'),
+      isMuted: p('SELECT 1 FROM mutes WHERE user_id = ? AND target IN (?, ?)'),
       // meta
       getMeta: p('SELECT value FROM meta WHERE key = ?'),
       setMeta: p('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'),
@@ -633,6 +745,8 @@ class Store {
       icon: s.icon ?? null,
       ownerId: s.owner_id ? uid(s.owner_id) : null,
       home: s.id === this.meta('home_server'), // o servidor principal não pode ser excluído
+      kind: s.kind ?? 'server', // 'dm' = conversa privada (fica fora da coluna de servidores)
+      dmName: s.dm_name ?? null,
       welcome: {
         on: s.welcome_on === 1, channelId: s.welcome_channel ?? null,
         joinText: s.welcome_text ?? WELCOME_DEFAULTS.join, leaveText: s.leave_text ?? WELCOME_DEFAULTS.leave,
@@ -640,18 +754,19 @@ class Store {
       },
       categories: this.q.categories.all(serverId).map((k) => ({ id: k.id, name: k.name })),
       channels: this.q.channels.all(serverId).map((c) => ({
-        id: c.id, type: c.type, name: c.name, categoryId: c.category_id,
+        id: c.id, type: c.type, name: c.name, categoryId: c.category_id, topic: c.topic ?? '',
         ...(c.type === 'voice' ? { bitrate: c.bitrate ?? VOICE_BITRATE.default } : {}),
       })),
       roles: this.q.roles.all(serverId).map((r) => ({
         id: r.id, name: r.name, color: r.color, position: r.position, permissions: r.permissions, isDefault: r.is_default === 1,
       })),
+      sounds: this.q.soundsOf.all(serverId).map((x) => ({ id: x.id, name: x.name, emoji: x.emoji ?? '🔊' })),
       emojis: this.q.emojis.all(serverId).map((e) => ({
         id: e.id, name: e.name, animated: e.animated === 1, by: e.created_by ? uid(e.created_by) : null,
       })),
       members: this.q.members.all(serverId).map((m) => ({
         id: uid(m.id), username: m.username, name: m.display_name, avatar: m.avatar ?? null,
-        bio: m.bio ?? '', banner: m.banner ?? null, statusText: m.status_text ?? '', joinedAt: m.joined_at, roles: rolesByUser.get(m.id) ?? [],
+        bio: m.bio ?? '', banner: m.banner ?? null, bannerImage: m.banner_image ?? null, statusText: m.status_text ?? '', joinedAt: m.joined_at, roles: rolesByUser.get(m.id) ?? [],
       })),
     };
   }
@@ -775,6 +890,11 @@ class Store {
     this.q.setAvatar.run(imageId, unum(userId));
     return old;
   }
+  setBannerImage(userId, imageId) {
+    const old = this.q.userById.get(unum(userId))?.banner_image ?? null;
+    this.q.setBannerImage.run(imageId, unum(userId));
+    return old;
+  }
   setServerIcon(serverId, imageId) {
     const old = this.server(serverId)?.icon ?? null;
     this.q.setServerIcon.run(imageId, serverId);
@@ -801,14 +921,25 @@ class Store {
 
   // ---------- Convites ----------
 
-  createInvite(serverId, user) {
+  // expiresIn: ms até vencer (null = nunca); maxUses: null = sem limite
+  createInvite(serverId, user, { expiresIn = null, maxUses = null } = {}) {
     const code = crypto.randomBytes(6).toString('base64url');
-    this.q.insertInvite.run(code, serverId, unum(user.id), Date.now());
+    const now = Date.now();
+    this.q.insertInvite.run(code, serverId, unum(user.id), now, expiresIn ? now + expiresIn : null, maxUses);
     return code;
   }
 
+  invitesOf(serverId) {
+    return this.q.invitesOf.all(serverId, Date.now()).map((r) => ({
+      code: r.code, by: r.created_by ? uid(r.created_by) : null, byName: r.display_name ?? '?',
+      createdAt: r.created_at, expiresAt: r.expires_at, uses: r.uses, maxUses: r.max_uses,
+    }));
+  }
+  inviteRow(code) { return this.q.inviteRow.get(String(code)); }
+  deleteInvite(code) { this.q.deleteInvite.run(String(code)); }
+
   invite(code) {
-    const r = this.q.invite.get(String(code));
+    const r = this.q.invite.get(String(code), Date.now());
     return r && { code: r.code, serverId: r.server_id, name: r.name, color: r.color, icon: r.icon, memberCount: r.member_count };
   }
 
@@ -832,8 +963,43 @@ class Store {
   message(id) {
     const row = this.q.messageById.get(Number(id));
     if (!row) return null;
-    return { ...toMessage(row), reactions: groupReactions(this.q.reactionsOf.all(row.id))(row.id) };
+    const msg = { ...toMessage(row), reactions: groupReactions(this.q.reactionsOf.all(row.id))(row.id) };
+    if (msg.meta?.poll) msg.votes = groupVotes(this.q.votesOf.all(row.id))(row.id);
+    return msg;
   }
+
+  // ---------- Soundboard ----------
+
+  createSound({ serverId, name, emoji, mime, user }) {
+    const id = randomId('snd');
+    this.q.insertSound.run(id, serverId, name, emoji || null, mime, unum(user.id), Date.now());
+    return id;
+  }
+  sound(id) { return this.q.sound.get(String(id)); }
+  soundIds(serverId) { return this.q.soundIdsOf.all(serverId).map((r) => r.id); }
+  deleteSound(id) { this.q.deleteSound.run(id); }
+
+  // ---------- Enquetes ----------
+
+  addPoll({ channelId, user, question, options, multi }) {
+    const meta = JSON.stringify({ poll: { question, options, multi: !!multi, closed: false } });
+    const { lastInsertRowid } = this.q.insertPoll.run(channelId, unum(user.id), user.name, `📊 ${question}`, Date.now(), meta);
+    return this.message(lastInsertRowid);
+  }
+
+  // Votar: em escolha única troca o voto; clicar de novo na mesma opção tira o voto
+  vote(messageId, userId, option, multi) {
+    const id = Number(messageId);
+    const mine = this.q.votesOf.all(id).filter((v) => v.user_id === unum(userId)).map((v) => v.option);
+    if (mine.includes(option)) this.q.removeVote.run(id, unum(userId), option);
+    else {
+      if (!multi) this.q.clearVotes.run(id, unum(userId));
+      this.q.addVote.run(id, unum(userId), option);
+    }
+    return groupVotes(this.q.votesOf.all(id))(id);
+  }
+
+  setMessageMeta(id, meta) { this.q.setMsgMeta.run(JSON.stringify(meta), Number(id)); return this.message(id); }
 
   // Liga/desliga uma reação; devolve a lista nova, ou null se passou do limite de emojis diferentes
   react(messageId, userId, emoji, on, maxKinds = 20) {
@@ -894,13 +1060,88 @@ class Store {
   setPresence(userId, presence) { this.q.setPresence.run(presence, unum(userId)); }
   setStatusText(userId, text) { this.q.setStatusText.run(text || null, unum(userId)); }
 
+  // ---------- Mensagens diretas ----------
+
+  // Conversa privada: só dá para escrever e fixar; ninguém é dono (ninguém administra)
+  createDm(users, { name = null } = {}) {
+    const id = this.createServer({ name: name ?? 'Conversa', owner: null, withDefaultChannels: false });
+    this.q.setKind.run('dm', id);
+    this.q.setRolePerms.run(DM_PERMS, id);
+    for (const u of users) this.q.insertMember.run(id, unum(u.id), Date.now());
+    this.createChannel({ serverId: id, type: 'text', name: 'conversa' });
+    this.createChannel({ serverId: id, type: 'voice', name: 'chamada' }); // ligação direta
+    return id;
+  }
+  // Conversas criadas antes das ligações: ganham o canal de chamada e as permissões de voz
+  ensureDmCalls() {
+    for (const { id } of this.db.prepare("SELECT id FROM servers WHERE kind = 'dm'").all()) {
+      this.q.setRolePerms.run(DM_PERMS, id);
+      if (!this.countChannels(id, 'voice')) this.createChannel({ serverId: id, type: 'voice', name: 'chamada' });
+    }
+  }
+  setDmName(serverId, name) { this.db.prepare('UPDATE servers SET dm_name = ? WHERE id = ?').run(name || null, serverId); }
+  dmCallChannel(serverId) { return this.snapshot(serverId)?.channels.find((c) => c.type === 'voice') ?? null; }
+  findDm(a, b) { return this.q.findDm.get(unum(a), unum(b))?.id ?? null; }
+  shareServer(a, b) { return !!this.q.shareServer.get(unum(a), unum(b)); }
+
+  // ---------- Tópico do canal e silenciados ----------
+
+  setTopic(channelId, topic) { this.q.setTopic.run(topic || null, channelId); }
+  // Amizades: status 'friend' (aceita), 'incoming' (pediram para você) ou 'outgoing' (você pediu)
+  friendsOf(userId) {
+    const me = unum(userId);
+    return this.q.friendRows.all(me, me, me).map((r) => ({
+      user: publicUser(r),
+      status: r.accepted ? 'friend' : r.requester === me ? 'outgoing' : 'incoming',
+    }));
+  }
+  friendship(userA, userB) {
+    const [x, y] = [unum(userA), unum(userB)];
+    const row = this.q.friendPair.get(Math.min(x, y), Math.max(x, y));
+    if (!row) return null;
+    return row.accepted ? 'friend' : row.requester === x ? 'outgoing' : 'incoming';
+  }
+  // Pedir amizade; se a outra pessoa já tinha pedido, vira amizade na hora. Devolve o novo status.
+  requestFriend(from, to) {
+    const [x, y] = [unum(from), unum(to)];
+    const [a, b] = [Math.min(x, y), Math.max(x, y)];
+    const now = this.friendship(from, to);
+    if (now === 'incoming') { this.q.acceptFriend.run(a, b); return 'friend'; }
+    if (!now) this.q.insertFriend.run(a, b, x, Date.now());
+    return now ?? 'outgoing';
+  }
+  acceptFriend(userId, otherId) {
+    if (this.friendship(userId, otherId) !== 'incoming') return false;
+    const [x, y] = [unum(userId), unum(otherId)];
+    this.q.acceptFriend.run(Math.min(x, y), Math.max(x, y));
+    return true;
+  }
+  removeFriend(userId, otherId) {
+    const [x, y] = [unum(userId), unum(otherId)];
+    return this.q.deleteFriend.run(Math.min(x, y), Math.max(x, y)).changes > 0;
+  }
+  userIdByUsername(username) {
+    const r = this.q.userByName.get(String(username).toLowerCase());
+    return r ? uid(r.id) : null;
+  }
+
+  mutes(userId) { return this.q.mutesOf.all(unum(userId)).map((r) => r.target); }
+  setMute(userId, target, muted) { (muted ? this.q.addMute : this.q.removeMute).run(unum(userId), target); }
+  isMuted(userId, channelId, serverId) { return !!this.q.isMuted.get(unum(userId), channelId, serverId); }
+
   // ---------- Placar dos jogos ----------
 
-  addGameResult(game, winnerId, playerIds) {
+  // winners: uma pessoa, várias (lista) ou ninguém
+  addGameResult(game, winners, playerIds) {
+    const list = Array.isArray(winners) ? winners : winners ? [winners] : [];
     this.transaction(() => {
-      const { lastInsertRowid } = this.q.insertResult.run(game, winnerId ? unum(winnerId) : null, Date.now());
-      for (const id of playerIds) this.q.insertResultPlayer.run(lastInsertRowid, unum(id));
+      const { lastInsertRowid } = this.q.insertResult.run(game, list.length === 1 ? unum(list[0]) : null, Date.now());
+      for (const id of playerIds) this.q.insertResultPlayer.run(lastInsertRowid, unum(id), list.includes(id) ? 1 : 0);
     });
+  }
+  // Por jogo: quantas partidas e vitórias
+  gameStats(userId) {
+    return this.q.statsOf.all(unum(userId)).map((r) => ({ game: r.game, played: r.played, wins: r.wins }));
   }
   leaderboard(since, limit = 10) {
     return this.q.leaderboard.all(since, limit).map((r) => ({ userId: uid(r.user_id), name: r.display_name, wins: r.wins, played: r.played }));
@@ -929,10 +1170,17 @@ class Store {
     const rows = this.q.messagesBefore.all(channelId, beforeId, PAGE_SIZE + 1);
     const hasMore = rows.length > PAGE_SIZE;
     const page = rows.slice(0, PAGE_SIZE).reverse();
-    const reactionsOf = page.length
-      ? groupReactions(this.q.reactionsIn.all(channelId, page[0].id, page[page.length - 1].id))
-      : () => [];
-    return { messages: page.map((r) => ({ ...toMessage(r), reactions: reactionsOf(r.id) })), hasMore };
+    const range = page.length ? [channelId, page[0].id, page[page.length - 1].id] : null;
+    const reactionsOf = range ? groupReactions(this.q.reactionsIn.all(...range)) : () => [];
+    const votesOf = range ? groupVotes(this.q.votesIn.all(...range)) : () => [];
+    return {
+      messages: page.map((r) => {
+        const msg = { ...toMessage(r), reactions: reactionsOf(r.id) };
+        if (msg.meta?.poll) msg.votes = votesOf(r.id);
+        return msg;
+      }),
+      hasMore,
+    };
   }
 
   // ---------- Migração da versão sem banco ----------

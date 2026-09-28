@@ -61,6 +61,11 @@ if [[ -d "$HOME/Library/Mobile Documents/com~apple~CloudDocs" ]]; then
     old_ones=("$CLOUD"/malegna-*.tar.gz(N.Om))
     (( ${#old_ones} > 7 )) && rm -f -- "${old_ones[@]:0:${#old_ones}-7}"
     cloud_note=" + cópia no iCloud"
+    # Anexos do chat (fotos e vídeos): espelho que só acrescenta — nunca apaga nada lá (mesmo se sumirem daqui)
+    if [[ -d data/files ]]; then
+      mkdir -p "$CLOUD/anexos" && rsync -a --ignore-existing data/files/ "$CLOUD/anexos/" \
+        && cloud_note="$cloud_note (com anexos)" || cloud_note="$cloud_note (AVISO: anexos não copiados)"
+    fi
   else
     rm -f "$CLOUD/$name.tmp"
     cloud_note=" (AVISO: não deu para copiar para o iCloud)"

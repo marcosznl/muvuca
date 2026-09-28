@@ -8,19 +8,26 @@ import { connect, disconnect, request, send, api, sessionToken, setSessionToken 
 import { showAuth, pendingInvite, clearInviteFromUrl } from './auth.js';
 import { renderRail, renderServerHeader, renderChannels, renderUserPanel, renderVoicePanel } from './sidebar.js';
 import {
-  openTextChannel, onHistory, onMessage, onMessageEdit, onMessageDelete, onReactions, onRead, onTyping, renderComposer, updateTitle,
+  openTextChannel, onHistory, onMessage, onMessageEdit, onMessageDelete, onReactions, onRead, onTyping, renderComposer, updateTitle, onPollVotes,
 } from './chat.js';
 import { sounds } from './sounds.js';
+import './theme.js';
+import './quick-switch.js';
+import './voice-menus.js';
 import { setupPush } from './push.js';
 import { closeEmojiPanel } from './chat-picker.js';
-import { renderStage, leaveVoice, voiceChannelId, applyAudioState, updateMediaButtons, mergeSelfIntoVoice } from './voice.js';
+import { renderStage, leaveVoice, voiceChannelId, applyAudioState, updateMediaButtons, mergeSelfIntoVoice, onBoardSound } from './voice.js';
 import { renderMembers } from './members.js';
 import {
   joinMusic, musicChannelId, onMusicState, onMusicQueue, rejoinMusic, musicChannelGone, placeMusicView, renderAllMusic,
 } from './music.js';
 import { refreshSettings, closeServerSettings } from './settings.js';
+import { dmTitle, unhideDm, selectDmHome, renameGroup } from './dms.js';
+import { renderFriendsView } from './friends.js';
+import { onCallEvent, onVoiceChanged, renderCallBar } from './calls.js';
 import {
   inGames, openGames, renderGamesSidebar, renderGamesView, onGamesRooms, onGameRoom, onGameState, onGameLeft, onLeaderboard,
+  onGameChat, onGameChatlog, onGameEvents,
 } from './games.js';
 
 applyStaticIcons();
@@ -30,6 +37,15 @@ applyStaticIcons();
 export function selectServer(serverId) {
   const s = serverById(serverId);
   if (!s) return;
+  // Conversa privada: abre direto o canal único dela, na área de mensagens diretas
+  if (s.kind === 'dm') {
+    unhideDm(s.id);
+    state.view = { serverId, channelId: s.channels[0]?.id ?? null, dms: true };
+    store.set('lastDm', serverId);
+    if (state.view.channelId) state.unread[state.view.channelId] = 0;
+    return showChannel();
+  }
+
   // Se estiver na voz deste servidor, abre o canal de voz; senão, o último canal de texto
   const voiceHere = s.channels.find((c) => c.id === voiceChannelId());
   const target = state.view.serverId === serverId ? state.view.channelId : (rememberedTextChannel(s)?.id ?? voiceHere?.id);
@@ -52,13 +68,15 @@ export function selectChannel(channelId) {
     state.view = { serverId: state.view.serverId, channelId: null };
     return showChannel();
   }
-  state.view = { serverId: server.id, channelId };
+  state.view = { serverId: server.id, channelId, ...(server.kind === 'dm' ? { dms: true } : {}) };
   if (channel.type !== 'voice') state.unread[channelId] = 0;
   if (channel.type === 'text') rememberTextChannel(server.id, channelId);
   showChannel();
   // Clicar num canal de música já entra e começa a ouvir (o clique libera o som no navegador)
   if (channel.type === 'music' && musicChannelId() !== channelId) joinMusic(channelId);
 }
+
+export const showChannelView = () => showChannel();
 
 function showChannel() {
   closeOverlays();
@@ -67,7 +85,7 @@ function showChannel() {
   $('games-view').hidden = !games;
   $('app').classList.toggle('games-mode', games);
   if (games) {
-    for (const id of ['text-view', 'voice-view', 'empty-view']) $(id).hidden = true;
+    for (const id of ['text-view', 'voice-view', 'empty-view', 'friends-view']) $(id).hidden = true;
     $('app').classList.remove('music-mode');
     placeMusicView();
     renderAll();
@@ -83,17 +101,41 @@ function showChannel() {
   else if ($('text-view').previousElementSibling !== $('empty-view')) $('empty-view').after($('text-view'));
   $('text-view').hidden = isVoice || !channel;
   $('voice-view').hidden = !isVoice;
-  $('empty-view').hidden = !!channel;
+  const friendsHome = !!state.view.dms && !channel; // mensagens diretas sem conversa: página de amigos
+  $('empty-view').hidden = !!channel || friendsHome;
+  $('friends-view').hidden = !friendsHome;
   placeMusicView();
   $('app').classList.toggle('music-mode', isMusic); // painel da direita mais largo nos canais de música
-  $('view-icon').replaceChildren(channel ? icon({ voice: 'speaker', music: 'headphones' }[channel.type] ?? 'hash', 22) : '');
-  $('view-title').textContent = channel?.name ?? '';
+  const server = findChannel(state.view.channelId).server;
+  if (server?.kind === 'dm') {
+    $('view-icon').replaceChildren(icon('chat', 22));
+    $('view-title').textContent = dmTitle(server);
+    // Grupo: clicar no nome renomeia
+    const group = server.members.length > 2;
+    $('view-title').classList.toggle('renamable', group);
+    $('view-title').title = group ? 'Clique para renomear o grupo' : '';
+    $('view-title').onclick = group ? () => renameGroup(server) : null;
+  } else {
+    $('view-title').classList.remove('renamable');
+    $('view-title').title = '';
+    $('view-title').onclick = null;
+    $('view-icon').replaceChildren(channel ? icon({ voice: 'speaker', music: 'headphones' }[channel.type] ?? 'hash', 22) : '');
+    $('view-title').textContent = channel?.name ?? '';
+  }
+  $('view-topic').textContent = channel?.topic ?? '';
+  $('view-topic').title = channel?.topic ?? '';
+  if (friendsHome) { $('view-icon').replaceChildren(icon('users', 22)); $('view-title').textContent = 'Amigos'; }
+  $('empty-view').querySelector('p').textContent = state.view.dms
+    ? 'Escolha uma conversa ao lado ou comece uma nova com o +.'
+    : 'Escolha um canal na lista ao lado.';
   if (channel && channel.type !== 'voice') {
     openTextChannel(channel.id);
     if (matchMedia('(pointer: fine)').matches && channel.type === 'text') $('chat-input').focus();
   }
   if (isVoice) renderStage();
   renderAll();
+  renderCallBar();
+  if (friendsHome) renderFriendsView();
 }
 
 export function renderAll() {
@@ -126,10 +168,13 @@ function handle(m) {
       state.servers = m.servers;
       state.online = new Set(m.online);
       state.status = m.status ?? {};
+      state.activity = m.activity ?? {};
       state.voice = m.voice;
       state.music = m.music ?? {};
       // Não lidas que ficaram guardadas no servidor (de antes de recarregar, ou de quando estava fora)
       state.readState = m.readState ?? {};
+      state.mutes = new Set(m.mutes ?? []);
+      state.friends = m.friends ?? [];
       state.unread = Object.fromEntries(Object.entries(m.unread ?? {}).map(([c, u]) => [c, u.n]));
       state.mentions = Object.fromEntries(Object.entries(m.unread ?? {}).map(([c, u]) => [c, u.mentions]));
       state.messages.clear(); // reconectou: recarrega as conversas (pode ter chegado coisa enquanto estava fora)
@@ -141,6 +186,7 @@ function handle(m) {
       const fromLink = findChannel(new URLSearchParams(location.search).get('canal')).channel; // tocou numa notificação
       if (fromLink) { history.replaceState(null, '', location.pathname); selectChannel(fromLink.id); }
       else if (state.view.games) selectGames();
+      else if (state.view.dms && !keep) selectDmHome();
       else if (keep) selectServer(keep.id);
       else selectServer(serverById(store.get('lastServer'))?.id ?? state.servers[0]?.id);
       if (!state.servers.length) showChannel();
@@ -159,12 +205,12 @@ function handle(m) {
       refreshSettings(m.server.id);
       musicChannelGone();
       if (m.select) return selectServer(m.server.id);
-      if (isNew) return renderRail();
+      if (isNew) { renderRail(); if (state.view.dms) renderChannels(); return; } // conversa nova aparece na lista
       // Meu canal atual ainda existe? Minhas permissões mudaram?
       if (state.view.serverId === m.server.id) {
         if (state.view.channelId && !findChannel(state.view.channelId).channel) selectChannel(rememberedTextChannel(m.server)?.id);
         else showChannel();
-      } else renderRail();
+      } else { renderRail(); if (state.view.dms) renderChannels(); }
       if (voiceChannelId() && findChannel(voiceChannelId()).server?.id === m.server.id) applyAudioState();
       break;
     }
@@ -181,9 +227,21 @@ function handle(m) {
       if (!state.servers.length) { state.view = { serverId: null, channelId: null }; showChannel(); }
       break;
     }
+    case 'friends':
+      state.friends = m.friends;
+      renderRail();
+      if (state.view.dms) renderChannels();
+      renderFriendsView();
+      break;
+    case 'friend:request':
+      toast(`${m.from.name} quer ser seu amigo! Veja em Mensagens diretas → Amigos.`);
+      break;
     case 'presence':
       state.online = new Set(m.online);
       state.status = m.status ?? {};
+      state.activity = m.activity ?? {};
+      if (state.view.dms) renderChannels();
+      renderFriendsView(true);
       renderMembers();
       renderUserPanel();
       renderVoicePanel();
@@ -193,6 +251,11 @@ function handle(m) {
       state.voice = mergeSelfIntoVoice(m.voice);
       renderChannels();
       renderMembers();
+      onVoiceChanged();
+      break;
+    case 'call:ring':
+    case 'call:stop':
+      onCallEvent(m);
       break;
     case 'history':
       onHistory(m);
@@ -219,11 +282,30 @@ function handle(m) {
     case 'msg:reactions':
       onReactions(m);
       break;
+    case 'sound':
+      onBoardSound(m);
+      break;
+    case 'msg:poll':
+      onPollVotes(m);
+      break;
     case 'read':
       onRead(m);
       break;
+    case 'mutes':
+      state.mutes = new Set(m.mutes);
+      renderAll();
+      break;
     case 'typing':
       onTyping(m);
+      break;
+    case 'game:chat':
+      onGameChat(m);
+      break;
+    case 'game:chatlog':
+      onGameChatlog(m);
+      break;
+    case 'game:events':
+      onGameEvents(m);
       break;
     case 'games:leaderboard':
       onLeaderboard(m);

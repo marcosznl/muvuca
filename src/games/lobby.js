@@ -1,6 +1,6 @@
 // Área de jogos: salas (criar, entrar, assistir, começar, sair) e a partida rodando no servidor
 import crypto from 'node:crypto';
-import { sockets, sendToUser } from '../realtime.js';
+import { sockets, sendToUser, broadcastPresence, setActivityProvider } from '../realtime.js';
 import { fail } from '../util.js';
 import { db } from '../store.js';
 import { announceGameRoom } from '../welcome.js';
@@ -10,6 +10,9 @@ import * as tanks from './tanks.js';
 import * as agar from './agar.js';
 import * as velha from './velha.js';
 import * as cartas from './cartas.js';
+import * as desenho from './desenho.js';
+import * as stop from './stop.js';
+import * as impostor from './impostor.js';
 
 // Jogos disponíveis (o site mostra nome e descrição na lista).
 // Cada jogo é uma classe com input(), tick(ms), eliminate(id), state(), over e winner.
@@ -23,9 +26,13 @@ export const GAMES = {
     name: 'Última!', maxPlayers: cartas.MAX_PLAYERS, options: cartas.RULES,
     create: (players, { options }) => new cartas.Cartas(players, { rules: options }),
   },
+  desenho: { name: 'Desenha aí', maxPlayers: desenho.MAX_PLAYERS, minPlayers: 2, create: (players) => new desenho.Desenho(players) },
+  stop: { name: 'Stop', maxPlayers: stop.MAX_PLAYERS, create: (players) => new stop.Stop(players) },
+  impostor: { name: 'Impostor', maxPlayers: impostor.MAX_PLAYERS, minPlayers: impostor.MIN_PLAYERS, create: (players) => new impostor.Impostor(players) },
 };
 
 const TICK_MS = 50;       // 20 atualizações por segundo
+const CHAT_KEEP = 50;     // últimas mensagens do chat da sala
 const MAX_ROOMS = 10;
 const END_PAUSE_MS = 2500; // mostra o resultado antes de voltar para a sala
 
@@ -67,6 +74,57 @@ function sendState(r) {
 function changed(r) {
   sendToRoom(r, { t: 'game:room', room: publicRoom(r) });
   broadcastRooms();
+  broadcastPresence(); // "Jogando…" de quem entrou/saiu
+}
+
+// "Jogando Tron": quem está numa sala como jogador
+setActivityProvider(() => {
+  const out = {};
+  for (const r of rooms.values()) {
+    for (const p of r.players) out[p.id] = { game: r.game, name: GAMES[r.game].name, roomId: r.id, playing: r.status === 'playing' };
+  }
+  return out;
+});
+
+// ---------- Chat da sala ----------
+
+let lineSeq = 0;
+function pushLine(r, line, onlyTo = null) {
+  const full = { id: ++lineSeq, ts: Date.now(), ...line };
+  if (onlyTo) return sendToUser(onlyTo, { t: 'game:chat', roomId: r.id, line: full });
+  r.chat.push(full);
+  if (r.chat.length > CHAT_KEEP) r.chat.shift();
+  sendToRoom(r, { t: 'game:chat', roomId: r.id, line: full });
+}
+
+// O jogo pode "pegar" a mensagem (ex.: palpite certo no desenho não aparece para os outros)
+export function roomChat(user, roomId, text) {
+  const r = requireRoom(roomId);
+  if (!members(r).includes(user.id)) fail('Entre na sala para conversar.');
+  const clean = String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  if (!clean) return;
+  const handled = r.status === 'playing' && r.engine?.chat?.(user.id, clean);
+  if (handled?.private) pushLine(r, { kind: 'private', text: handled.private }, user.id);
+  if (handled?.hide) return;
+  pushLine(r, { userId: user.id, name: user.name, text: clean });
+}
+
+// Eventos do jogo que vão na hora (traços do desenho, avisos no chat)
+function flushEvents(r) {
+  const events = r.engine.drainEvents?.() ?? [];
+  const draw = [];
+  for (const ev of events) {
+    if (ev.type === 'line') pushLine(r, { kind: ev.kind ?? 'info', text: ev.text }, ev.to ?? null);
+    else draw.push(ev);
+  }
+  if (draw.length) sendToRoom(r, { t: 'game:events', roomId: r.id, events: draw });
+}
+
+// Quem chegou no meio: o jogo manda o que precisa (ex.: o desenho inteiro)
+export function syncRoom(user, roomId) {
+  const r = requireRoom(roomId);
+  if (!members(r).includes(user.id) || !r.engine) return null;
+  return r.engine.fullState?.(user.id) ?? null;
 }
 
 export function roomOf(userId) {
@@ -96,6 +154,7 @@ export function createRoom(user, game) {
     lastWinner: null,
     engine: null,
     timer: null,
+    chat: [],
     // Opções do jogo (ex.: regras da casa), cada uma com o valor padrão
     options: Object.fromEntries(Object.entries(GAMES[game].options ?? {}).map(([k, o]) => [k, !!o.default])),
   };
@@ -121,6 +180,7 @@ export function joinRoom(user, roomId, { watch = false } = {}) {
   }
   changed(r);
   if (r.engine) sendToUser(user.id, { t: 'game:state', roomId: r.id, state: stateOf(r, user.id) });
+  sendToUser(user.id, { t: 'game:chatlog', roomId: r.id, lines: r.chat });
   return publicRoom(r);
 }
 
@@ -158,6 +218,8 @@ export function startGame(user, roomId) {
   if (r.hostId !== user.id) fail('Só quem manda na sala pode começar.');
   if (r.status === 'playing') fail('A partida já está rolando.');
   if (!r.players.length) fail('A sala está sem jogadores.');
+  const min = GAMES[r.game].minPlayers ?? 1;
+  if (r.players.length < min) fail(`${GAMES[r.game].name} precisa de pelo menos ${min} pessoas.`);
   r.engine = GAMES[r.game].create(r.players, { round: r.round, options: r.options });
   r.status = 'playing';
   r.round += 1;
@@ -169,6 +231,7 @@ export function startGame(user, roomId) {
 
 function tick(r) {
   r.engine.tick(TICK_MS);
+  flushEvents(r);
   // Jogos por turno avisam quando nada mudou (dirty = false) e não mandam a mesma coisa 20x por segundo
   if (r.engine.dirty !== false) {
     sendState(r);
@@ -178,9 +241,10 @@ function tick(r) {
   clearInterval(r.timer);
   r.timer = null;
   const winner = r.engine.winner;
-  if (winner) r.scores[winner] = (r.scores[winner] ?? 0) + 1;
+  const winners = r.engine.winners ?? (winner ? [winner] : []); // jogos em que várias pessoas ganham juntas
+  for (const w of winners) r.scores[w] = (r.scores[w] ?? 0) + 1;
   r.lastWinner = winner;
-  recordResult(r, winner);
+  recordResult(r, winners);
   setTimeout(() => {
     if (!rooms.has(r.id)) return;
     r.status = 'waiting';
@@ -190,15 +254,16 @@ function tick(r) {
 
 // Placar da semana: só conta partida com pelo menos 2 pessoas de verdade (robô e treino não contam)
 const isPerson = (id) => /^u\d+$/.test(String(id));
-function recordResult(r, winner) {
+function recordResult(r, winners) {
   const people = r.engine.players.map((p) => p.id).filter(isPerson);
   if (people.length < 2) return;
-  db.addGameResult(r.game, isPerson(winner) ? winner : null, people);
-  const msg = { t: 'games:leaderboard', week: weeklyLeaderboard() };
+  db.addGameResult(r.game, winners.filter(isPerson), people);
+  const msg = { t: 'games:leaderboard', week: weeklyLeaderboard(), all: allTimeLeaderboard() };
   for (const id of sockets.keys()) sendToUser(id, msg);
 }
 
 export const weeklyLeaderboard = () => db.leaderboard(Date.now() - 7 * 86_400_000);
+export const allTimeLeaderboard = () => db.leaderboard(0);
 
 export function gameInput(user, roomId, input) {
   const r = rooms.get(String(roomId));

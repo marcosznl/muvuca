@@ -4,10 +4,11 @@ import { icon } from './icons.js';
 import { openModal, button } from './dialogs.js';
 import { avatarOf } from './state.js';
 import { state, findChannel, canIn, PERMS, rememberedTextChannel } from './state.js';
-import { api, send } from './net.js';
+import { api, send, request } from './net.js';
 import { selectChannel } from './app.js';
 import { renderChannels, renderUserPanel, renderVoicePanel } from './sidebar.js';
 import { applyVolume as applyMusicVolume } from './music.js';
+import { BUILTIN_SOUNDS, soundboardVolume, setSoundboardVolume, playBoardSound } from './sounds.js';
 
 const { Room, RoomEvent, Track, VideoPresets, VideoPreset, ScreenSharePresets, AudioPresets, DisconnectReason } = LivekitClient;
 
@@ -23,7 +24,52 @@ let musicMode = store.get('musicMode') === '1';
 const captureOptions = () => ({
   echoCancellation: !musicMode, noiseSuppression: !musicMode, autoGainControl: !musicMode, voiceIsolation: !musicMode,
   sampleRate: 48_000, channelCount: musicMode ? 2 : 1,
+  ...(store.get('micDevice') ? { deviceId: store.get('micDevice') } : {}), // microfone escolhido (se sumir, usa o padrão)
 });
+
+// ---------- Dispositivos e volumes (menus ao lado do microfone e do fone) ----------
+
+export const micDevice = () => store.get('micDevice') || 'default';
+export const speakerDevice = () => store.get('speakerDevice') || 'default';
+const pct = (key, fallback) => { const v = Number(store.get(key)); return store.get(key) === null || Number.isNaN(v) ? fallback : v; };
+export const inputVolume = () => Math.min(Math.max(pct('inputVolume', 100), 0), 200);   // % (100 = sem mudança)
+export const outputVolume = () => Math.min(Math.max(pct('outputVolume', 100), 0), 100); // % (vale para todo o som da call)
+
+// Lista de microfones ou saídas; sem permissão do microfone o navegador esconde os nomes
+export async function listDevices(kind) {
+  const all = await navigator.mediaDevices?.enumerateDevices?.().catch(() => []) ?? [];
+  return all.filter((d) => d.kind === kind && d.deviceId); // sem permissão vem um item vazio: não serve para escolher
+}
+export async function unlockDeviceNames() {
+  const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+  for (const t of s.getTracks()) t.stop();
+}
+export const canPickSpeaker = () => 'setSinkId' in HTMLMediaElement.prototype; // Safari antigo não deixa escolher
+
+export async function setMicDevice(id) {
+  store.set('micDevice', id === 'default' ? null : id);
+  if (room) await room.switchActiveDevice('audioinput', id).catch((err) => showBanner(`Não consegui trocar o microfone: ${err.message}`, { timeout: 5000 }));
+}
+export async function setSpeakerDevice(id) {
+  store.set('speakerDevice', id === 'default' ? null : id);
+  for (const el of audioSink.children) el.setSinkId?.(id === 'default' ? '' : id).catch(() => {});
+  if (room) await room.switchActiveDevice('audiooutput', id).catch(() => {});
+}
+export function setInputVolume(v) {
+  store.set('inputVolume', Number(v) === 100 ? null : String(v));
+  if (liveGain) liveGain.gain.value = inputVolume() / 100;
+  else applyNoiseFilter(); // ainda sem processador: liga um só de volume
+}
+export function setOutputVolume(v) {
+  store.set('outputVolume', Number(v) === 100 ? null : String(v));
+  for (const p of room?.remoteParticipants.values() ?? []) {
+    for (const kind of Object.keys(VOLUME_KINDS)) p.setVolume(savedVolume(p, kind) * outputVolume() / 100, VOLUME_KINDS[kind].source);
+  }
+}
+export function setNoiseAi(on) {
+  store.set('noiseAi', on ? null : '0');
+  applyNoiseFilter();
+}
 
 // Câmera: 720p30 com até 2,5 Mbps; quem vê em quadro pequeno recebe as camadas menores (180p/360p)
 const CAMERA_VIDEO = {
@@ -112,6 +158,7 @@ export async function joinVoice(channelId) {
       videoCaptureDefaults: { resolution: VideoPresets.h720.resolution },
       // Cancelamento de eco e redução de ruído continuam ligados: sem eles, quem usa caixa de som gera eco para todos
       audioCaptureDefaults: captureOptions(),
+      ...(store.get('speakerDevice') ? { audioOutput: { deviceId: store.get('speakerDevice') } } : {}),
       publishDefaults: { ...VOICE_AUDIO, audioPreset: { maxBitrate: channelBitrate(channelId) }, forceStereo: musicMode, ...CAMERA_VIDEO },
     });
     r
@@ -199,6 +246,8 @@ export async function applyAudioState() {
   try {
     const canSpeak = canIn(findChannel(roomChannel).server, PERMS.SPEAK);
     await lp.setMicrophoneEnabled(canSpeak && state.micOn && !state.deafened);
+    await applyNoiseFilter();
+    await applyPtt();
   } catch (err) {
     console.warn(err);
     state.micOn = false;
@@ -210,6 +259,161 @@ export async function applyAudioState() {
   poke();
   applyVoiceBitrate();
 }
+
+// ---------- Apertar para falar e supressão de ruído (IA) ----------
+
+const pttOn = () => store.get('pttOn') === '1';
+const pttKey = () => store.get('pttKey') || 'KeyV';
+const keyLabel = (code) => code.replace(/^Key/, '').replace(/^Digit/, '').replace('Backquote', '`').replace('ControlLeft', 'Ctrl esq.')
+  .replace('AltLeft', 'Alt esq.').replace('ShiftLeft', 'Shift esq.').replace('CapsLock', 'Caps Lock');
+let pttHeld = false;
+export const noiseAiOn = () => store.get('noiseAi') !== '0'; // ligado por padrão
+
+// No modo "apertar para falar", o microfone fica ligado mas mudo, e só abre com a tecla segurada
+async function applyPtt() {
+  const pub = room?.localParticipant.getTrackPublication(Track.Source.Microphone);
+  if (!pub?.track) return;
+  if (pttOn() && !pttHeld) { if (!pub.isMuted) await pub.mute(); }
+  else if (pub.isMuted && state.micOn && !state.deafened) await pub.unmute();
+  $('btn-mic').classList.toggle('ptt-open', pttOn() && pttHeld);
+}
+
+const typingTarget = (e) => ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target?.tagName) || e.target?.isContentEditable;
+window.addEventListener('keydown', (e) => {
+  if (!room || !pttOn() || e.code !== pttKey() || e.repeat || typingTarget(e) || pttHeld) return;
+  pttHeld = true;
+  applyPtt();
+});
+window.addEventListener('keyup', (e) => {
+  if (!pttHeld || e.code !== pttKey()) return;
+  pttHeld = false;
+  applyPtt();
+});
+window.addEventListener('blur', () => { if (pttHeld) { pttHeld = false; applyPtt(); } });
+
+// O microfone passa por um processador (Web Audio) quando precisa: supressão de ruído por IA e/ou volume de entrada
+let noiseContext = null;
+let liveGain = null; // ganho do processador atual (o volume de entrada muda na hora, sem reiniciar)
+async function applyNoiseFilter() {
+  const track = room?.localParticipant.getTrackPublication(Track.Source.Microphone)?.track;
+  if (!track) return;
+  const wantNoise = noiseAiOn() && !musicMode;
+  const want = wantNoise ? 'rnnoise' : inputVolume() !== 100 ? 'gain' : null;
+  const has = track.getProcessor?.()?.name ?? null;
+  try {
+    if (want && want !== has) {
+      noiseContext ??= new AudioContext({ sampleRate: 48_000 });
+      if (noiseContext.state === 'suspended') await noiseContext.resume();
+      track.setAudioContext(noiseContext);
+      const { voiceProcessor } = await import('./noise.js');
+      await track.setProcessor(voiceProcessor({ noise: wantNoise, onGain: (g) => { liveGain = g; g.gain.value = inputVolume() / 100; } }));
+    } else if (!want && has) {
+      await track.stopProcessor();
+      liveGain = null;
+    }
+  } catch (err) {
+    console.warn('supressão de ruído', err);
+    showBanner('A supressão de ruído por IA não funcionou neste navegador (a normal continua ligada).', { timeout: 5000 });
+  }
+}
+
+// Configurações de voz: modo de entrada (detecção de voz ou apertar para falar), supressão de ruído e soundboard
+export function openVoiceSettings() {
+  const content = h('div', 'form voice-settings');
+  const mode = h('div', 'field');
+  mode.append(h('span', 'field-label', 'Modo de entrada'));
+  const opts = h('div', 'segmented');
+  const vad = h('button', 'seg', 'Detecção de voz');
+  const ptt = h('button', 'seg', 'Apertar para falar');
+  for (const b of [vad, ptt]) b.type = 'button';
+  const keyRow = h('div', 'ptt-key-row');
+  const keyBtn = h('button', 'btn secondary', `Tecla: ${keyLabel(pttKey())}`);
+  keyBtn.type = 'button';
+  const hint = h('p', 'muted small', 'Segure a tecla para falar. Não funciona enquanto você digita, nem com o navegador em segundo plano.');
+  keyRow.append(keyBtn);
+  const paint = () => {
+    vad.classList.toggle('on', !pttOn());
+    ptt.classList.toggle('on', pttOn());
+    keyRow.hidden = !pttOn();
+    hint.hidden = !pttOn();
+  };
+  vad.onclick = () => { store.set('pttOn', null); paint(); applyPtt(); };
+  ptt.onclick = () => { store.set('pttOn', '1'); paint(); applyPtt(); };
+  keyBtn.onclick = () => {
+    keyBtn.textContent = 'Aperte a tecla…';
+    const grab = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.code !== 'Escape') store.set('pttKey', e.code);
+      keyBtn.textContent = `Tecla: ${keyLabel(pttKey())}`;
+      window.removeEventListener('keydown', grab, true);
+    };
+    window.addEventListener('keydown', grab, true);
+  };
+  opts.append(vad, ptt);
+  mode.append(opts, keyRow, hint);
+
+  const noiseRow = h('label', 'toggle-row');
+  const noiseBox = h('input');
+  noiseBox.type = 'checkbox';
+  noiseBox.checked = noiseAiOn();
+  const nt = h('div', '');
+  nt.append(h('div', 'toggle-label', 'Supressão de ruído por IA'),
+    h('div', 'muted small', 'Tira ventilador, teclado, cachorro latindo… Roda no seu computador. Desliga sozinha no modo música.'));
+  noiseRow.append(nt, noiseBox);
+  noiseBox.onchange = () => { store.set('noiseAi', noiseBox.checked ? null : '0'); applyNoiseFilter(); };
+
+  const vol = h('label', 'field');
+  const range = h('input');
+  Object.assign(range, { type: 'range', min: 0, max: 100, value: Math.round(soundboardVolume() * 100) });
+  range.oninput = () => setSoundboardVolume(range.value);
+  vol.append(h('span', 'field-label', 'Volume do soundboard'), range);
+  content.append(mode, noiseRow, vol);
+  paint();
+  openModal({ title: 'Configurações de voz', content });
+}
+$('vp-settings').onclick = openVoiceSettings;
+
+// ---------- Soundboard ----------
+
+export function onBoardSound(m) {
+  playBoardSound(m);
+  const who = findChannel(roomChannel).server?.members.find((x) => x.id === m.by)?.name ?? 'Alguém';
+  const label = BUILTIN_SOUNDS.find(([id]) => `builtin:${id}` === m.sound)?.[2] ?? m.name;
+  const chip = h('div', 'board-chip', `🔊 ${who}: ${label}`);
+  document.body.append(chip);
+  setTimeout(() => chip.remove(), 2600);
+}
+
+function openSoundboard() {
+  const server = findChannel(roomChannel).server;
+  const box = h('div', 'soundboard');
+  box.append(h('div', 'soundboard-title', 'Soundboard'));
+  const grid = h('div', 'soundboard-grid');
+  const add = (sound, emoji, label) => {
+    const b = h('button', 'board-btn');
+    b.type = 'button';
+    b.append(h('span', 'board-emoji', emoji), h('span', 'board-name', label));
+    b.onclick = () => request({ t: 'sound:play', sound }).catch((err) => showBanner(err.message, { timeout: 3000 }));
+    grid.append(b);
+  };
+  for (const [id, emoji, label] of BUILTIN_SOUNDS) add(`builtin:${id}`, emoji, label);
+  for (const s of server?.sounds ?? []) add(s.id, s.emoji, s.name);
+  box.append(grid);
+  if (!(server?.sounds ?? []).length) box.append(h('div', 'muted small', 'Quem gerencia emojis pode subir sons do servidor nas configurações (Sons).'));
+  const overlay = document.getElementById('overlay-layer');
+  overlay.append(box);
+  const r = $('vp-soundboard').getBoundingClientRect();
+  const br = box.getBoundingClientRect();
+  box.style.left = `${Math.max(8, Math.min(r.left, innerWidth - br.width - 8))}px`;
+  box.style.top = `${Math.max(8, r.top - br.height - 8)}px`;
+  const outside = (e) => { if (!box.contains(e.target) && e.target !== $('vp-soundboard')) { box.remove(); document.removeEventListener('mousedown', outside, true); } };
+  setTimeout(() => document.addEventListener('mousedown', outside, true), 0);
+}
+$('vp-soundboard').onclick = () => {
+  const open = document.querySelector('.soundboard');
+  if (open) open.remove(); else openSoundboard();
+};
 
 // Liga/desliga o modo música; conectado, troca o microfone na hora (os filtros e o estéreo são definidos ao capturar)
 async function setMusicMode(on) {
@@ -284,10 +488,11 @@ function onTrackSubscribed(track, pub, participant) {
   if (track.kind === Track.Kind.Audio) {
     const el = track.attach();
     el.muted = state.deafened;
+    if (store.get('speakerDevice')) el.setSinkId?.(store.get('speakerDevice')).catch(() => {});
     audioSink.appendChild(el);
     // Reaplica o volume escolhido para essa pessoa (inclusive 0%)
     const kind = Object.keys(VOLUME_KINDS).find((k) => VOLUME_KINDS[k].source === pub.source);
-    if (kind) participant.setVolume(savedVolume(participant, kind), pub.source);
+    if (kind) participant.setVolume(savedVolume(participant, kind) * outputVolume() / 100, pub.source);
   }
   renderStage();
 }
@@ -306,7 +511,7 @@ function savedVolume(p, kind) {
 
 function saveVolume(p, kind, volume) {
   store.set(`${VOLUME_KINDS[kind].key}:${p.name}`, String(volume));
-  p.setVolume(volume, VOLUME_KINDS[kind].source);
+  p.setVolume(volume * outputVolume() / 100, VOLUME_KINDS[kind].source);
 }
 
 const volumeIcon = (v) => icon(v === 0 ? 'volume-off' : v < 0.5 ? 'volume-low' : 'speaker', 18);

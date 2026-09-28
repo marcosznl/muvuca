@@ -52,7 +52,7 @@ export const decodeMessage = (text, nameOf) =>
 
 // Resumo de uma linha (citação do reply)
 export const snippet = (text, nameOf) =>
-  (GIF_URL.test(text) ? 'GIF' : text ? decodeMessage(text, nameOf).replace(/\s+/g, ' ').slice(0, 120) : '📎 Anexo');
+  (GIF_URL.test(text) ? 'GIF' : text ? decodeMessage(plainText(text), nameOf).replace(/\s+/g, ' ').slice(0, 120) : '📎 Anexo');
 
 // Busca sem acento e sem maiúsculas ("jose" acha "José")
 export const fold = (t) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -64,4 +64,68 @@ export function mentionSuggestions(members, query) {
     .filter((p) => !q || fold(p.name).includes(q) || fold(p.username).includes(q))
     .sort((a, b) => Number(!fold(a.name).startsWith(q)) - Number(!fold(b.name).startsWith(q)) || a.name.localeCompare(b.name, 'pt-BR'))
     .slice(0, 8);
+}
+
+// ---------- Formatação (como no Discord) ----------
+// **negrito**, *itálico* ou _itálico_, ~~riscado~~, `código`, ```bloco de código```, ||spoiler|| e "> citação".
+// Links, menções e emojis do servidor ficam inteiros (um link com _ no meio não vira itálico).
+// Devolve uma árvore: { type: 'text' | 'code' | 'codeblock' | 'bold' | 'italic' | 'strike' | 'spoiler' | 'quote', text?, children? }
+
+const INLINE = /(https?:\/\/[^\s<>"]+|<a?:\w{2,32}:e-[0-9a-f]{10}>|<@u\d+>)|`([^`\n]+)`|\|\|([\s\S]+?)\|\||\*\*([\s\S]+?)\*\*|~~([\s\S]+?)~~|\*(?![\s*])([^*\n]+?)\*|(?<![\w])_(?![\s_])([^_\n]+?)_(?![\w])/g;
+
+function parseInline(text) {
+  const out = [];
+  let last = 0;
+  const pushText = (t) => { if (!t) return; const prev = out[out.length - 1]; if (prev?.type === 'text') prev.text += t; else out.push({ type: 'text', text: t }); };
+  for (const m of text.matchAll(INLINE)) {
+    pushText(text.slice(last, m.index));
+    last = m.index + m[0].length;
+    if (m[1] !== undefined) pushText(m[1]);                                   // link, menção ou emoji: inteiro
+    else if (m[2] !== undefined) out.push({ type: 'code', text: m[2] });
+    else if (m[3] !== undefined) out.push({ type: 'spoiler', children: parseInline(m[3]) });
+    else if (m[4] !== undefined) out.push({ type: 'bold', children: parseInline(m[4]) });
+    else if (m[5] !== undefined) out.push({ type: 'strike', children: parseInline(m[5]) });
+    else out.push({ type: 'italic', children: parseInline(m[6] ?? m[7]) });
+  }
+  pushText(text.slice(last));
+  return out;
+}
+
+// Citações ("> " no começo da linha) juntam as linhas seguidas
+function parseLines(text) {
+  const out = [];
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (/^> ?/.test(lines[i]) && lines[i] !== '>') {
+      const quoted = [];
+      while (i < lines.length && /^> ?/.test(lines[i])) quoted.push(lines[i++].replace(/^> ?/, ''));
+      i--;
+      out.push({ type: 'quote', children: parseInline(quoted.join('\n')) });
+    } else {
+      const inline = parseInline(lines[i] + (i < lines.length - 1 ? '\n' : ''));
+      for (const n of inline) {
+        const prev = out[out.length - 1];
+        if (n.type === 'text' && prev?.type === 'text') prev.text += n.text; else out.push(n);
+      }
+    }
+  }
+  return out;
+}
+
+export function parseMarkdown(text) {
+  const out = [];
+  let last = 0;
+  for (const m of text.matchAll(/```(?:([\w+-]{1,15})\n)?([\s\S]*?)```/g)) {
+    out.push(...parseLines(text.slice(last, m.index)));
+    out.push({ type: 'codeblock', lang: m[1] ?? '', text: m[2].replace(/^\n|\n$/g, '') });
+    last = m.index + m[0].length;
+  }
+  out.push(...parseLines(text.slice(last)));
+  return out.filter((n) => n.type !== 'text' || n.text);
+}
+
+// Só o texto, sem as marcações (resumos e notificações)
+export function plainText(text) {
+  const walk = (nodes) => nodes.map((n) => (n.children ? walk(n.children) : n.type === 'spoiler' ? '▒▒▒' : n.text)).join('');
+  return walk(parseMarkdown(text).map((n) => (n.type === 'spoiler' ? { type: 'text', text: '▒▒▒' } : n)));
 }

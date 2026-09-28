@@ -45,6 +45,13 @@ export async function voiceToken(req) {
 let voiceState = {}; // channelId -> [{ id, name, muted, deafened, camera, streaming }]
 let voiceErrorLogged = false;
 
+// Em qual canal de voz a pessoa está agora (ou null)
+export function voiceChannelOf(userId) {
+  for (const [channelId, people] of Object.entries(voiceState)) if (people.some((p) => p.id === userId)) return channelId;
+  return null;
+}
+export const voicePeople = (channelId) => voiceState[channelId] ?? [];
+
 export function voiceFor(userId) {
   const allowed = new Set(db.serverIdsOf({ id: userId }));
   const out = {};

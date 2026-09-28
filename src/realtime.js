@@ -29,11 +29,17 @@ export function statusOf(userId) {
 // Invisível: conectado, mas aparece offline para os outros
 export const onlineIds = () => [...sockets.keys()].filter((id) => statusOf(id) !== 'invisible');
 
+// Quem está jogando o quê (a área de jogos informa; evita importar os jogos aqui)
+let activityOf = () => ({});
+export const setActivityProvider = (fn) => { activityOf = fn; };
+
 export function presenceMessage() {
   const online = onlineIds();
   const status = {};
   for (const id of online) if (statusOf(id) !== 'online') status[id] = statusOf(id);
-  return { t: 'presence', online, status };
+  const all = activityOf();
+  const activity = Object.fromEntries(online.filter((id) => all[id]).map((id) => [id, all[id]]));
+  return { t: 'presence', online, status, activity };
 }
 
 export function broadcastPresence() {
@@ -54,4 +60,5 @@ export function pushServer(serverId) {
 export function pushUser(userId) {
   for (const serverId of db.serverIdsOf({ id: userId })) pushServer(serverId);
   sendToUser(userId, { t: 'me', you: db.userById(userId) });
+  for (const f of db.friendsOf(userId)) sendToUser(f.user.id, { t: 'friends', friends: db.friendsOf(f.user.id) });
 }

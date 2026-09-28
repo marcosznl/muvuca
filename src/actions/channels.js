@@ -42,6 +42,13 @@ export default {
     return { t: 'channel:created', serverId: ctx.snap.id, channelId: id, type };
   },
 
+  // Tópico: uma frase no topo do canal dizendo para que ele serve
+  'channel:topic'(user, m) {
+    const { channel, ctx } = manageChannel(user, m.channelId, 'Você não tem permissão para editar canais.');
+    db.setTopic(channel.id, clean(m.topic, 160));
+    pushServer(ctx.snap.id);
+  },
+
   'channel:rename'(user, m) {
     const { channel, ctx } = manageChannel(user, m.channelId, 'Você não tem permissão para editar canais.');
     const name = channelName(channel.type, m.name);

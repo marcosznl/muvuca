@@ -15,6 +15,9 @@ export const state = {
   readState: {},        // canal -> id da última mensagem lida
   status: {},           // pessoa online -> 'idle' (ausente) ou 'dnd' (não perturbe); sem nada = online
   typing: new Map(),    // canal -> Map(pessoa -> até quando mostrar "digitando")
+  mutes: new Set(),     // canais e servidores que você silenciou
+  activity: {},         // pessoa -> { game, name, roomId } ("Jogando Tron")
+  friends: [],          // [{ user, status: 'friend' | 'incoming' | 'outgoing' }]
   micOn: store.get('micOn') !== '0',
   deafened: store.get('deafened') === '1',
 };
@@ -25,7 +28,7 @@ export function profileOf(userId, server = null) {
   const member = server?.members.find((x) => x.id === userId)
     ?? state.servers.flatMap((s) => s.members).find((x) => x.id === userId);
   if (userId === state.me?.id) return { ...member, ...state.me };
-  return member ?? null;
+  return member ?? state.friends.find((f) => f.user.id === userId)?.user ?? null; // amigo sem servidor em comum
 }
 export const nameOf = (userId) => profileOf(userId)?.name ?? null;
 
@@ -35,7 +38,7 @@ export function avatarOf(userId) {
     const m = s.members.find((x) => x.id === userId);
     if (m) return m.avatar ?? null;
   }
-  return null;
+  return state.friends.find((f) => f.user.id === userId)?.user.avatar ?? null;
 }
 setAvatarLookup(avatarOf);
 
@@ -87,7 +90,10 @@ export function rememberedTextChannel(server) {
   return server.channels.find((c) => c.id === id && c.type === 'text') ?? firstTextChannel(server);
 }
 
-export const serverUnread = (server) => server.channels.reduce((n, c) => n + (state.unread[c.id] || 0), 0);
+// Silenciado: o próprio canal ou o servidor inteiro
+export const isMuted = (channelId, serverId) => state.mutes.has(channelId) || state.mutes.has(serverId);
+export const serverUnread = (server) => (state.mutes.has(server.id) ? 0
+  : server.channels.reduce((n, c) => n + (state.mutes.has(c.id) ? 0 : state.unread[c.id] || 0), 0));
 export const serverMentions = (server) => server.channels.reduce((n, c) => n + (state.mentions[c.id] || 0), 0);
 
 // 'online' | 'idle' | 'dnd' | 'invisible' (só você) | 'offline'

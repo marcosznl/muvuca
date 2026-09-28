@@ -14,7 +14,20 @@ const fail = (err) => showBanner(err.message, { timeout: 4500 });
 
 // ---------- Convites ----------
 
-export async function openInviteDialog(s) {
+const HOUR = 3_600_000;
+const EXPIRY = [[HOUR / 2, '30 minutos'], [HOUR, '1 hora'], [24 * HOUR, '1 dia'], [7 * 24 * HOUR, '7 dias'], [null, 'Nunca']];
+const USES = [[null, 'Sem limite'], [1, '1 uso'], [5, '5 usos'], [10, '10 usos'], [25, '25 usos'], [100, '100 usos']];
+
+function selectField(label, options, value) {
+  const field = h('label', 'field');
+  const sel = h('select');
+  options.forEach(([v, text], i) => { const o = new Option(text, String(i)); o.selected = v === value; sel.append(o); });
+  field.append(h('span', 'field-label', label), sel);
+  return { field, value: () => options[Number(sel.value)][0], sel };
+}
+
+// Link de convite: vale por um tempo e por um número de pessoas (padrão: 7 dias, sem limite de usos)
+export async function openInviteDialog(s, onCreated) {
   const content = h('div', 'form');
   content.append(h('p', 'muted', 'Mande este link para quem você quer chamar. Quem não tem conta cria uma na hora.'));
   const row = h('div', 'copy-row');
@@ -23,21 +36,46 @@ export async function openInviteDialog(s) {
   input.value = 'Gerando link…';
   const copy = button('Copiar');
   row.append(input, copy);
-  content.append(row);
+  const expiry = selectField('Expira em', EXPIRY, 7 * 24 * HOUR);
+  const uses = selectField('Quantas pessoas podem usar', USES, null);
+  const opts = h('div', 'invite-options');
+  opts.append(expiry.field, uses.field);
+  const note = h('p', 'muted small', '');
+  content.append(row, opts, note);
   openModal({ title: `Convide amigos para ${s.name}`, content });
-  try {
-    const res = await request({ t: 'invite:create', serverId: s.id });
-    input.value = inviteLink(res.code);
-    copy.onclick = () => {
-      navigator.clipboard?.writeText(input.value).catch(() => {});
-      input.select();
-      copy.textContent = 'Copiado!';
-      setTimeout(() => (copy.textContent = 'Copiar'), 1500);
-    };
-  } catch (err) {
-    input.value = err.message;
-  }
+  copy.onclick = () => {
+    navigator.clipboard?.writeText(input.value).catch(() => {});
+    input.select();
+    copy.textContent = 'Copiado!';
+    setTimeout(() => (copy.textContent = 'Copiar'), 1500);
+  };
+  let current = null; // link gerado nesta janela (trocar a opção cancela ele e gera outro)
+  const make = async () => {
+    input.value = 'Gerando link…';
+    try {
+      if (current) await request({ t: 'invite:revoke', code: current }).catch(() => {});
+      const res = await request({ t: 'invite:create', serverId: s.id, expiresIn: expiry.value(), maxUses: uses.value() });
+      current = res.code;
+      input.value = inviteLink(res.code);
+      const when = EXPIRY.find(([v]) => v === res.expiresIn)?.[1] ?? '7 dias';
+      note.textContent = `Vale por ${res.expiresIn ? when : 'tempo indeterminado'}${res.maxUses ? ` e para ${res.maxUses} ${res.maxUses === 1 ? 'pessoa' : 'pessoas'}` : ''}. Mudou a opção? Um link novo é gerado.`;
+      onCreated?.();
+    } catch (err) {
+      input.value = err.message;
+    }
+  };
+  expiry.sel.onchange = make;
+  uses.sel.onchange = make;
+  make();
 }
+
+const fmtLeft = (ts) => {
+  if (!ts) return 'nunca vence';
+  const mins = Math.max(1, Math.round((ts - Date.now()) / 60_000));
+  if (mins < 60) return `vence em ${mins} min`;
+  const hours = Math.round(mins / 60);
+  return hours < 48 ? `vence em ${hours} h` : `vence em ${Math.round(hours / 24)} dias`;
+};
 
 // ---------- Menu do membro (clique na lista de membros) ----------
 
@@ -141,6 +179,7 @@ function sections(s) {
     can(p, PERMS.MANAGE_ROLES) && ['roles', 'Cargos'],
     (can(p, PERMS.MANAGE_ROLES) || can(p, PERMS.KICK_MEMBERS)) && ['members', 'Membros'],
     can(p, PERMS.MANAGE_EMOJIS) && ['emojis', 'Emojis'],
+    can(p, PERMS.MANAGE_EMOJIS) && ['sounds', 'Sons'],
     can(p, PERMS.CREATE_INVITE) && ['invites', 'Convites'],
   ].filter(Boolean);
 }
@@ -171,7 +210,7 @@ function renderSettings() {
 
   const content = open.root.querySelector('.settings-content-inner');
   content.replaceChildren();
-  ({ overview: renderOverview, welcome: renderWelcome, roles: renderRoles, members: renderMemberTable, emojis: renderEmojis, invites: renderInvites })[open.section]?.(s, content);
+  ({ overview: renderOverview, welcome: renderWelcome, roles: renderRoles, members: renderMemberTable, emojis: renderEmojis, sounds: renderSounds, invites: renderInvites })[open.section]?.(s, content);
 }
 
 export function colorPicker(current, { allowNone = false } = {}) {
@@ -313,6 +352,56 @@ function renderWelcome(s, root) {
   root.append(form);
 }
 
+// ---------- Sons do soundboard ----------
+
+function renderSounds(s, root) {
+  const sounds = s.sounds ?? [];
+  root.append(h('h2', '', 'Sons'), h('p', 'muted', `Sons curtos que qualquer um na call toca pelo soundboard (botão 🔊 no painel da voz). Até 30 sons, com no máximo 8 segundos e 1 MB (MP3, OGG, WAV, M4A). ${sounds.length}/30 usados.`));
+  const form = h('div', 'sound-upload');
+  const name = h('input');
+  Object.assign(name, { placeholder: 'Nome (ex.: Ihhh)', maxLength: 24 });
+  const emoji = h('input');
+  Object.assign(emoji, { placeholder: '🔊', maxLength: 4, className: 'sound-emoji-input' });
+  const pick = button('Escolher arquivo e enviar');
+  pick.onclick = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'audio/*';
+    input.onchange = async () => {
+      const file = input.files[0];
+      if (!file) return;
+      // Confere a duração antes de enviar
+      const dur = await new Promise((resolve) => {
+        const a = new Audio(URL.createObjectURL(file));
+        a.onloadedmetadata = () => resolve(a.duration);
+        a.onerror = () => resolve(null);
+      });
+      if (dur === null) return fail(new Error('Não deu para ler esse áudio.'));
+      if (dur > 8.5) return fail(new Error(`O som tem ${Math.round(dur)} s; o máximo é 8 s.`));
+      try {
+        await upload('/api/sound', { server: s.id, name: name.value.trim() || file.name.replace(/\.[^.]+$/, '').slice(0, 24), emoji: emoji.value.trim() }, file);
+        toast('Som adicionado!');
+      } catch (err) { fail(err); }
+    };
+    input.click();
+  };
+  form.append(emoji, name, pick);
+  root.append(form);
+  const list = h('div', 'sound-list');
+  for (const snd of sounds) {
+    const row = h('div', 'sound-row');
+    const play = button('▶', { kind: 'secondary' });
+    play.title = 'Ouvir';
+    play.onclick = () => new Audio(`/sound/${snd.id}`).play().catch(() => {});
+    const del = button('Excluir', { kind: 'danger-outline' });
+    del.onclick = () => request({ t: 'sound:delete', soundId: snd.id }).catch(fail);
+    row.append(h('span', 'board-emoji', snd.emoji), h('span', 'sound-name', snd.name), play, del);
+    list.append(row);
+  }
+  if (!sounds.length) list.append(h('p', 'muted small', 'Nenhum som ainda. Os sons prontos (tambor, tadá, buzina…) já estão no soundboard.'));
+  root.append(list);
+}
+
 // ---------- Emojis ----------
 
 const EMOJI_LIMIT = 50;
@@ -397,10 +486,30 @@ function renderEmojis(s, root) {
 
 function renderInvites(s, root) {
   root.append(h('h2', '', 'Convites'));
-  root.append(h('p', 'muted', 'Gere um link e mande para quem você quer chamar. Cada link pode ser usado por várias pessoas.'));
+  root.append(h('p', 'muted', 'Gere um link e mande para quem você quer chamar. Dá para escolher por quanto tempo ele vale e quantas pessoas podem usar.'));
+  const list = h('div', 'invite-list');
+  const load = async () => {
+    let res;
+    try { res = await request({ t: 'invites:list', serverId: s.id }); } catch (err) { return list.replaceChildren(h('p', 'muted', err.message)); }
+    list.replaceChildren();
+    if (!res.invites.length) list.append(h('p', 'muted small', 'Nenhum convite ativo.'));
+    for (const inv of res.invites) {
+      const row = h('div', 'invite-row');
+      const info = h('div', 'invite-info');
+      info.append(h('code', '', inv.code),
+        h('span', 'muted small', `por ${inv.byName} · ${inv.uses}${inv.maxUses ? `/${inv.maxUses}` : ''} ${inv.uses === 1 ? 'uso' : 'usos'} · ${fmtLeft(inv.expiresAt)}`));
+      const copyBtn = button('Copiar', { kind: 'secondary' });
+      copyBtn.onclick = () => { navigator.clipboard?.writeText(inviteLink(inv.code)).catch(() => {}); toast('Link copiado!'); };
+      const revoke = button('Cancelar', { kind: 'danger-outline' });
+      revoke.onclick = () => request({ t: 'invite:revoke', code: inv.code }).then(load).catch(fail);
+      row.append(info, copyBtn, revoke);
+      list.append(row);
+    }
+  };
   const b = button('Criar link de convite');
-  b.onclick = () => openInviteDialog(s);
-  root.append(b);
+  b.onclick = () => openInviteDialog(s, load);
+  root.append(b, h('h3', 'settings-subtitle', 'Convites ativos'), list);
+  load();
 }
 
 // ---------- Cargos ----------

@@ -1,5 +1,9 @@
 // Ações da área de jogos (ícone fixo, igual para todos)
-import { GAMES, listRooms, createRoom, joinRoom, leaveRoom, startGame, gameInput, weeklyLeaderboard, setOptions } from '../games/lobby.js';
+import {
+  GAMES, listRooms, createRoom, joinRoom, leaveRoom, startGame, gameInput, weeklyLeaderboard, allTimeLeaderboard, setOptions, roomChat, syncRoom,
+} from '../games/lobby.js';
+import { achievements } from '../games/achievements.js';
+import { db } from '../store.js';
 import { underLimit } from '../util.js';
 
 const inputTimes = new Map(); // userId -> últimos comandos (evita inundar o servidor)
@@ -9,7 +13,7 @@ export default {
     return {
       t: 'games:rooms',
       games: Object.entries(GAMES).map(([id, g]) => ({
-        id, name: g.name, maxPlayers: g.maxPlayers,
+        id, name: g.name, maxPlayers: g.maxPlayers, minPlayers: g.minPlayers ?? 1,
         options: Object.fromEntries(Object.entries(g.options ?? {}).map(([k, o]) => [k, { label: o.label, hint: o.hint }])),
       })),
       rooms: listRooms(),
@@ -17,7 +21,22 @@ export default {
   },
 
   'games:leaderboard'() {
-    return { t: 'games:leaderboard', week: weeklyLeaderboard() };
+    return { t: 'games:leaderboard', week: weeklyLeaderboard(), all: allTimeLeaderboard() };
+  },
+
+  // Números e conquistas de alguém nos jogos (aparecem no perfil)
+  'games:stats'(user, m) {
+    const target = db.userById(String(m.userId ?? user.id)) ? String(m.userId ?? user.id) : user.id;
+    const byGame = db.gameStats(target);
+    return { t: 'games:stats', userId: target, byGame, achievements: achievements(byGame) };
+  },
+
+  'game:chat'(user, m) {
+    roomChat(user, m.roomId, m.text);
+  },
+
+  'game:sync'(user, m) {
+    return { t: 'game:sync', roomId: String(m.roomId), data: syncRoom(user, m.roomId) };
   },
 
   'game:create'(user, m) {
@@ -55,6 +74,19 @@ export default {
     if (typeof m.color === 'string') input.color = m.color.slice(0, 10);
     if (typeof m.act === 'string') input.act = m.act.slice(0, 10);
     if (typeof m.target === 'string') input.target = m.target.slice(0, 20);
+    if (typeof m.text === 'string') input.text = m.text.slice(0, 60);
+    // Traço do desenho: pontos inteiros de 0 a 1000, cor e espessura da lista do jogo
+    if (m.stroke && Array.isArray(m.stroke.p)) {
+      input.stroke = {
+        c: Number.isInteger(m.stroke.c) ? m.stroke.c : 0, w: Number.isInteger(m.stroke.w) ? m.stroke.w : 1,
+        p: m.stroke.p.slice(0, 300).filter((pt) => Array.isArray(pt) && pt.length === 2).map(([x, y]) => [Math.max(0, Math.min(1000, x | 0)), Math.max(0, Math.min(1000, y | 0))]),
+      };
+    }
+    // Respostas de formulário (Stop): até 10 campos de texto curto
+    if (m.data && typeof m.data === 'object' && !Array.isArray(m.data)) {
+      input.data = Object.fromEntries(Object.entries(m.data).slice(0, 10)
+        .filter(([k]) => /^[\w-]{1,20}$/.test(k)).map(([k, v]) => [k, typeof v === 'boolean' ? v : String(v ?? '').slice(0, 40)]));
+    }
     gameInput(user, m.roomId, input);
   },
 };

@@ -4,6 +4,7 @@ import { db } from '../store.js';
 import { unum } from '../../db.js';
 import { sendToServer, sendToUser } from '../realtime.js';
 import { notify } from '../push.js';
+import { linkPreview } from '../links.js';
 import { requireServer, requirePerm } from '../guards.js';
 import { claimAttachments, removeFiles } from '../attachments.js';
 import { fail, underLimit } from '../util.js';
@@ -13,6 +14,7 @@ const MAX_PINS = 50;
 const MAX_REACTION_KINDS = 20;
 const CUSTOM_EMOJI = /^<a?:\w{2,32}:(e-[0-9a-f]{10})>$/;
 const typingTimes = new Map(); // userId -> quando avisou que está digitando
+const previewTimes = new Map(); // userId -> pedidos de prévia de link
 
 // Texto curto para a notificação: menções viram @nome e emojis do servidor viram :nome:
 function preview(text) {
@@ -20,15 +22,17 @@ function preview(text) {
   return plain.length > 140 ? `${plain.slice(0, 139)}…` : plain || '📎 Anexo';
 }
 
-// Quem foi mencionado ou respondido recebe notificação no celular (se não estiver com o site aberto)
+// Quem foi mencionado ou respondido recebe notificação no celular (se não estiver com o site aberto);
+// na conversa privada, todo mundo da conversa recebe. Quem silenciou o canal/servidor não recebe.
 function notifyMentions(msg, channel, ctx, user, original) {
-  const targets = new Set([...msg.text.matchAll(/<@(u\d+)>/g)].map((x) => x[1]));
+  const dm = ctx.snap.kind === 'dm';
+  const targets = new Set(dm ? ctx.snap.members.map((mem) => mem.id) : [...msg.text.matchAll(/<@(u\d+)>/g)].map((x) => x[1]));
   if (original?.user_id) targets.add(`u${original.user_id}`);
   targets.delete(user.id);
   for (const id of targets) {
-    if (!ctx.snap.members.some((mem) => mem.id === id)) continue;
+    if (!ctx.snap.members.some((mem) => mem.id === id) || db.isMuted(id, channel.id, ctx.snap.id)) continue;
     notify(id, {
-      title: `${user.name} em #${channel.name}`,
+      title: dm ? (ctx.snap.members.length > 2 ? `${user.name} em ${ctx.snap.name}` : user.name) : `${user.name} em #${channel.name}`,
       body: preview(msg.text),
       url: `/?canal=${channel.id}`,
       tag: `canal-${channel.id}`,
@@ -89,6 +93,41 @@ export default {
     sendToServer(row.server_id, { t: 'msg:reactions', channel: row.channel_id, id: row.id, reactions });
   },
 
+  // Enquete: pergunta, de 2 a 10 opções, escolha única ou múltipla
+  'poll:create'(user, m) {
+    const { channel, ctx } = requireChatChannel(user, m.channel);
+    requirePerm(ctx, PERMS.SEND_MESSAGES, 'Você não tem permissão para enviar mensagens aqui.');
+    const tidy = (t, n) => String(t ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+    const question = tidy(m.question, 200);
+    const options = (Array.isArray(m.options) ? m.options : []).map((o) => tidy(o, 80)).filter(Boolean).slice(0, 10);
+    if (!question) fail('Escreva a pergunta.');
+    if (options.length < 2) fail('Coloque pelo menos 2 opções.');
+    const msg = db.addPoll({ channelId: channel.id, user, question, options, multi: !!m.multi });
+    db.markRead(user.id, channel.id, msg.id);
+    sendToServer(channel.server_id, { t: 'msg', msg });
+  },
+
+  'poll:vote'(user, m) {
+    const { row, ctx } = requireMessage(user, m.id);
+    requirePerm(ctx, PERMS.SEND_MESSAGES, 'Você não tem permissão para votar aqui.');
+    const poll = row.meta ? JSON.parse(row.meta).poll : null;
+    if (!poll) fail('Isso não é uma enquete.');
+    if (poll.closed) fail('Essa enquete já foi encerrada.');
+    const option = Number(m.option);
+    if (!Number.isInteger(option) || option < 0 || option >= poll.options.length) fail('Opção inválida.');
+    sendToServer(row.server_id, { t: 'msg:poll', channel: row.channel_id, id: row.id, votes: db.vote(row.id, user.id, option, poll.multi) });
+  },
+
+  // Encerrar: quem criou, ou quem gerencia mensagens
+  'poll:close'(user, m) {
+    const { row, ctx } = requireMessage(user, m.id);
+    if (row.user_id !== unum(user.id)) requirePerm(ctx, PERMS.MANAGE_MESSAGES, 'Só quem criou pode encerrar a enquete.');
+    const meta = row.meta ? JSON.parse(row.meta) : null;
+    if (!meta?.poll) fail('Isso não é uma enquete.');
+    meta.poll.closed = true;
+    sendToServer(row.server_id, { t: 'msg:edit', msg: db.setMessageMeta(row.id, meta) });
+  },
+
   // Leu até a mensagem `id` (as outras abas da pessoa também zeram o contador)
   read(user, m) {
     const { channel } = requireChatChannel(user, m.channel);
@@ -105,6 +144,14 @@ export default {
     for (const mem of ctx.snap.members) if (mem.id !== user.id) sendToUser(mem.id, { t: 'typing', channel: channel.id, userId: user.id });
   },
 
+  // Prévia de um link (título, descrição e imagem da página)
+  async 'link:preview'(user, m) {
+    const url = String(m.url ?? '').slice(0, 500);
+    if (!/^https?:\/\/[^\s]+$/i.test(url)) fail('Link inválido.');
+    if (!underLimit(previewTimes, user.id, 30, 60_000)) fail('Muitas prévias de uma vez.');
+    return { t: 'link', url, preview: await linkPreview(url) };
+  },
+
   // Busca nas mensagens do servidor (de: alguém, em: um canal)
   search(user, m) {
     const ctx = requireServer(user, m.serverId);
@@ -119,6 +166,7 @@ export default {
   'msg:edit'(user, m) {
     const { row, ctx } = requireMessage(user, m.id);
     if (row.user_id !== unum(user.id)) fail('Você só pode editar as suas mensagens.');
+    if (row.meta && JSON.parse(row.meta).poll) fail('Enquete não dá para editar.');
     requirePerm(ctx, PERMS.SEND_MESSAGES, 'Você não tem permissão para enviar mensagens aqui.');
     const text = String(m.text ?? '').trim().slice(0, LIMITS.msgLength);
     if (!text) fail('A mensagem não pode ficar vazia (para apagar, use Excluir).');

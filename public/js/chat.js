@@ -3,21 +3,23 @@
 // chat-mentions (lista do @), chat-pins (fixadas), chat-picker (GIFs e emojis) e richtext (regras de texto).
 import { $, h, makeAvatar, fmtTime, fmtDay, hhmm, sameDay, showBanner } from './util.js';
 import { icon } from './icons.js';
-import { state, findChannel, canIn, PERMS, nameOf } from './state.js';
+import { state, findChannel, canIn, PERMS, nameOf, isMuted } from './state.js';
 import { openProfileCard } from './profile.js';
 import { nameColor } from './permissions.js';
 import { send, request } from './net.js';
 import { confirmDialog } from './dialogs.js';
 import { renderChannels, renderRail } from './sidebar.js';
 import { GIF_URL, encodeMessage, decodeMessage, snippet, usableEmojis } from './richtext.js';
-import { appendRich, appendGif, attachmentsView } from './chat-content.js';
+import { appendRich, appendGif, attachmentsView, previewSlot } from './chat-content.js';
 import { hasPending, takePending, attachmentsFollow } from './chat-attachments.js';
 import { mentionables } from './chat-mentions.js';
 import { refreshPins, pinsFollow, toastPin } from './chat-pins.js';
 import { reactionsView, openReactionPicker } from './chat-reactions.js';
+import { pollView } from './chat-polls.js';
 import { searchFollow } from './chat-search.js';
 import { sounds } from './sounds.js';
 import { selectGames } from './app.js';
+import { unhideDm } from './dms.js';
 import { enterRoom } from './games.js';
 import './chat-picker.js';
 
@@ -26,8 +28,9 @@ let hiddenUnread = 0;               // mensagens recebidas com a aba em segundo 
 
 const box = () => $('messages');
 const mine = (msg) => msg.userId === state.me?.id;
-// Mensagem que menciona você ou responde a você
-const mentionsMe = (msg) => !mine(msg) && (msg.text?.includes(`<@${state.me?.id}>`) || msg.reply?.userId === state.me?.id);
+// Mensagem que menciona você ou responde a você (na conversa privada, toda mensagem conta)
+const inDm = (channelId) => findChannel(channelId).server?.kind === 'dm';
+const mentionsMe = (msg) => !mine(msg) && (inDm(msg.channel) || msg.text?.includes(`<@${state.me?.id}>`) || msg.reply?.userId === state.me?.id);
 const fail = (err) => showBanner(err.message, { timeout: 4000 });
 
 // Texto digitado -> como fica guardado (emojis e menções viram códigos) e o caminho de volta
@@ -134,13 +137,24 @@ export function onMessage(msg) {
     renderChannels();
     renderRail();
   }
+  const { server: msgServer } = findChannel(msg.channel);
+  if (msgServer?.kind === 'dm' && !isMine) unhideDm(msgServer.id); // conversa escondida volta quando chega mensagem
   if (!isMine && !msg.system) {
     if (mentionsMe(msg)) sounds.mention();
-    else if (!viewing) sounds.message();
+    else if (!viewing && !isMuted(msg.channel, msgServer?.id)) sounds.message();
   }
   if (!isMine && !msg.system && !viewing) hiddenUnread++;
   if (viewing) markRead(msg.channel);
   updateTitle();
+}
+
+// Alguém votou numa enquete: troca só o cartão dela
+export function onPollVotes({ channel, id, votes }) {
+  const msg = state.messages.get(channel)?.list.find((m) => m.id === id);
+  if (!msg) return;
+  msg.votes = votes;
+  const row = state.view.channelId === channel && box().querySelector(`.msg[data-id="${id}"] .poll`);
+  if (row) row.replaceWith(pollView(msg, canIn(findChannel(channel).server, PERMS.SEND_MESSAGES)));
 }
 
 // Alguém reagiu: troca só os botões de reação daquela mensagem
@@ -213,9 +227,16 @@ export function renderMessages() {
   } else {
     const welcome = h('div', 'welcome');
     const big = h('div', 'big-hash');
-    big.append(icon(channel.type === 'music' ? 'headphones' : 'hash', 40));
-    const label = channel.type === 'music' ? channel.name : `#${channel.name}`;
-    welcome.append(big, h('h2', '', `Boas-vindas a ${label}!`), h('div', 'muted', `Este é o começo do canal ${label}.`));
+    if (server?.kind === 'dm') {
+      const others = server.members.filter((m) => m.id !== state.me?.id);
+      big.append(icon('chat', 40));
+      const who = others.map((m) => m.name).join(', ') || 'você';
+      welcome.append(big, h('h2', '', server.dmName || who), h('div', 'muted', `Este é o começo da sua conversa com ${who}. Só vocês veem o que está aqui.`));
+    } else {
+      big.append(icon(channel.type === 'music' ? 'headphones' : 'hash', 40));
+      const label = channel.type === 'music' ? channel.name : `#${channel.name}`;
+      welcome.append(big, h('h2', '', `Boas-vindas a ${label}!`), h('div', 'muted', channel.topic || `Este é o começo do canal ${label}.`));
+    }
     b.append(welcome);
   }
 
@@ -257,7 +278,7 @@ function buildMessage(msg, prev, server = findChannel(msg.channel).server) {
     appendRich(text, msg.text);
     text.classList.remove('jumbo');
     row.append(h('div', 'gutter', hhmm(new Date(msg.ts))),
-      icon({ music: 'headphones', join: 'arrow-right', leave: 'arrow-left', game: 'gamepad' }[kind] ?? 'headphones', 14), text);
+      icon({ music: 'headphones', join: 'arrow-right', leave: 'arrow-left', game: 'gamepad', call: 'phone', rename: 'pencil' }[kind] ?? 'headphones', 14), text);
     if (kind === 'game' && msg.meta?.roomId) {
       const join = h('button', 'btn small primary', 'Entrar na sala');
       join.type = 'button';
@@ -283,7 +304,8 @@ function buildMessage(msg, prev, server = findChannel(msg.channel).server) {
     body.append(messageHeader(msg, server, row));
   }
   const text = h('div', 'text');
-  if (GIF_URL.test(msg.text)) appendGif(text, msg.text);
+  if (msg.meta?.poll) text.append(pollView(msg, canIn(server, PERMS.SEND_MESSAGES)));
+  else if (GIF_URL.test(msg.text)) appendGif(text, msg.text);
   else appendRich(text, msg.text);
   if (msg.editedAt) {
     const tag = h('span', 'edited', '(editado)');
@@ -291,6 +313,8 @@ function buildMessage(msg, prev, server = findChannel(msg.channel).server) {
     text.append(tag);
   }
   if (msg.text || msg.editedAt) body.append(text);
+  const preview = msg.meta?.poll ? null : previewSlot(msg.text);
+  if (preview) body.append(preview);
   if (msg.attachments?.length) body.append(attachmentsView(msg.attachments));
   if (msg.reactions?.length) body.append(reactionsView(msg, canIn(server, PERMS.SEND_MESSAGES)));
   row.dataset.id = msg.id;
@@ -378,7 +402,7 @@ function messageActions(msg, server) {
     bar.append(actionButton(msg.pinnedAt ? 'Desafixar' : 'Fixar', 'pin', () => request({ t: 'msg:pin', id: msg.id, pinned: !msg.pinnedAt })
       .then(() => toastPin(!msg.pinnedAt)).catch(fail), msg.pinnedAt ? 'on' : ''));
   }
-  if (mine(msg) && !GIF_URL.test(msg.text)) bar.append(actionButton('Editar', 'pencil', () => startEdit(msg.id)));
+  if (mine(msg) && !GIF_URL.test(msg.text) && !msg.meta?.poll) bar.append(actionButton('Editar', 'pencil', () => startEdit(msg.id)));
   if (mine(msg) || canIn(server, PERMS.MANAGE_MESSAGES)) {
     bar.append(actionButton('Excluir (Shift+clique exclui sem perguntar)', 'trash', (e) => deleteMessage(msg, e.shiftKey), 'danger-hover'));
   }
@@ -541,6 +565,19 @@ export function renderTyping() {
 }
 setInterval(() => { if (state.typing.get(state.view.channelId)?.size) renderTyping(); }, 1000);
 
+// Campo de várias linhas: Enter envia, Shift+Enter pula linha; cresce conforme o texto (até um limite)
+export function fitComposer() {
+  const input = $('chat-input');
+  input.style.height = 'auto';
+  input.style.height = `${Math.min(input.scrollHeight, Math.round(innerHeight * 0.4))}px`;
+}
+$('chat-input').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.shiftKey || e.isComposing || e.defaultPrevented) return;
+  e.preventDefault();
+  $('chat-form').requestSubmit();
+});
+$('chat-input').addEventListener('input', fitComposer);
+
 // Enquanto você digita, avisa os outros (no máximo a cada 3 s)
 $('chat-input').addEventListener('input', () => {
   const now = Date.now();
@@ -561,9 +598,10 @@ export function renderComposer() {
   const allowed = canIn(server, PERMS.SEND_MESSAGES);
   const input = $('chat-input');
   input.disabled = !allowed;
-  const label = channel.type === 'music' ? channel.name : `#${channel.name}`;
-  input.placeholder = allowed ? `Conversar em ${label}` : 'Você não tem permissão para enviar mensagens neste canal.';
-  $('btn-emoji').disabled = $('btn-gif').disabled = $('btn-attach').disabled = !allowed;
+  const others = server?.kind === 'dm' ? server.members.filter((m) => m.id !== state.me?.id).map((m) => m.name) : null;
+  const label = server?.dmName || (others ? others.join(', ') : channel.type === 'music' ? channel.name : `#${channel.name}`);
+  input.placeholder = allowed ? `Conversar ${others && !server.dmName ? 'com' : 'em'} ${label}` : 'Você não tem permissão para enviar mensagens neste canal.';
+  $('btn-emoji').disabled = $('btn-gif').disabled = $('btn-attach').disabled = $('btn-voice').disabled = !allowed;
 }
 
 // Esc cancela a resposta; seta para cima com o campo vazio edita a sua última mensagem (como no Discord)
@@ -585,6 +623,7 @@ $('chat-form').addEventListener('submit', async (e) => {
   const replyTo = replying?.id;
   const encoded = encode(text);
   input.value = '';
+  fitComposer();
   lastTypingSent = 0;
   cancelReply();
   // Anexos ainda subindo: espera terminar (a mensagem sai junto, como no Discord)

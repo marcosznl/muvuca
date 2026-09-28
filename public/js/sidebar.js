@@ -2,7 +2,7 @@
 import { $, h, makeAvatar, paintServerIcon, toast, showBanner, store } from './util.js';
 import { openProfileEditor } from './profile.js';
 import { icon } from './icons.js';
-import { state, currentServer, canIn, PERMS, serverUnread, serverMentions, statusOf, STATUS_LABEL } from './state.js';
+import { state, currentServer, canIn, PERMS, serverUnread, serverMentions, statusOf, STATUS_LABEL, isMuted } from './state.js';
 import { soundsOn, setSounds } from './sounds.js';
 import { enablePush, disablePush, pushEnabled } from './push.js';
 import { request } from './net.js';
@@ -11,6 +11,9 @@ import { selectServer, selectChannel, selectGames } from './app.js';
 import { joinVoice, leaveVoice, watchStream, voiceChannelId, speakingNow } from './voice.js';
 import { musicChannelId } from './music.js';
 import { openServerSettings, openInviteDialog } from './settings.js';
+import { dmRailItem, renderDmSidebar, dmTitle } from './dms.js';
+import { THEMES, currentTheme, setTheme } from './theme.js';
+import { openQuickSwitch } from './quick-switch.js';
 
 // ---------- Coluna de servidores ----------
 
@@ -25,8 +28,8 @@ export function renderRail() {
   gamesBtn.append(icon('gamepad', 28));
   gamesBtn.onclick = selectGames;
   gamesItem.append(h('span', 'rail-pill'), gamesBtn);
-  rail.append(gamesItem, h('div', 'rail-sep'));
-  for (const s of state.servers) {
+  rail.append(dmRailItem(), gamesItem, h('div', 'rail-sep'));
+  for (const s of state.servers.filter((x) => x.kind !== 'dm')) {
     const item = h('div', 'rail-item');
     item.classList.toggle('active', s.id === state.view.serverId);
     item.classList.toggle('unread', s.id !== state.view.serverId && serverUnread(s) > 0);
@@ -84,6 +87,7 @@ function openAddServer() {
 // ---------- Cabeçalho e menu do servidor ----------
 
 export function renderServerHeader() {
+  if (state.view.dms) return; // a lista de conversas desenha o próprio cabeçalho
   const s = currentServer();
   const header = $('server-name');
   header.replaceChildren();
@@ -104,6 +108,9 @@ export function serverMenu(s, x, y) {
     manage && { label: 'Configurações do servidor', icon: 'settings', onClick: () => openServerSettings(s.id) },
     canIn(s, PERMS.MANAGE_CHANNELS) && { label: 'Criar canal', icon: 'plus', onClick: () => createChannel(s, 'text') },
     canIn(s, PERMS.MANAGE_CHANNELS) && { label: 'Criar categoria', icon: 'plus', onClick: () => createCategory(s) },
+    state.mutes.has(s.id)
+      ? { label: 'Reativar som do servidor', icon: 'bell', onClick: () => setMute(s.id, false) }
+      : { label: 'Silenciar servidor', icon: 'volume-off', onClick: () => setMute(s.id, true) },
     'sep',
     isOwner
       ? !s.home && { label: 'Excluir servidor', icon: 'trash', danger: true, onClick: () => deleteServer(s) }
@@ -189,14 +196,33 @@ export function createChannel(s, type = 'text', categoryId = null) {
 }
 
 function channelMenu(s, c, x, y) {
-  if (!canIn(s, PERMS.MANAGE_CHANNELS)) return;
+  const manage = canIn(s, PERMS.MANAGE_CHANNELS);
+  const muted = state.mutes.has(c.id);
   contextMenu(x, y, [
-    c.type === 'voice'
+    c.type !== 'voice' && { label: muted ? 'Reativar som do canal' : 'Silenciar canal', icon: muted ? 'bell' : 'volume-off', onClick: () => setMute(c.id, !muted) },
+    manage && 'sep',
+    manage && (c.type === 'voice'
       ? { label: 'Configurações do canal', icon: 'settings', onClick: () => voiceSettings(c) }
-      : { label: 'Renomear canal', icon: 'pencil', onClick: () => renameChannel(c) },
-    { label: 'Mover para categoria', icon: 'chevron-down', onClick: () => pickCategory(s, c) },
-    { label: 'Excluir canal', icon: 'trash', danger: true, onClick: () => deleteChannel(c) },
+      : { label: 'Renomear canal', icon: 'pencil', onClick: () => renameChannel(c) }),
+    manage && c.type !== 'voice' && { label: c.topic ? 'Editar tópico' : 'Definir tópico', icon: 'pencil', onClick: () => editTopic(c) },
+    manage && { label: 'Mover para categoria', icon: 'chevron-down', onClick: () => pickCategory(s, c) },
+    manage && { label: 'Excluir canal', icon: 'trash', danger: true, onClick: () => deleteChannel(c) },
   ]);
+}
+
+// Silenciar: sem destaque de não lida, sem som e sem notificação (menções ainda aparecem no número vermelho)
+function setMute(target, muted) {
+  request({ t: 'mute:set', target, muted }).then(() => toast(muted ? 'Silenciado. Menções ainda aparecem no número vermelho.' : 'Som reativado.'))
+    .catch((err) => showBanner(err.message, { timeout: 4000 }));
+}
+
+async function editTopic(c) {
+  const topic = await promptText({
+    title: `Tópico de #${c.name}`, subtitle: 'Uma frase que aparece no topo do canal, dizendo para que ele serve.',
+    label: 'Tópico', value: c.topic ?? '', maxLength: 160, allowEmpty: true, confirm: 'Salvar',
+  });
+  if (topic === null || topic === undefined) return;
+  request({ t: 'channel:topic', channelId: c.id, topic }).catch((err) => showBanner(err.message, { timeout: 4000 }));
 }
 
 async function renameChannel(c) {
@@ -483,9 +509,12 @@ function channelItem(s, c, canManage) {
 
   if (c.type === 'text') {
     // Não lida: nome em destaque; o número vermelho é só para quando te mencionaram (como no Discord)
-    const unread = state.unread[c.id] || 0;
+    const muted = isMuted(c.id, s.id);
+    const unread = muted ? 0 : state.unread[c.id] || 0;
     const mentions = state.mentions[c.id] || 0;
     btn.classList.toggle('unread', unread > 0);
+    btn.classList.toggle('muted', muted);
+    if (c.topic) btn.title = c.topic;
     btn.append(icon('hash'), h('span', 'name', c.name));
     if (mentions) btn.append(h('span', 'badge', mentions > 99 ? '99+' : String(mentions)));
     btn.onclick = () => selectChannel(c.id);
@@ -535,16 +564,18 @@ function channelItem(s, c, canManage) {
       channelMenu(s, c, r.right, r.bottom);
     };
     btn.append(gear);
-    btn.oncontextmenu = (e) => { e.preventDefault(); channelMenu(s, c, e.clientX, e.clientY); };
     li.draggable = true;
     li.ondragstart = (e) => { e.stopPropagation(); startDrag(e, 'channel', c.id, li); };
   }
+  // Botão direito: silenciar (todo mundo) e editar (quem gerencia)
+  btn.oncontextmenu = (e) => { e.preventDefault(); channelMenu(s, c, e.clientX, e.clientY); };
   return li;
 }
 
 export function renderChannels() {
   if (drag) { renderPending = true; return; }
   if (state.view.games) return; // na área de jogos a coluna mostra as salas (não pode ser apagada)
+  if (state.view.dms) return renderDmSidebar();
   const s = currentServer();
   const box = $('channel-list');
   box.replaceChildren();
@@ -611,6 +642,9 @@ function statusMenu(x, y) {
     pushEnabled()
       ? { label: 'Desativar notificações aqui', icon: 'bell', onClick: disablePush }
       : { label: 'Ativar notificações', icon: 'bell', onClick: enablePush },
+    { label: 'Ir para… (Ctrl+K)', icon: 'search', onClick: openQuickSwitch },
+    'sep',
+    ...THEMES.map(([id, label]) => ({ label: `Tema: ${label}${currentTheme() === id ? '  ✓' : ''}`, onClick: () => setTheme(id) })),
   ]);
 }
 
@@ -633,7 +667,7 @@ export function renderVoicePanel() {
   if (!channelId) return;
   const s = state.servers.find((x) => x.channels.some((c) => c.id === channelId));
   const c = s?.channels.find((x) => x.id === channelId);
-  $('vp-channel').textContent = `${c?.name ?? '?'} / ${s?.name ?? '?'}`;
+  $('vp-channel').textContent = s?.kind === 'dm' ? `Chamada com ${dmTitle(s)}` : `${c?.name ?? '?'} / ${s?.name ?? '?'}`;
 }
 
 $('vp-channel').onclick = () => { const id = voiceChannelId(); if (id) selectChannel(id); };

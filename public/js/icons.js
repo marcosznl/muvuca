@@ -7,6 +7,8 @@ const WAVE_1 = '<path class="w1" d="M15.1 8.3a1 1 0 0 1 1.4 0 5 5 0 0 1 0 7.4 1 
 const WAVE_2 = '<path class="w2" d="M18 5.4a1 1 0 0 1 1.4 0 9 9 0 0 1 0 13.2 1 1 0 0 1-1.4-1.4 7 7 0 0 0 0-10.4 1 1 0 0 1 0-1.4Z"/>';
 const MONITOR = 'M4 3a3 3 0 0 0-3 3v9a3 3 0 0 0 3 3h7v2H8a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2h-3v-2h7a3 3 0 0 0 3-3V6a3 3 0 0 0-3-3H4Z';
 export const ICONS = {
+  pause: '<rect x="6" y="4" width="4.5" height="16" rx="1.2"/><rect x="13.5" y="4" width="4.5" height="16" rx="1.2"/>',
+  chat: '<path d="M4 3h16a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H9l-4.4 3.5A1 1 0 0 1 3 20.7V5a2 2 0 0 1 1-2Zm4 6.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm4 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm4 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z"/>',
   // Ondas sonoras (modo música: som puro, sem supressão de ruído)
   waveform: '<rect x="2" y="10" width="2.4" height="4" rx="1.2"/><rect x="6.2" y="6.5" width="2.4" height="11" rx="1.2"/><rect x="10.4" y="3" width="2.4" height="18" rx="1.2"/><rect x="14.6" y="7.5" width="2.4" height="9" rx="1.2"/><rect x="18.8" y="9.5" width="2.4" height="5" rx="1.2"/>',
   'arrow-right': `<g ${STROKE}><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></g>`,
@@ -86,6 +88,9 @@ Object.assign(ICONS, {
   'player-play': '<path d="M7 4.5a1 1 0 0 1 1.5-.9l11 7.5a1 1 0 0 1 0 1.8l-11 7.5A1 1 0 0 1 7 19.5v-15Z"/>',
   search: `<g ${STROKE}><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></g>`,
   check: `<path ${STROKE} d="m5 12 5 5 9-10"/>`,
+  phone: '<path d="M6.6 2.2a1.6 1.6 0 0 1 1.9.9l1.4 3.3a1.6 1.6 0 0 1-.4 1.8L7.8 9.7a13 13 0 0 0 6.5 6.5l1.5-1.7a1.6 1.6 0 0 1 1.8-.4l3.3 1.4a1.6 1.6 0 0 1 .9 1.9l-.7 2.6A2.2 2.2 0 0 1 19 21.6C9.8 21.2 2.8 14.2 2.4 5a2.2 2.2 0 0 1 1.6-2.1l2.6-.7Z"/>',
+  file: '<path d="M6 2a3 3 0 0 0-3 3v14a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3V9.4a2 2 0 0 0-.6-1.4l-5.4-5.4A2 2 0 0 0 13.6 2H6Zm7 1.8V8a1 1 0 0 0 1 1h4.2L13 3.8Z"/>',
+  download: `<path ${STROKE} d="M12 4v11m-5-5 5 5 5-5M5 20h14"/>`,
 });
 
 // Ícones fixos do HTML (<button data-icon="...">)

@@ -14,10 +14,13 @@ import tanks from './games/tanks.js';
 import agar from './games/agar.js';
 import velha from './games/velha.js';
 import cartas from './games/cartas.js';
+import desenho from './games/desenho.js';
+import stop from './games/stop.js';
+import impostor from './games/impostor.js';
 
-const GAME_INFO = { bomberman, tron, tanks, agar, velha, cartas };
+const GAME_INFO = { bomberman, tron, tanks, agar, velha, cartas, desenho, stop, impostor };
 
-const games = { list: [], rooms: [], room: null, snaps: [], loaded: false, week: [] };
+const games = { list: [], rooms: [], room: null, snaps: [], loaded: false, week: [], all: [], lbTab: 'week', chat: [] };
 
 export const inGames = () => !!state.view.games;
 const myRoom = () => games.room;
@@ -45,18 +48,102 @@ export function onGameState(m) {
   if (!games.room || m.roomId !== games.room.id) return;
   games.snaps.push({ at: performance.now(), s: m.state });
   if (games.snaps.length > 3) games.snaps.shift();
+  if (GAME_INFO[games.room.game]?.dom) scheduleDom(); // jogos de tela comum (não canvas) redesenham quando muda
+}
+
+// Eventos na hora (traços do desenho)
+export function onGameEvents(m) {
+  if (!games.room || m.roomId !== games.room.id) return;
+  GAME_INFO[games.room.game]?.onEvents?.(m.events, domCtx());
+}
+
+// ---------- Chat da sala ----------
+
+export function onGameChatlog(m) {
+  if (games.room?.id !== m.roomId) return;
+  games.chat = m.lines;
+  renderChatLog();
+}
+
+export function onGameChat(m) {
+  if (games.room?.id !== m.roomId) return;
+  games.chat.push(m.line);
+  if (games.chat.length > 80) games.chat.shift();
+  renderChatLog();
+}
+
+function renderChatLog() {
+  const log = document.getElementById('game-chat-log');
+  if (!log) return;
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  log.replaceChildren();
+  for (const l of games.chat) {
+    const row = h('div', `game-chat-line ${l.kind ?? ''}`.trim());
+    if (l.userId) row.append(h('strong', '', `${l.name}: `));
+    row.append(l.text);
+    log.append(row);
+  }
+  if (atBottom || games.chat.at(-1)?.userId === state.me?.id) log.scrollTop = log.scrollHeight;
+}
+
+function chatPanel(r) {
+  const panel = h('div', 'game-chat');
+  const log = h('div', 'game-chat-log');
+  log.id = 'game-chat-log';
+  const form = h('form', 'game-chat-form');
+  const input = h('input');
+  input.id = 'game-chat-input';
+  input.maxLength = 200;
+  input.autocomplete = 'off';
+  input.placeholder = GAME_INFO[r.game]?.chatPlaceholder ?? 'Conversar na sala…';
+  form.append(input);
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    request({ t: 'game:chat', roomId: r.id, text }).catch(fail);
+  };
+  panel.append(h('div', 'game-chat-title', 'Chat da sala'), log, form);
+  return panel;
+}
+
+// ---------- Jogos de tela comum (Stop, Impostor, Desenha aí) ----------
+
+const domCtx = () => ({
+  room: games.room,
+  send: (input) => send({ t: 'game:input', roomId: games.room.id, ...input }),
+  request,
+  me: state.me?.id,
+  isPlayer: amPlayer(),
+  focusChat: () => document.getElementById('game-chat-input')?.focus(),
+});
+let domPending = false;
+function scheduleDom() {
+  if (domPending) return;
+  domPending = true;
+  requestAnimationFrame(() => { domPending = false; renderDom(); });
+}
+function renderDom() {
+  const el = document.getElementById('game-dom');
+  const s = games.snaps.at(-1)?.s;
+  if (!el || !s || !games.room) return;
+  const out = GAME_INFO[games.room.game].render(el, s, domCtx());
+  updateStatus(out ?? {});
 }
 
 export function onGameLeft(m) {
   if (games.room?.id !== m.roomId) return;
   games.room = null;
   games.snaps = [];
+  games.chat = [];
   if (inGames()) { renderGamesSidebar(); renderGamesView(); }
 }
 
-// Placar da semana (chega ao abrir os jogos e sempre que uma partida com 2+ pessoas termina)
+// Placar da semana e de sempre (chega ao abrir os jogos e sempre que uma partida com 2+ pessoas termina)
 export function onLeaderboard(m) {
   games.week = m.week ?? [];
+  games.all = m.all ?? games.all;
   if (inGames() && !games.room) renderGamesView();
 }
 
@@ -71,7 +158,7 @@ export function openGames() {
 // ---------- Ações ----------
 
 async function createRoom(game) {
-  try { games.room = (await request({ t: 'game:create', game })).room; games.snaps = []; } catch (err) { return fail(err); }
+  try { games.room = (await request({ t: 'game:create', game })).room; games.snaps = []; games.chat = []; } catch (err) { return fail(err); }
   renderGamesSidebar();
   renderGamesView();
 }
@@ -81,7 +168,7 @@ export const enterRoom = (roomId) => joinRoom(roomId);
 
 async function joinRoom(roomId, watch = false) {
   if (games.room?.id === roomId) return renderGamesView();
-  try { games.room = (await request({ t: 'game:join', roomId, watch })).room; games.snaps = []; } catch (err) { return fail(err); }
+  try { games.chat = []; games.room = (await request({ t: 'game:join', roomId, watch })).room; games.snaps = []; } catch (err) { return fail(err); }
   renderGamesSidebar();
   renderGamesView();
 }
@@ -149,7 +236,10 @@ export function renderGamesView() {
   $('view-icon').replaceChildren(icon('gamepad', 22));
   $('view-title').textContent = games.room ? `Sala de ${roomHost(games.room)} — ${GAME_INFO[games.room.game]?.title}` : 'Jogos';
   view.replaceChildren(games.room ? roomView(games.room) : lobbyView());
-  if (games.room) startDrawing();
+  if (games.room) {
+    renderChatLog();
+    if (GAME_INFO[games.room.game]?.dom) { GAME_INFO[games.room.game].mount?.(domCtx()); renderDom(); } else startDrawing();
+  }
 }
 
 const roomHost = (r) => r.players.find((p) => p.id === r.hostId)?.name ?? 'alguém';
@@ -158,14 +248,24 @@ const roomHost = (r) => r.players.find((p) => p.id === r.hostId)?.name ?? 'algu�
 function leaderboardCard() {
   const card = h('div', 'leaderboard');
   const head = h('div', 'leaderboard-head');
-  head.append(icon('trophy', 18), h('strong', '', 'Placar da semana'), h('span', 'muted small', 'últimos 7 dias'));
+  const tabs = h('div', 'lb-tabs');
+  for (const [id, label] of [['week', 'Semana'], ['all', 'Sempre']]) {
+    const b = h('button', games.lbTab === id ? 'lb-tab on' : 'lb-tab', label);
+    b.type = 'button';
+    b.onclick = () => { games.lbTab = id; renderGamesView(); };
+    tabs.append(b);
+  }
+  head.append(icon('trophy', 18), h('strong', '', 'Placar'), tabs);
   card.append(head);
-  if (!games.week.length) {
-    card.append(h('p', 'muted small', 'Ninguém venceu uma partida com 2 ou mais pessoas nesta semana. Seja o primeiro!'));
+  const rows = games.lbTab === 'all' ? games.all : games.week;
+  if (!rows.length) {
+    card.append(h('p', 'muted small', games.lbTab === 'all'
+      ? 'Ninguém venceu uma partida com 2 ou mais pessoas ainda. Seja o primeiro!'
+      : 'Ninguém venceu uma partida com 2 ou mais pessoas nesta semana. Seja o primeiro!'));
     return card;
   }
   const list = h('ol', 'leaderboard-list');
-  games.week.forEach((r, i) => {
+  rows.forEach((r, i) => {
     const li = h('li', r.userId === state.me?.id ? 'me' : '');
     li.append(h('span', 'rank', ['🥇', '🥈', '🥉'][i] ?? `${i + 1}º`), makeAvatar(r.name, 'sm', r.userId), h('span', 'lb-name', r.name),
       h('span', 'lb-score', `${r.wins} ${r.wins === 1 ? 'vitória' : 'vitórias'}`), h('span', 'muted small', `${r.played} ${r.played === 1 ? 'partida' : 'partidas'}`));
@@ -329,11 +429,18 @@ function roomView(r) {
   top.append(players, side);
 
   const stage = h('div', 'game-stage');
-  const canvas = h('canvas', 'game-canvas');
-  canvas.id = 'game-canvas';
   const overlay = h('div', 'game-overlay');
   overlay.id = 'game-overlay';
-  stage.append(canvas, overlay);
+  if (GAME_INFO[r.game]?.dom) {
+    const dom = h('div', 'game-dom');
+    dom.id = 'game-dom';
+    stage.classList.add('dom');
+    stage.append(dom, overlay);
+  } else {
+    const canvas = h('canvas', 'game-canvas');
+    canvas.id = 'game-canvas';
+    stage.append(canvas, overlay);
+  }
   if (r.status === 'waiting' && !games.snaps.length) {
     overlay.append(h('div', 'game-overlay-box', r.players.length < 2
       ? 'Chame alguém para jogar (dá para começar sozinho para treinar).'
@@ -344,7 +451,9 @@ function roomView(r) {
     h('span', 'muted small', amPlayer() ? '' : 'Você está assistindo'));
   const info = GAME_INFO[r.game];
   const rules = optionsBox(r);
-  const parts = [top, ...(rules ? [rules] : []), stage];
+  const body = h('div', 'game-body');
+  body.append(stage, chatPanel(r));
+  const parts = [top, ...(rules ? [rules] : []), body];
   if (touchScreen() && info?.touch && amPlayer()) wrap.append(...parts, touchControls(info), foot);
   else wrap.append(...parts, foot);
   return wrap;
