@@ -84,14 +84,13 @@ const STREAM_AUDIO = {
 };
 
 // Qualidades de transmissão de tela (resolução + bitrate máximo)
-// Opções da janela "Transmitir tela": resolução (bitrate base a 30 FPS) e quadros por segundo
+// Opções da janela "Transmitir tela": resolução (bitrate base a 30 FPS) e quadros por segundo.
+// Teto: 1080p a 30 FPS (decisão do dono: cada pessoa assistindo usa o upload do servidor; acima disso pesa demais)
 // Cada resolução leva cópias menores ("degraus"): quando a internet de alguém aperta, ele cai um degrau só
 // (1080p → 720p → 360p) em vez de despencar direto para uma imagem ruim
 const SCREEN_RES = {
   '720': { label: '720p', width: 1280, height: 720, bitrate: 2_500_000, layers: ['360'] },
   '1080': { label: '1080p', width: 1920, height: 1080, bitrate: 4_500_000, layers: ['360', '720'] },
-  '1440': { label: '1440p', width: 2560, height: 1440, bitrate: 7_000_000, layers: ['720', '1080'] },
-  source: { label: 'Nativa', width: 3840, height: 2160, bitrate: 9_000_000, layers: ['720', '1080'], hint: 'resolução da sua tela' },
 };
 const SCREEN_LAYERS = { // largura, altura e bitrate base (a 30 FPS) de cada degrau
   '360': [640, 360, 700_000],
@@ -99,8 +98,8 @@ const SCREEN_LAYERS = { // largura, altura e bitrate base (a 30 FPS) de cada deg
   '1080': [1920, 1080, 4_500_000],
 };
 // Multiplicador do bitrate por FPS: o dobro de quadros não precisa do dobro de dados (quadros seguidos se parecem)
-const SCREEN_FPS = { 15: 0.6, 30: 1, 60: 1.35 };
-const screenBitrate = (res, fps) => Math.min(12_000_000, Math.round(SCREEN_RES[res].bitrate * SCREEN_FPS[fps]));
+const SCREEN_FPS = { 15: 0.6, 30: 1 };
+const screenBitrate = (res, fps) => Math.round(SCREEN_RES[res].bitrate * SCREEN_FPS[fps]);
 const screenLayers = (res, fps) => SCREEN_RES[res].layers.map((k) => {
   const [w, h, base] = SCREEN_LAYERS[k];
   const layerFps = k === '360' ? Math.min(fps, 30) : fps; // o degrau menor é só o "estepe": 30 FPS bastam
@@ -794,7 +793,7 @@ function openScreenDialog() {
     return row;
   };
   const resRow = group('Resolução', Object.entries(SCREEN_RES).map(([k, r]) => [k, r.label, r.hint ?? `${r.width}×${r.height}`]), 'res');
-  const fpsRow = group('Quadros por segundo', Object.keys(SCREEN_FPS).map((f) => [f, `${f} FPS`, { 15: 'mais leve', 30: 'padrão', 60: 'mais fluido' }[f]]), 'fps');
+  const fpsRow = group('Quadros por segundo', Object.keys(SCREEN_FPS).map((f) => [f, `${f} FPS`, { 15: 'mais leve', 30: 'padrão' }[f]]), 'fps');
   const audioLabel = h('label', 'check-row');
   const audioBox = h('input');
   audioBox.type = 'checkbox';
@@ -811,8 +810,7 @@ function openScreenDialog() {
     audioBox.checked = opts.audio && !IS_SAFARI;
     audioBox.disabled = IS_SAFARI;
     const mbps = (screenBitrate(opts.res, opts.fps) / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
-    summary.textContent = `Usa até ${mbps} Mbps do seu upload.` + (opts.fps === 60 || opts.res === 'source' || opts.res === '1440'
-      ? ' Pesa mais no computador: se a live travar, baixe para 1080p 30 FPS.' : '');
+    summary.textContent = `Usa até ${mbps} Mbps do seu upload. Qualidade máxima do servidor: 1080p a 30 FPS.`;
   };
   refresh();
 
@@ -895,10 +893,15 @@ async function startScreenShare({ res, fps, audio }) {
         videoCodec: 'h264',
         // O padrão do LiveKit para tela é manter a resolução e derrubar o FPS quando o PC não dá conta
         // (medido: 1080p a ~11 fps). Para live, é melhor baixar a resolução e manter a fluidez.
-        degradationPreference: fps >= 60 ? 'maintain-framerate' : 'balanced',
+        degradationPreference: 'balanced',
         ...STREAM_AUDIO,
       },
     );
+    // Safari captura na resolução nativa (ver acima): segura o teto de 1080p/30 depois de começar
+    if (IS_SAFARI) {
+      const track = room.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track?.mediaStreamTrack;
+      await track?.applyConstraints({ width: { max: 1920 }, height: { max: 1080 }, frameRate: { max: 30 } }).catch(() => {});
+    }
   } catch (err) {
     if (err.name !== 'NotAllowedError') warnDevice('tela')(err); // NotAllowed = usuário cancelou
   }
