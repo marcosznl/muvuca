@@ -6,7 +6,7 @@ import { selectGames } from './app.js';
 import { enterRoom } from './games.js';
 import { state, serverById, permsIn, PERMS, profileOf } from './state.js';
 import { can, topPosition, nameColor } from './permissions.js';
-import { request, upload } from './net.js';
+import { request, upload, api } from './net.js';
 import { openModal, button } from './dialogs.js';
 import { colorPicker, kickMember, openMemberRoles, canManageMember, myTop } from './settings.js';
 
@@ -200,6 +200,50 @@ export function openProfileCard(userId, x, y, serverId = state.view.serverId) {
   card.style.top = `${Math.max(8, Math.min(y - 60, innerHeight - r.height - 8))}px`;
   openCard = card;
   setTimeout(() => document.addEventListener('mousedown', outsideCard, true), 0);
+}
+
+// ---------- Trocar senha ----------
+// Pede a atual (confere no servidor), a nova duas vezes; os outros aparelhos da conta saem na hora
+export function openChangePassword() {
+  const form = h('form', 'form');
+  const field = (label, autocomplete) => {
+    const f = h('label', 'field');
+    const input = h('input');
+    Object.assign(input, { type: 'password', autocomplete, maxLength: 200, required: true });
+    f.append(h('span', 'field-label', label), input);
+    form.append(f);
+    return input;
+  };
+  const current = field('Senha atual', 'current-password');
+  const next = field('Senha nova', 'new-password');
+  const again = field('Repita a senha nova', 'new-password');
+  const hint = h('p', 'muted small', 'Pelo menos 6 caracteres. Os outros aparelhos conectados na sua conta vão precisar entrar de novo.');
+  const error = h('p', 'error small');
+  form.append(hint, error);
+  const save = button('Trocar senha');
+  const cancel = button('Cancelar', { kind: 'link' });
+  const modal = openModal({ title: 'Trocar senha', content: form, actions: [cancel, save] });
+  cancel.onclick = () => modal.close();
+  const submit = async (e) => {
+    e?.preventDefault();
+    error.textContent = '';
+    if (!current.value) return current.focus();
+    if (next.value.length < 6) { error.textContent = 'A senha nova precisa ter pelo menos 6 caracteres.'; return next.focus(); }
+    if (next.value !== again.value) { error.textContent = 'As duas senhas novas não são iguais.'; return again.focus(); }
+    if (next.value === current.value) { error.textContent = 'A senha nova precisa ser diferente da atual.'; return next.focus(); }
+    save.disabled = true;
+    try {
+      const r = await api('/api/password', { current: current.value, password: next.value });
+      modal.close();
+      toast(r.others ? `Senha trocada! ${r.others} ${r.others === 1 ? 'outro aparelho saiu' : 'outros aparelhos saíram'} da sua conta.` : 'Senha trocada!');
+    } catch (err) {
+      error.textContent = err.message;
+      if (/atual/.test(err.message)) { current.value = ''; current.focus(); }
+    } finally { save.disabled = false; }
+  };
+  form.onsubmit = submit;
+  save.onclick = submit;
+  setTimeout(() => current.focus(), 0);
 }
 
 // ---------- Editor de perfil ----------

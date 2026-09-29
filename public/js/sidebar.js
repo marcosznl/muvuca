@@ -1,6 +1,6 @@
 // Coluna de servidores, lista de canais, painel "Voz conectada" e painel do usuário
 import { $, h, makeAvatar, paintServerIcon, toast, showBanner, store } from './util.js';
-import { openProfileEditor } from './profile.js';
+import { openProfileEditor, openChangePassword } from './profile.js';
 import { icon } from './icons.js';
 import { state, currentServer, canIn, PERMS, serverUnread, serverMentions, statusOf, STATUS_LABEL, isMuted } from './state.js';
 import { soundsOn, setSounds } from './sounds.js';
@@ -669,6 +669,7 @@ function statusMenu(x, y) {
     'sep',
     { label: state.me.statusText ? 'Mudar status personalizado…' : 'Definir status personalizado…', icon: 'pencil', onClick: setCustomStatus },
     { label: 'Editar perfil', icon: 'user-plus', onClick: openProfileEditor },
+    { label: 'Trocar senha', icon: 'shield', onClick: openChangePassword },
     'sep',
     { label: soundsOn() ? 'Sons: ligados' : 'Sons: desligados', icon: soundsOn() ? 'volume-low' : 'volume-off', onClick: () => { setSounds(!soundsOn()); toast(soundsOn() ? 'Sons ligados.' : 'Sons desligados.'); } },
     // No app do Mac as notificações são do próprio sistema (não precisa ativar)

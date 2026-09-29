@@ -7,6 +7,9 @@
 <link rel="icon" href="/icons/icon-192.png">
 <link rel="stylesheet" href="/style.css">
 <style>
+  /* O style.css trava a rolagem (é do app); aqui a página precisa rolar */
+  html, body { height: auto; }
+  body { overflow-y: auto; }
   body { background: radial-gradient(circle at 20% 10%, #5865f2 0, #3b45d8 35%, transparent 60%), radial-gradient(circle at 85% 85%, #eb459e 0, transparent 45%), #3b45d8; min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; }
   .dl { width: min(660px, 100%); background: var(--bg-side); border-radius: 12px; padding: 32px 28px; box-shadow: 0 12px 40px rgba(0,0,0,.35); }
   .dl-head { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }
