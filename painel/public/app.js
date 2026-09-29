@@ -653,10 +653,17 @@ function mcCard(x, d) {
     !on ? h('button', { class: 'btn primary', disabled: !!x.busy, onclick: () => mcAction(x.id, 'start') }, 'Ligar') : null,
     on ? h('button', { class: 'btn', disabled: !!x.busy || x.external, onclick: () => mcAction(x.id, 'stop', `Desligar o ${x.id}?${x.players ? ` Tem ${x.players} jogando agora.` : ''} O mundo é salvo antes.`) }, 'Desligar') : null,
     on ? h('button', { class: 'btn', disabled: !!x.busy || x.external, onclick: () => mcAction(x.id, 'restart', `Reiniciar o ${x.id}?${x.players ? ` Tem ${x.players} jogando agora.` : ''}`) }, 'Reiniciar') : null,
-    h('span', { class: 'spacer' }),
-    h('button', { class: `btn ${x.id === mcSel ? 'primary' : 'ghost'} small`, onclick: () => { mcSel = x.id; openTab('minecraft'); } }, x.id === mcSel ? 'Aberto abaixo' : 'Gerenciar'));
+  );
+  // Os botões do cartão fazem só a ação deles (não trocam o servidor aberto)
+  btns.addEventListener('click', (e) => e.stopPropagation());
   const memPct = (x.rss / d.totalMem) * 100;
-  return h('div', { class: 'card' },
+  // Clicar no cartão abre os dados do servidor logo abaixo
+  const select = () => { if (mcSel !== x.id) { mcSel = x.id; openTab('minecraft'); } };
+  return h('div', {
+    class: `card mc-card${x.id === mcSel ? ' selected' : ''}`, role: 'button', tabindex: '0', 'aria-pressed': String(x.id === mcSel),
+    title: x.id === mcSel ? null : `Mostrar ${x.id} abaixo`, onclick: select,
+    onkeydown: (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); select(); } },
+  },
     h('div', { class: 'row' }, h('h2', {}, `⛏️ ${x.id}`), h('span', { class: `pill ${cls}` }, h('span', { class: 'dot' }), label), busy),
     h('div', { class: 'muted small' }, kind, ` · porta ${x.port}`),
     x.motd ? h('div', { class: 'small' }, `“${x.motd}”`) : null,
