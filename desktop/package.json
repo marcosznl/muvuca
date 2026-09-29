@@ -1,7 +1,7 @@
 {
   "name": "muvuca-desktop",
   "productName": "Muvuca",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Muvuca para Mac",
   "main": "main.js",
   "private": true,
@@ -101,6 +101,15 @@
         }
       ],
       "artifactName": "Muvuca-${version}-${arch}-windows.${ext}",
+      "extraResources": [
+        {
+          "from": "build/bin",
+          "to": "bin",
+          "filter": [
+            "muvuca-audio.exe"
+          ]
+        }
+      ],
       "signAndEditExecutable": true,
       "signExecutable": false
     },

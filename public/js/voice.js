@@ -798,8 +798,15 @@ function openScreenDialog() {
   const audioBox = h('input');
   audioBox.type = 'checkbox';
   audioLabel.append(audioBox, h('span', '', IS_SAFARI ? 'Transmitir o som (o Safari não envia som de tela; use Chrome ou Edge)' : 'Transmitir o som também'));
-  // App do Windows: o som vai do computador inteiro (o Windows não separa por app sem módulo próprio)
-  if (desktop?.platform === 'win32') audioLabel.append(h('span', 'muted small', ' — vai todo o som do computador. Se a galera ouvir a call de volta, desmarque.'));
+  // App do Windows: Windows 10 (2020+) e 11 mandam só o som do programa da janela; os mais antigos, o do computador todo
+  if (desktop?.platform === 'win32') {
+    const note = h('span', 'muted small', '');
+    audioLabel.append(note);
+    desktop.appAudioSupported?.().then((ok) => {
+      note.textContent = ok ? ' — só o som do programa da janela (a call não vai junto). Na tela inteira: tudo menos a call.'
+        : ' — este Windows manda todo o som do computador. Se a galera ouvir a call de volta, desmarque.';
+    }).catch(() => {});
+  }
   audioBox.onchange = () => { opts.audio = audioBox.checked; };
   const summary = h('p', 'muted small screen-summary');
   body.append(audioLabel, summary);
@@ -857,7 +864,8 @@ function stopMacAppAudio() {
 desktop?.onAppAudioState?.((s) => {
   if (s.error) {
     macAudioRunning = false;
-    const hint = /permiss|not authorized|declined|TCC/i.test(s.error) ? ' Libere o Muvuca em Ajustes do Sistema → Privacidade e Segurança → Gravação de Tela e Áudio do Sistema.' : '';
+    const hint = desktop?.platform === 'win32' ? ' Se continuar, transmita a tela inteira (vai o som de tudo menos a call).'
+      : /permiss|not authorized|declined|TCC/i.test(s.error) ? ' Libere o Muvuca em Ajustes do Sistema → Privacidade e Segurança → Gravação de Tela e Áudio do Sistema.' : '';
     showBanner(`A live está sem som: ${s.error}.${hint}`, { timeout: 9000 });
     return;
   }

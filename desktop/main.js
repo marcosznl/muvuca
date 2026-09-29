@@ -136,10 +136,11 @@ function setupPermissions() {
       const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 320, height: 200 }, fetchWindowIcons: true });
       const chosen = await pickSource(sources);
       if (!chosen) return callback({});
-      // Windows: o próprio Electron captura o som do sistema (loopback) junto com a imagem
-      callback({ video: chosen, ...(IS_WIN && wantAppAudio ? { audio: 'loopback' } : {}) });
-      // Mac: o Electron não captura som; o muvuca-audio (ScreenCaptureKit) pega o som do app da janela
-      if (IS_MAC && wantAppAudio && canCaptureAppAudio()) startAppAudio(chosen.id);
+      // Som só do programa da janela (Mac sempre; Windows 10 2004+): o muvuca-audio captura à parte.
+      // Windows sem esse recurso: o próprio Electron manda o som do computador inteiro (loopback), como antes.
+      const appAudio = wantAppAudio && canCaptureAppAudio();
+      callback({ video: chosen, ...(IS_WIN && wantAppAudio && !appAudio ? { audio: 'loopback' } : {}) });
+      if (appAudio) startAppAudio(chosen.id);
     } catch (err) {
       console.error('captura de tela', err);
       callback({});
@@ -181,14 +182,28 @@ function pickSource(sources) {
   });
 }
 
-// ---------- Som da live no Mac (som só do app da janela transmitida) ----------
+// ---------- Som da live (som só do app da janela transmitida) ----------
 // O site avisa se a pessoa quer transmitir o som (opção da janela "Transmitir tela"); ao escolher a janela,
 // o muvuca-audio começa e o áudio (float32, 48 kHz, estéreo) vai em pedaços para o site publicar na call.
+// Mac: ScreenCaptureKit (muvuca-audio). Windows: captura por processo (muvuca-audio.exe, Windows 10 2004+);
+// sem ela, o Windows volta ao som do computador inteiro (loopback do próprio Electron).
 
 let wantAppAudio = false;
 let audioProc = null;
-const canCaptureAppAudio = () => process.platform === 'darwin' && Number(os.release().split('.')[0]) >= 22; // macOS 13+
-const helperPath = () => (app.isPackaged ? path.join(process.resourcesPath, 'bin', 'muvuca-audio') : path.join(__dirname, 'build', 'bin', 'muvuca-audio'));
+let winAppAudio = false; // o muvuca-audio.exe conseguiu usar a captura por processo neste Windows (confere ao abrir)
+const canCaptureAppAudio = () => (process.platform === 'darwin' && Number(os.release().split('.')[0]) >= 22) || (IS_WIN && winAppAudio); // macOS 13+
+const HELPER = IS_WIN ? 'muvuca-audio.exe' : 'muvuca-audio';
+const helperPath = () => (app.isPackaged ? path.join(process.resourcesPath, 'bin', HELPER) : path.join(__dirname, 'build', 'bin', HELPER));
+
+// Windows: testa uma vez se a captura por programa funciona aqui (Windows 10 2004 ou mais novo)
+function probeWinAppAudio() {
+  if (!IS_WIN) return;
+  try {
+    const p = spawn(helperPath(), ['--probe'], { stdio: 'ignore', windowsHide: true });
+    p.on('exit', (code) => { winAppAudio = code === 0; });
+    p.on('error', () => { winAppAudio = false; });
+  } catch { winAppAudio = false; }
+}
 
 function stopAppAudio() {
   if (!audioProc) return;
@@ -204,10 +219,13 @@ function startAppAudio(sourceId) {
   const args = kind === 'window' ? ['--window', id] : ['--display', id];
   if (kind !== 'window') {
     // Tela inteira: tira o som do próprio Muvuca (senão a galera ouve a call de volta)
-    for (const m of app.getAppMetrics()) args.push('--exclude-pid', String(m.pid));
-    args.push('--exclude-bundle', app.isPackaged ? 'br.malegna.muvuca' : 'com.github.Electron');
+    if (IS_WIN) args.push('--exclude-pid', String(process.pid)); // o Windows tira o processo e todos os filhos dele
+    else {
+      for (const m of app.getAppMetrics()) args.push('--exclude-pid', String(m.pid));
+      args.push('--exclude-bundle', app.isPackaged ? 'br.malegna.muvuca' : 'com.github.Electron');
+    }
   }
-  const p = spawn(helperPath(), args, { stdio: ['pipe', 'pipe', 'pipe'] });
+  const p = spawn(helperPath(), args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
   audioProc = p;
   let rest = Buffer.alloc(0);
   let pending = [];
@@ -416,6 +434,7 @@ app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(
 // ---------- Começo (a atualização automática fica no updater.js) ----------
 
 app.whenReady().then(() => {
+  probeWinAppAudio();
   settings = loadSettings();
   startHidden = process.argv.includes('--escondido') || (IS_MAC && app.getLoginItemSettings().wasOpenedAsHidden);
   setupPermissions();
