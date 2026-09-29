@@ -456,6 +456,7 @@ class Store {
       deleteSession: p('DELETE FROM sessions WHERE token_hash = ?'),
       deleteOtherSessions: p('DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?'),
       setPassword: p('UPDATE users SET password_hash = ? WHERE id = ?'),
+      gamePlays: p('SELECT game, COUNT(*) AS n FROM game_results WHERE created_at > ? GROUP BY game'),
       purgeSessions: p('DELETE FROM sessions WHERE expires_at <= ?'),
       // servidores e membros
       server: p('SELECT * FROM servers WHERE id = ?'),
@@ -709,6 +710,10 @@ class Store {
     return !!row && verifyPassword(password, row.password_hash);
   }
   async setPassword(userId, password) { this.q.setPassword.run(await hashPassword(password), unum(userId)); }
+  // Partidas de cada jogo nos últimos `days` dias (só para ordenar a lista; não vai para o site)
+  gamePlays(days = 90) {
+    return Object.fromEntries(this.q.gamePlays.all(Date.now() - days * 86_400_000).map((r) => [r.game, r.n]));
+  }
   deleteOtherSessions(userId, keepToken) { return this.q.deleteOtherSessions.run(unum(userId), hashToken(String(keepToken))).changes; }
   purgeExpiredSessions() { this.q.purgeSessions.run(Date.now()); }
 

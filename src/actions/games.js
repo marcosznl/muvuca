@@ -10,9 +10,14 @@ const inputTimes = new Map(); // userId -> últimos comandos (evita inundar o se
 
 export default {
   'games:list'() {
+    // Mais jogados primeiro (partidas dos últimos 90 dias; empate fica na ordem de sempre).
+    // Só a ordem vai para o site — a contagem não aparece para ninguém.
+    const plays = db.gamePlays(90);
+    const order = Object.keys(GAMES);
+    const sorted = Object.entries(GAMES).sort(([a], [b]) => (plays[b] ?? 0) - (plays[a] ?? 0) || order.indexOf(a) - order.indexOf(b));
     return {
       t: 'games:rooms',
-      games: Object.entries(GAMES).map(([id, g]) => ({
+      games: sorted.map(([id, g]) => ({
         id, name: g.name, maxPlayers: g.maxPlayers, minPlayers: g.minPlayers ?? 1,
         options: Object.fromEntries(Object.entries(g.options ?? {}).map(([k, o]) => [k, { label: o.label, hint: o.hint }])),
       })),

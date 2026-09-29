@@ -282,7 +282,10 @@ function lobbyView() {
   wrap.append(leaderboardCard());
   const cards = h('div', 'game-cards'); // duas colunas (uma no celular)
   wrap.append(cards);
-  for (const [id, info] of Object.entries(GAME_INFO)) {
+  // Ordem que o servidor manda (mais jogados primeiro); jogos que ele não listou vão para o fim
+  const order = games.list.map((g) => g.id);
+  const rank = (id) => (order.includes(id) ? order.indexOf(id) : order.length);
+  for (const [id, info] of Object.entries(GAME_INFO).sort(([a], [b]) => rank(a) - rank(b))) {
     const card = h('div', 'game-card');
     const art = h('div', 'game-art', info.emoji);
     const body = h('div', 'game-card-body');
