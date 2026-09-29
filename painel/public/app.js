@@ -533,7 +533,7 @@ async function viewBackups() {
     b.warnings.length ? h('div', { class: 'alerts section' }, b.warnings.map((w) => h('div', { class: 'alert warn mono' }, w))) : null,
     h('div', { class: 'section grid two' },
       h('div', { class: 'card' }, h('h2', {}, 'No Mac (data/backups)'), b.local ? table(cols, b.local, { empty: 'Nenhum backup ainda.' }) : h('p', { class: 'empty' }, 'Pasta não encontrada.')),
-      h('div', { class: 'card' }, h('h2', {}, 'No iCloud Drive'), b.cloud ? table(cols, b.cloud, { empty: 'Nenhum backup no iCloud.' }) : h('p', { class: 'empty' }, 'O painel não conseguiu ler a pasta do iCloud.')),
+      h('div', { class: 'card' }, h('h2', {}, 'No iCloud Drive'), b.cloud ? table(cols, b.cloud, { empty: 'Nenhum backup no iCloud.' }) : h('p', { class: 'empty' }, `O painel não conseguiu ler a pasta do iCloud${b.cloudError ? ` (${b.cloudError})` : ''}. O backup continua indo para lá normalmente — veja em “Últimos resultados”.`)),
     ),
     h('div', { class: 'section card' }, h('h2', {}, 'Últimos resultados'), h('pre', { class: 'log' }, b.results.join('\n') || '(nenhum)')),
   );
