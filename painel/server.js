@@ -453,7 +453,14 @@ async function readAccess(maxBytes = 3_000_000) {
 async function accessLog(lines) {
   return (await readAccess()).slice(-lines).reverse();
 }
+// O log do Caddy é lido e interpretado no máximo a cada 30 s
+let accessCache = { at: 0, data: null };
 async function accessSummary() {
+  if (Date.now() - accessCache.at < 30_000 && accessCache.data) return accessCache.data;
+  accessCache = { at: Date.now(), data: await accessSummaryNow() };
+  return accessCache.data;
+}
+async function accessSummaryNow() {
   const since = Date.now() - DAY;
   const rows = (await readAccess(8_000_000)).filter((r) => r.at > since);
   const by = (key) => Object.entries(rows.reduce((m, r) => { m[r[key]] = (m[r[key]] ?? 0) + 1; return m; }, {}))
@@ -484,6 +491,8 @@ function listCloud() {
   if (cloudCache.at && !cloudPending) { refreshCloud(); return Promise.resolve(cloudCache); }
   return refreshCloud();
 }
+setTimeout(() => listCloud(), 2000); // já lê ao ligar: a primeira visita não espera o prazo
+
 function refreshCloud() {
   cloudPending ??= new Promise((resolve) => {
     execFile('/usr/bin/find', [CLOUD, '-maxdepth', '1', '-name', 'malegna-*.tar.gz', '-exec', '/usr/bin/stat', '-f', '%N|%z|%m', '{}', '+'],

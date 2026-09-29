@@ -122,12 +122,23 @@ function openTab(name) {
   const [title, fn, every] = TABS[tab];
   $('#title').textContent = title;
   const view = $('#view');
-  view.replaceChildren(h('p', { class: 'muted' }, 'Carregando…'));
+  // Mesma aba (ex.: trocou o período do gráfico): mantém o conteúdo até o novo chegar, sem piscar
+  if (view.dataset.tab !== name) {
+    view.replaceChildren(h('p', { class: 'muted' }, 'Carregando…'));
+    view.dataset.tab = name;
+  }
   stopTimers();
   const load = async (first) => {
+    // Atualização automática: pula se a aba do navegador está escondida ou se você está mexendo num campo
+    const typing = view.contains(document.activeElement) && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
+    if (!first && (document.hidden || typing)) return;
     try {
       const node = await fn(first);
-      if (node && tab === name) view.replaceChildren(node);
+      if (node && tab === name) {
+        const y = window.scrollY;
+        view.replaceChildren(node);
+        if (!first) window.scrollTo(0, y); // continua onde estava
+      }
       $('#updated').textContent = `Atualizado ${new Date().toLocaleTimeString('pt-BR')}`;
     } catch (err) {
       if (first) view.replaceChildren(h('p', { class: 'error' }, err.message));
@@ -237,7 +248,11 @@ let bkCache = null;
 async function viewGeral(first) {
   const [s, ov, hist] = await Promise.all([api('/api/status'), api('/api/overview'), api(`/api/history?hours=${range}`)]);
   status = s;
-  if (first || !bkCache || Date.now() - bkCache.t > 60000) bkCache = { t: Date.now(), data: await api('/api/backups').catch(() => null) };
+  // Backups entram nos alertas sem segurar a tela: usa o que já tem e atualiza por trás
+  if (!bkCache || Date.now() - bkCache.t > 60000) {
+    bkCache = { t: Date.now(), data: bkCache?.data ?? null };
+    api('/api/backups').then((d) => { bkCache = { t: Date.now(), data: d }; }).catch(() => {});
+  }
   const m = s.main ?? {};
   const inVoice = (m.voice ?? []).reduce((n, v) => n + v.count, 0);
   const lives = (m.voice ?? []).reduce((n, v) => n + (v.people ?? []).filter((p) => p.streaming).length, 0);
