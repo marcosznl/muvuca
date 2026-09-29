@@ -17,7 +17,10 @@ import * as impostor from './impostor.js';
 // Jogos disponíveis (o site mostra nome e descrição na lista).
 // Cada jogo é uma classe com input(), tick(ms), eliminate(id), state(), over e winner.
 export const GAMES = {
-  bomberman: { name: 'Bomberman', maxPlayers: bomberman.MAX_PLAYERS, create: (players) => new bomberman.Bomberman(players) },
+  bomberman: {
+    name: 'Bomberman', maxPlayers: bomberman.MAX_PLAYERS, options: bomberman.OPTIONS,
+    create: (players, { options }) => new bomberman.Bomberman(players, { options }),
+  },
   tron: { name: 'Tron', maxPlayers: tron.MAX_PLAYERS, create: (players) => new tron.Tron(players) },
   tanks: { name: 'Tanquinhos', maxPlayers: tanks.MAX_PLAYERS, create: (players) => new tanks.Tanks(players) },
   agar: { name: 'Agar', maxPlayers: agar.MAX_PLAYERS, create: (players) => new agar.Agar(players) },
@@ -38,6 +41,7 @@ const TICK_MS = 50;       // 20 atualizações por segundo
 const CHAT_KEEP = 50;     // últimas mensagens do chat da sala
 const MAX_ROOMS = 10;
 const END_PAUSE_MS = 2500; // mostra o resultado antes de voltar para a sala
+const SERIES_NEXT_MS = 6000; // série: a próxima partida começa sozinha depois disso
 
 const rooms = new Map(); // id -> sala
 
@@ -54,7 +58,35 @@ function publicRoom(r) {
     scores: r.scores,
     round: r.round,
     lastWinner: r.lastWinner,
+    // Série (melhor de 3/5): vitórias de cada um nesta série
+    series: seriesTarget(r) > 1 ? { target: seriesTarget(r), wins: r.seriesWins ?? {} } : null,
   };
+}
+
+// Série: jogos com a opção "serie" (ex.: Bomberman); 1 = partida única
+const seriesTarget = (r) => (GAMES[r.game].options?.serie ? Number(r.options?.serie) || 1 : 1);
+
+// Fim de uma partida numa série: soma a vitória; se alguém fechou a série, anuncia e zera; senão, a próxima começa sozinha
+function afterSeriesMatch(r, winner) {
+  const target = seriesTarget(r);
+  if (target <= 1) return;
+  r.seriesWins ??= {};
+  const nameOf = (id) => r.engine?.players.find((p) => p.id === id)?.name ?? 'Alguém';
+  if (winner) r.seriesWins[winner] = (r.seriesWins[winner] ?? 0) + 1;
+  const need = Math.ceil(target / 2);
+  const score = Object.entries(r.seriesWins).sort((a, b) => b[1] - a[1]).map(([id, n]) => `${nameOf(id)} ${n}`).join(' × ');
+  if (winner && r.seriesWins[winner] >= need) {
+    pushLine(r, { kind: 'good', text: `🏆 ${nameOf(winner)} venceu a série (melhor de ${target})! Placar: ${score}` });
+    r.seriesWins = {};
+    return;
+  }
+  pushLine(r, { kind: 'info', text: `Série (melhor de ${target}): ${score || 'ninguém venceu essa'} — a próxima começa em ${SERIES_NEXT_MS / 1000} s` });
+  clearTimeout(r.nextTimer);
+  r.nextTimer = setTimeout(() => {
+    if (!rooms.has(r.id) || r.status !== 'waiting' || !r.players.length) return;
+    if (r.players.length < (GAMES[r.game].minPlayers ?? 1)) return;
+    beginMatch(r);
+  }, END_PAUSE_MS + SERIES_NEXT_MS);
 }
 
 export const listRooms = () => [...rooms.values()].map(publicRoom);
@@ -199,6 +231,7 @@ export function leaveRoom(userId) {
   sendToUser(userId, { t: 'game:left', roomId: r.id });
   if (!r.players.length && !r.spectators.size) {
     clearInterval(r.timer);
+    clearTimeout(r.nextTimer); // série esperando a próxima partida
     rooms.delete(r.id);
     broadcastRooms();
     return;
@@ -213,6 +246,7 @@ export function setOptions(user, roomId, options) {
   if (r.hostId !== user.id) fail('Só quem manda na sala muda as regras.');
   if (r.status === 'playing') fail('Espere a partida acabar para mudar as regras.');
   const defs = GAMES[r.game].options ?? {};
+  if (options?.serie !== undefined && options.serie !== r.options.serie) r.seriesWins = {}; // série nova
   for (const k of Object.keys(r.options)) {
     const v = options?.[k];
     if (v === undefined) continue;
@@ -229,6 +263,11 @@ export function startGame(user, roomId) {
   if (!r.players.length) fail('A sala está sem jogadores.');
   const min = GAMES[r.game].minPlayers ?? 1;
   if (r.players.length < min) fail(`${GAMES[r.game].name} precisa de pelo menos ${min} pessoas.`);
+  clearTimeout(r.nextTimer); // começou na mão antes da série começar sozinha
+  beginMatch(r);
+}
+
+function beginMatch(r) {
   r.engine = GAMES[r.game].create(r.players, { round: r.round, options: r.options });
   r.status = 'playing';
   r.round += 1;
@@ -254,6 +293,7 @@ function tick(r) {
   for (const w of winners) r.scores[w] = (r.scores[w] ?? 0) + 1;
   r.lastWinner = winner;
   recordResult(r, winners);
+  afterSeriesMatch(r, winner);
   setTimeout(() => {
     if (!rooms.has(r.id)) return;
     r.status = 'waiting';

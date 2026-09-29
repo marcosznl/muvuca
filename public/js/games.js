@@ -390,6 +390,12 @@ function touchControls(info) {
     holdKey(b, 'Space');
     box.append(b);
   }
+  // Segundo botão (ex.: detonador do Bomberman)
+  if (info.touch.action2) {
+    const b2 = h('button', 'touch-action small', info.touch.action2);
+    holdKey(b2, 'Action2');
+    box.append(b2);
+  }
   return box;
 }
 
@@ -425,6 +431,12 @@ function roomView(r) {
     chip.append(h('span', 'game-score', `🏆 ${r.scores[p.id] ?? 0}`));
     players.append(chip);
   });
+  // Série (melhor de 3/5): placar da série
+  if (r.series) {
+    const nameOf = (id) => r.players.find((p) => p.id === id)?.name ?? (/^bot(\d+)$/.test(id) ? `Robô ${id.slice(3)}` : '?');
+    const score = Object.entries(r.series.wins).sort((a, b) => b[1] - a[1]).map(([id, n]) => `${nameOf(id)} ${n}`).join(' × ');
+    players.append(h('span', 'game-series', `🏆 Melhor de ${r.series.target}${score ? `: ${score}` : ''}`));
+  }
   const free = r.maxPlayers - r.players.length;
   if (free > 0 && r.status === 'waiting') players.append(h('div', 'game-player empty', free === 1 ? '1 vaga livre' : `${free} vagas livres`));
   const side = h('div', 'game-top-actions');

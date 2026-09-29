@@ -1,8 +1,8 @@
-// Bomberman no site: desenha o mapa, bombas, fogo e personagens; manda direção segurada e bomba
+// Bomberman no site: desenha o mapa, bombas, fogo e personagens; manda direção segurada, bomba e detonar (E)
 import { h } from '../util.js';
 import { DIR_KEYS, EMOJI_FONT, blend, fitCanvas, roundRect, drawToken, drawLabel, clock, isMe } from './common.js';
 
-const ITEM_EMOJI = { bomb: '💣', fire: '🔥', speed: '⚡' };
+const ITEM_EMOJI = { bomb: '💣', fire: '🔥', speed: '⚡', kick: '👟', remote: '📡', shield: '🛡️', curse: '☠️' };
 
 // Posição de cada pessoa entre o ladrilho de saída e o de chegada
 const playerPos = (p) => [p.x + (p.tx - p.x) * p.p, p.y + (p.ty - p.y) * p.p];
@@ -44,7 +44,16 @@ function draw(canvas, snaps) {
       const c = s.grid[y * w + x];
       const px = x * tile;
       const py = y * tile;
-      if (c === '#') {
+      if (c === 'o') {
+        // Buraco: chão escuro com borda (ninguém passa; o fogo passa por cima)
+        g.fillStyle = (x + y) % 2 ? '#3a5a40' : '#3f6146';
+        g.fillRect(px, py, tile, tile);
+        g.fillStyle = '#0b0c0e';
+        g.beginPath(); g.ellipse(px + tile / 2, py + tile / 2, tile * 0.42, tile * 0.36, 0, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = '#2a2b2e';
+        g.lineWidth = Math.max(1, tile * 0.06);
+        g.stroke();
+      } else if (c === '#') {
         g.fillStyle = '#1e1f22';
         g.fillRect(px, py, tile, tile);
         g.fillStyle = '#2b2d31';
@@ -101,6 +110,11 @@ function draw(canvas, snaps) {
     g.beginPath(); g.moveTo(cx + tile * 0.15, cy - tile * 0.25); g.quadraticCurveTo(cx + tile * 0.3, cy - tile * 0.45, cx + tile * 0.2, cy - tile * 0.45); g.stroke();
     g.fillStyle = Math.floor(now / 90) % 2 ? '#ffd166' : '#ef476f';
     g.beginPath(); g.arc(cx + tile * 0.2, cy - tile * 0.45, tile * 0.07, 0, Math.PI * 2); g.fill();
+    // Bomba com detonador: luzinha vermelha piscando no meio
+    if (b.remote) {
+      g.fillStyle = Math.floor(now / 250) % 2 ? '#ff3b3b' : '#6b0000';
+      g.beginPath(); g.arc(cx, cy, tile * 0.1, 0, Math.PI * 2); g.fill();
+    }
   }
   // Pessoas
   for (const p of s.players) {
@@ -110,14 +124,30 @@ function draw(canvas, snaps) {
     const cy = y * tile + tile / 2;
     g.fillStyle = 'rgba(0,0,0,.3)';
     g.beginPath(); g.ellipse(cx, cy + tile * 0.33, tile * 0.28, tile * 0.1, 0, 0, Math.PI * 2); g.fill();
+    // Escudo: bolha azul em volta; maldição: aura roxa
+    if (p.shield || p.cursed) {
+      g.strokeStyle = p.shield ? 'rgba(88,166,255,.9)' : 'rgba(170,80,255,.9)';
+      g.lineWidth = Math.max(2, tile * 0.08);
+      g.beginPath(); g.arc(cx, cy, tile * 0.5 + Math.sin(now / 150) * tile * 0.03, 0, Math.PI * 2); g.stroke();
+    }
     drawToken(g, cx, cy, tile * 0.4, p);
-    drawLabel(g, cx, cy - tile * 0.48, p.name, tile * 0.26);
+    drawLabel(g, cx, cy - tile * 0.48, (p.cursed ? '☠️ ' : '') + p.name, tile * 0.26);
+  }
+
+  // Morte súbita: borda vermelha pulsando
+  if (s.sudden) {
+    g.strokeStyle = `rgba(237,66,69,${0.45 + 0.35 * Math.sin(now / 200)})`;
+    g.lineWidth = Math.max(3, tile * 0.18);
+    g.strokeRect(0, 0, w * tile, hh * tile);
   }
 
   const me = s.players.find((p) => isMe(p.id));
+  const extras = me ? [me.kick && '👟', me.remote && '📡 E detona', me.shield && '🛡️', me.cursed && '☠️ invertido'].filter(Boolean).join(' ') : '';
+  const warn = s.sudden ? ' · ⚠️ MORTE SÚBITA' : s.suddenIn !== null && s.suddenIn < 10_000 ? ` · ⚠️ morte súbita em ${Math.ceil(s.suddenIn / 1000)}s` : '';
   return {
-    status: clock(s.timeLeft) + (me ? ` · 💣 ${me.bombs} · 🔥 ${me.range} · ⚡ ${me.speed}` : ''),
+    status: clock(s.timeLeft) + (me ? ` · 💣 ${me.bombs} · 🔥 ${me.range} · ⚡ ${me.speed}${extras ? ` · ${extras}` : ''}` : '') + warn,
     overlay: me && !me.alive ? '💥 Você explodiu! Assistindo o resto…' : '',
+    end: s.botsWon ? '🤖 Os robôs venceram!' : undefined,
   };
 }
 
@@ -135,15 +165,19 @@ function sendDir(api) {
 export default {
   emoji: '💣',
   title: 'Bomberman',
-  desc: 'De 1 a 4 pessoas. Solte bombas, quebre os blocos, pegue power-ups e seja o último de pé.',
-  help: () => [h('span', 'kbd', '↑ ↓ ← →'), ' ou ', h('span', 'kbd', 'W A S D'), ' andam · ', h('span', 'kbd', 'Espaço'), ' solta a bomba'],
-  touch: { dpad: true, action: '💣' },
-  touchHelp: 'Setas na tela andam · 💣 solta a bomba',
+  desc: 'De 1 a 4 pessoas (e robôs). Bombas, itens como chute, detonador e escudo, 4 mapas, morte súbita e série melhor de 3 ou 5.',
+  help: () => [h('span', 'kbd', '↑ ↓ ← →'), ' ou ', h('span', 'kbd', 'W A S D'), ' andam · ', h('span', 'kbd', 'Espaço'), ' bomba · ', h('span', 'kbd', 'E'), ' detona (📡)'],
+  touch: { dpad: true, action: '💣', action2: '📡' },
+  touchHelp: 'Setas andam · 💣 bomba · 📡 detona',
   draw,
   reset() { held = []; sentDir = null; },
   keydown(e, api) {
     if (e.code === 'Space') {
       if (!e.repeat) api.send({ bomb: true });
+      return true;
+    }
+    if (e.code === 'KeyE' || e.code === 'Action2') { // detonador (📡)
+      if (!e.repeat) api.send({ act: 'boom' });
       return true;
     }
     const dir = DIR_KEYS[e.code];

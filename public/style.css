@@ -1193,6 +1193,8 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .dpad-btn.right { grid-column: 3; grid-row: 2; }
 .dpad-btn.down { grid-column: 2; grid-row: 3; }
 .touch-action { width: 84px; height: 84px; border-radius: 50%; font-size: 34px; font-family: "Apple Color Emoji", "Segoe UI Emoji", sans-serif; }
+.touch-action.small { width: 60px; height: 60px; font-size: 24px; }
+.game-series { font-size: 13px; font-weight: 600; color: var(--text-strong); background: var(--bg-side); border-radius: 12px; padding: 4px 10px; }
 .games-gap { height: 8px; }
 
 /* ======================================================================
