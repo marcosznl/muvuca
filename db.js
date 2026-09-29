@@ -610,6 +610,7 @@ class Store {
                      ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, keys = excluded.keys`),
       pushSubsOf: p('SELECT endpoint, keys FROM push_subs WHERE user_id = ?'),
       deletePushSub: p('DELETE FROM push_subs WHERE endpoint = ?'),
+      deleteUserPushSub: p('DELETE FROM push_subs WHERE user_id = ? AND endpoint = ?'),
       // soundboard
       soundsOf: p('SELECT * FROM sounds WHERE server_id = ? ORDER BY created_at'),
       sound: p('SELECT * FROM sounds WHERE id = ?'),
@@ -1156,6 +1157,7 @@ class Store {
   addPushSub(userId, endpoint, keys) { this.q.addPushSub.run(endpoint, unum(userId), JSON.stringify(keys), Date.now()); }
   pushSubs(userId) { return this.q.pushSubsOf.all(unum(userId)).map((r) => ({ endpoint: r.endpoint, keys: JSON.parse(r.keys) })); }
   deletePushSub(endpoint) { this.q.deletePushSub.run(endpoint); }
+  deleteUserPushSub(userId, endpoint) { this.q.deleteUserPushSub.run(unum(userId), endpoint); }
 
   // ---------- Músicas tocadas ----------
 

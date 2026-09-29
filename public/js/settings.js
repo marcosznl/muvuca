@@ -1,5 +1,5 @@
 // Configurações do servidor (visão geral, cargos, membros, convites), convites e menu de membro
-import { $, h, makeAvatar, paintServerIcon, showBanner, toast } from './util.js';
+import { h, makeAvatar, paintServerIcon, showBanner, toast } from './util.js';
 import { pickImage } from './profile.js';
 import { icon } from './icons.js';
 import { state, serverById, permsIn, PERMS } from './state.js';

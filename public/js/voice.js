@@ -10,7 +10,7 @@ import { renderChannels, renderUserPanel, renderVoicePanel } from './sidebar.js'
 import { applyVolume as applyMusicVolume } from './music.js';
 import { BUILTIN_SOUNDS, soundboardVolume, setSoundboardVolume, playBoardSound } from './sounds.js';
 
-const { Room, RoomEvent, Track, VideoPresets, VideoPreset, VideoQuality, ConnectionQuality, ScreenSharePresets, AudioPresets, DisconnectReason } = LivekitClient;
+const { Room, RoomEvent, Track, VideoPresets, VideoPreset, VideoQuality, ConnectionQuality, AudioPresets, DisconnectReason } = LivekitClient;
 
 // Áudio em alta fidelidade (Opus). O padrão do LiveKit é 48 kbps com DTX, que corta o início das falas.
 // A taxa de bits da voz vem da configuração do canal (padrão 128 kbps)

@@ -32,7 +32,7 @@ export const pushActions = {
     db.addPushSub(user.id, endpoint, { p256dh: k.p256dh, auth: k.auth });
   },
   'push:unsubscribe'(user, m) {
-    db.deletePushSub(String(m.endpoint ?? ''));
+    db.deleteUserPushSub(user.id, String(m.endpoint ?? '')); // só o aparelho da própria pessoa
   },
   // A aba ficou visível/escondida (com ela à vista, não precisa notificar)
   visibility(user, m, ws) {

@@ -23,7 +23,6 @@ const GAME_INFO = { bomberman, tron, tanks, agar, velha, cartas, desenho, stop, 
 const games = { list: [], rooms: [], room: null, snaps: [], loaded: false, week: [], all: [], lbTab: 'week', chat: [] };
 
 export const inGames = () => !!state.view.games;
-const myRoom = () => games.room;
 const amPlayer = () => !!games.room?.players.some((p) => p.id === state.me?.id);
 const fail = (err) => showBanner(err.message, { timeout: 4000 });
 

@@ -2,7 +2,7 @@
 import { $, store, showBanner, toast } from './util.js';
 import { icon, applyStaticIcons } from './icons.js';
 import {
-  state, serverById, currentServer, findChannel, upsertServer, removeServer, rememberTextChannel, rememberedTextChannel,
+  state, serverById, findChannel, upsertServer, removeServer, rememberTextChannel, rememberedTextChannel,
 } from './state.js';
 import { connect, disconnect, request, send, api, sessionToken, setSessionToken } from './net.js';
 import { showAuth, pendingInvite, clearInviteFromUrl } from './auth.js';
