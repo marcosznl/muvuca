@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { AUDIT_LABELS, AUDIT_GROUPS } from '../src/audit-labels.js';
 import { mcRoutes, startMinecraft, mcSummary } from './minecraft.js';
+import { speedRoutes } from './speedtest.js';
 
 const run = promisify(execFile);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -612,6 +613,15 @@ const api = {
   'POST /api/backup': async (req, res) => json(res, 200, await doBackup(req)),
   'POST /api/restart': async (req, res) => json(res, 200, await doRestart(req, await readBody(req))),
   ...mcRoutes({ json, readBody, clientIp, domain: DOMAIN }),
+  ...speedRoutes({
+    json, readBody, clientIp, audit, dataDir: path.dirname(DB_FILE),
+    // Quem está usando a internet agora (o teste de velocidade avisa antes de atrapalhar)
+    activity: () => ({
+      voice: (latest.main?.voice ?? []).reduce((n, v) => n + v.count, 0),
+      lives: (latest.main?.voice ?? []).reduce((n, v) => n + (v.people ?? []).filter((p) => p.streaming).length, 0),
+      minecraft: mcSummary().reduce((n, s) => n + (s.phase === 'running' ? s.players : 0), 0),
+    }),
+  }),
 };
 
 // Minecraft: as ações vindas do painel (e o desligar sozinho) entram na auditoria

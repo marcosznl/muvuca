@@ -59,6 +59,7 @@ export const AUDIT_LABELS = {
   'painel:logout': 'Saiu do painel',
   'painel:restart': 'Reiniciou o servidor pelo painel',
   'painel:backup': 'Fez backup pelo painel',
+  'painel:speedtest': 'Teste de velocidade da internet',
   // Minecraft (pelo painel)
   'painel:mc:start': 'Ligou servidor de Minecraft',
   'painel:mc:stop': 'Desligou servidor de Minecraft',
@@ -75,6 +76,6 @@ export const AUDIT_GROUPS = {
   seguranca: ['auth:login:fail', 'auth:register:fail', 'auth:password', 'auth:password:fail', 'painel:login', 'painel:login:fail', 'painel:logout'],
   contas: ['auth:login', 'auth:register', 'auth:logout', 'auth:password', 'voice:join'],
   moderacao: ['member:kick', 'member:roles', 'msg:delete:other', 'msg:pin', 'music:kick', 'emoji:delete', 'sound:delete', 'invite:revoke'],
-  painel: ['painel:login', 'painel:login:fail', 'painel:logout', 'painel:restart', 'painel:backup'],
+  painel: ['painel:login', 'painel:login:fail', 'painel:logout', 'painel:restart', 'painel:backup', 'painel:speedtest'],
   minecraft: ['painel:mc:start', 'painel:mc:stop', 'painel:mc:restart', 'painel:mc:autostop', 'painel:mc:wake', 'painel:mc:backup', 'painel:mc:cmd', 'painel:mc:settings'],
 };

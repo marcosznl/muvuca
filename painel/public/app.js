@@ -108,6 +108,7 @@ const TABS = {
   logs: ['Logs', viewLogs, 0],
   backups: ['Backups', viewBackups, 60000],
   minecraft: ['Minecraft', viewMinecraft, 5000],
+  internet: ['Internet', viewInternet, 4000],
   sistema: ['Sistema', viewSistema, 30000],
 };
 let tab = 'geral';
@@ -816,6 +817,79 @@ async function mcLogsView(x) {
   const pre = h('pre', { class: 'log' }, lines.length ? lines.join('\n') : '(vazio)');
   setTimeout(() => { pre.scrollTop = pre.scrollHeight; }, 0);
   return h('div', {}, h('div', { class: 'row' }, sel, h('span', { class: 'muted small' }, 'Atualiza sozinho a cada 5 s.')), h('div', { class: 'section' }, pre));
+}
+
+// ---------- Internet (teste de velocidade, só no botão) ----------
+const mbps = (b) => (b == null ? '—' : `${(b / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: b < 1e7 ? 1 : 0 })} Mbps`);
+// Responsividade (RPM): quanto a conexão engasga quando está cheia; afeta voz e jogo
+const rpmLevel = (r) => (r == null ? ['', '—'] : r >= 800 ? ['good', 'alta'] : r >= 200 ? ['warn', 'média'] : ['bad', 'baixa']);
+
+async function startSpeedtest(mode, btns) {
+  btns.forEach((b) => { b.disabled = true; });
+  try {
+    let r = await api('/api/speedtest', { method: 'POST', body: { mode } });
+    if (r.needsForce && confirm(`${r.message}\nTestar mesmo assim?`)) r = await api('/api/speedtest', { method: 'POST', body: { mode, force: true } });
+    if (r.message) toast(r.message);
+  } catch (err) { toast(err.message, 6000); }
+  openTab('internet');
+}
+
+async function viewInternet() {
+  const d = await api('/api/speedtest');
+  const last = d.lastOk;
+  const up = h('button', { class: 'btn primary', disabled: !!d.running }, 'Testar upload (recomendado)');
+  const full = h('button', { class: 'btn', disabled: !!d.running }, 'Teste completo (download + upload)');
+  up.addEventListener('click', () => startSpeedtest('upload', [up, full]));
+  full.addEventListener('click', () => startSpeedtest('full', [up, full]));
+  const a = d.activity;
+  const using = [a.voice && `${a.voice} em call`, a.lives && `${a.lives} em live`, a.minecraft && `${a.minecraft} no Minecraft`].filter(Boolean);
+  const top = h('div', { class: 'card' },
+    h('div', { class: 'row' }, up, full, h('span', { class: 'spacer' }),
+      d.running ? h('span', { class: 'pill warn' }, h('span', { class: 'dot' }), `Testando (${d.modes[d.running.mode]})… ${Math.round((Date.now() - d.running.startedAt) / 1000)} s`) : null),
+    h('p', { class: 'muted small' }, 'Usa o teste da própria Apple (vem no macOS). Ocupa a internet inteira por uns 20 a 40 s: quem estiver em call, live ou jogando sente. ',
+      'O teste só de upload gasta uns 600 MB de dados; o completo, de 1 a 2 GB.'),
+    using.length ? h('div', { class: 'alert warn' }, `Agora tem gente usando: ${using.join(', ')}. Se possível, teste depois.`) : null,
+    d.lastError && !d.running ? h('div', { class: 'alert bad' }, `O último teste falhou: ${d.lastError}.`) : null);
+
+  const [rk, rl] = rpmLevel(last?.rpm);
+  const stats = last ? h('div', { class: 'section grid cards' },
+    stat('Upload', mbps(last.up), 'o que limita o servidor (lives, calls, Minecraft)'),
+    stat('Download', mbps(last.down), last.down == null ? 'não medido (teste só de upload)' : 'o que você recebe'),
+    stat('Responsividade', last.rpm == null ? '—' : `${num(last.rpm)} RPM`, last.rpm == null ? 'medida só no teste completo' : h('span', {}, h('span', { class: `pill ${rk}` }, rl), ' quanto menos engasga, melhor para voz e jogo')),
+    stat('Latência', last.rtt == null ? '—' : `${last.rtt} ms`, 'sem carga, até o servidor de teste'),
+  ) : h('p', { class: 'empty section' }, 'Nenhum teste ainda. Aperte "Testar upload" com o servidor vazio.');
+
+  const c = d.capacity;
+  const capCard = c ? h('div', { class: 'card section' },
+    h('h2', {}, 'Quanto cabe com esse upload'),
+    h('p', { class: 'muted small' }, `Pelo teste de ${when(d.capacityFrom)}, deixando 20% de folga. São números aproximados de quem está assistindo ou ouvindo ao mesmo tempo.`),
+    h('div', { class: 'grid cards' },
+      stat('Live 1080p', `~${num(c.live1080)}`, 'pessoas assistindo (≈5 Mbps cada)'),
+      stat('Live 720p', `~${num(c.live720)}`, 'pessoas assistindo (≈2,5 Mbps cada)'),
+      stat('Câmera', `~${num(c.camera)}`, 'câmeras sendo vistas (≈1,5 Mbps)'),
+      stat('Voz', c.voice > 500 ? 'centenas' : `~${num(c.voice)}`, 'pessoas ouvindo (≈0,1 Mbps)'),
+      stat('Minecraft', `~${num(c.minecraft)}`, 'jogadores (≈0,5 Mbps)'),
+    ),
+    h('p', { class: 'muted small' }, 'Tudo divide a mesma internet: uma live com 10 pessoas assistindo já usa ~50 Mbps do total.')) : null;
+
+  const ok = d.history.filter((r) => r.ok);
+  const chart = ok.length > 1 ? h('div', { class: 'card section' }, h('h2', {}, 'Histórico'),
+    lineChart(ok.map((r) => r.at), [
+      { label: 'Upload', color: css('--chart2'), values: ok.map((r) => r.up ?? 0) },
+      ...(ok.some((r) => r.down) ? [{ label: 'Download', color: css('--chart1'), values: ok.map((r) => r.down ?? 0) }] : []),
+    ], { format: bits })) : null;
+
+  const list = h('div', { class: 'card section' }, h('h2', {}, 'Testes feitos'), table([
+    { label: 'Quando', get: (r) => when(r.at) },
+    { label: 'Tipo', get: (r) => d.modes[r.mode] ?? r.mode },
+    { label: 'Upload', num: true, get: (r) => (r.ok ? mbps(r.up) : '—') },
+    { label: 'Download', num: true, get: (r) => (r.ok ? mbps(r.down) : '—') },
+    { label: 'Responsividade', num: true, get: (r) => (r.ok && r.rpm != null ? h('span', { class: `pill ${rpmLevel(r.rpm)[0]}` }, `${num(r.rpm)} RPM`) : '—') },
+    { label: 'Latência', num: true, get: (r) => (r.ok && r.rtt != null ? `${r.rtt} ms` : '—') },
+    { label: 'Resultado', get: (r) => (r.ok ? h('span', { class: 'muted small' }, `${r.iface ?? ''} · ${bytes(r.bytes)}`) : h('span', { class: 'error small' }, r.error)) },
+  ], [...d.history].reverse(), { empty: 'Nenhum teste ainda.', rowClass: (r) => (r.ok ? null : 'fail') }));
+
+  return h('div', {}, top, stats, capCard, chart, list);
 }
 
 start();
