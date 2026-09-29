@@ -22,7 +22,22 @@ async function authFailed(ip, message) {
   throw new HttpError(401, message);
 }
 
+// Limite por conta (vale de qualquer IP): 10 erros seguidos = espera de 1 min, dobrando até 15 min.
+// Assim ninguém fica tentando senhas de uma conta trocando de IP.
+const accountFails = new Map(); // usuário -> { count, until, lockMs }
+function checkAccountRate(username) {
+  const f = accountFails.get(username);
+  if (f && f.until > Date.now()) throw new HttpError(429, 'Muitas tentativas nessa conta. Espere alguns minutos e tente de novo.');
+}
+function accountFailed(username) {
+  const f = accountFails.get(username) ?? { count: 0, until: 0, lockMs: 30_000 };
+  f.count++;
+  if (f.count >= 10) { f.lockMs = Math.min(f.lockMs * 2, 15 * 60_000); f.until = Date.now() + f.lockMs; f.count = 0; }
+  accountFails.set(username, f);
+}
+
 export function cleanupAuthFails() {
+  for (const [name, f] of accountFails) if (f.until < Date.now() - 3_600_000) accountFails.delete(name);
   for (const [ip, f] of authFails) if (f.until < Date.now() && f.count === 0) authFails.delete(ip);
 }
 
@@ -66,8 +81,11 @@ export async function login(req) {
   const ip = clientIp(req);
   checkAuthRate(ip);
   const body = await readBody(req);
-  const user = await db.checkLogin(String(body.username ?? '').trim(), String(body.password ?? ''));
-  if (!user) await authFailed(ip, 'Usuário ou senha incorretos.');
+  const username = String(body.username ?? '').trim().toLowerCase().slice(0, 64);
+  checkAccountRate(username);
+  const user = await db.checkLogin(username, String(body.password ?? ''));
+  if (!user) { accountFailed(username); await authFailed(ip, 'Usuário ou senha incorretos.'); }
   authFails.delete(ip);
+  accountFails.delete(username);
   return { token: db.createSession(user) };
 }

@@ -6,6 +6,7 @@ import http from 'node:http';
 import https from 'node:https';
 import dns from 'node:dns';
 import net from 'node:net';
+import os from 'node:os';
 
 const TIMEOUT_MS = 5000;
 const MAX_BYTES = 512 * 1024;
@@ -14,16 +15,57 @@ const CACHE_MAX = 500;
 const cache = new Map(); // url -> { at, preview }
 
 // Endereços que não são da internet pública
+// Endereços da própria casa vistos "de fora": o bloco IPv6 da rede (todos os aparelhos da casa têm endereço
+// nele — roteador, impressora…) e o IPv4 público. Atualiza sozinho (o IP da casa muda às vezes).
+let homeV6Prefixes = [];   // primeiros 56 bits (/56, o bloco que a operadora dá para a casa) de cada IPv6 global do Mac
+let homeV4 = new Set();    // IPv4 público da casa
+function refreshHomeAddresses() {
+  const prefixes = new Set();
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const a of list ?? []) {
+      if (a.family === 'IPv6' && /^[23]/.test(a.address)) prefixes.add(prefix56(a.address));
+    }
+  }
+  homeV6Prefixes = [...prefixes];
+  https.get('https://api.ipify.org', { timeout: 5000 }, (res) => {
+    let body = '';
+    res.on('data', (c) => { body += c; });
+    res.on('end', () => { if (net.isIPv4(body.trim())) homeV4 = new Set([body.trim()]); });
+  }).on('error', () => {});
+}
+
+// "2001:db8::1" -> ['2001','db8','0','0','0','0','0','1'] (8 blocos, sem zeros à esquerda)
+function expandV6(ip) {
+  const [head, tail = ''] = ip.split('%')[0].toLowerCase().split('::');
+  const h = head ? head.split(':') : [];
+  const t = tail ? tail.split(':') : [];
+  const blocks = ip.includes('::') ? [...h, ...Array(8 - h.length - t.length).fill('0'), ...t] : h;
+  return blocks.map((b) => (parseInt(b, 16) || 0).toString(16));
+}
+
+const prefix56 = (ip) => {
+  const b = expandV6(ip);
+  return `${b.slice(0, 3).join(':')}:${b[3].padStart(4, '0').slice(0, 2)}`;
+};
+
 export function isPrivateIp(ip) {
   if (net.isIPv4(ip)) {
     const [a, b] = ip.split('.').map(Number);
     return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254)
-      || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224;
+      || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 192 && b === 0)
+      || (a === 198 && (b === 18 || b === 19)) || a >= 224
+      || homeV4.has(ip); // o IP público da casa leva para dentro dela
   }
   const v6 = ip.toLowerCase();
   if (v6.startsWith('::ffff:')) return isPrivateIp(v6.slice(7)); // IPv4 dentro de IPv6
-  return v6 === '::' || v6 === '::1' || /^f[cd]/.test(v6) || /^fe[89ab]/.test(v6) || v6.startsWith('ff');
+  if (v6 === '::' || v6 === '::1' || /^f[cd]/.test(v6) || /^fe[89ab]/.test(v6) || v6.startsWith('ff')) return true;
+  // Disfarces de IPv4 dentro de IPv6 (NAT64 e 6to4) e a faixa de documentação
+  if (v6.startsWith('64:ff9b:') || v6.startsWith('2002:') || v6.startsWith('2001:db8:')) return true;
+  return homeV6Prefixes.includes(prefix56(v6)); // qualquer aparelho da rede de casa (inclusive rede de visitantes)
 }
+
+refreshHomeAddresses();
+setInterval(refreshHomeAddresses, 10 * 60_000).unref();
 
 // Resolve o nome e recusa endereço interno (usado pela própria conexão: não dá para trocar o IP depois da conferência)
 function safeLookup(hostname, options, callback) {

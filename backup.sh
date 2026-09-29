@@ -4,6 +4,7 @@
 # Fica só o backup mais recente em data/backups/; os anteriores são apagados
 # depois que o novo é conferido (se o novo sair com defeito, os antigos ficam).
 # Roda sozinho todo dia às 4h (serviço com.marcos.malegna.backup) ou à mão: ./backup.sh
+umask 077 # backups (banco, chaves) só legíveis pelo seu usuário
 cd "$(dirname "$0")"
 export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 

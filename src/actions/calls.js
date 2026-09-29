@@ -10,6 +10,7 @@ import { fail } from '../util.js';
 
 export const RING_MS = 35_000;
 const ringing = new Map(); // conversa -> { callerId, channelId, timer }
+const lastCall = new Map(); // "quem liga|conversa" -> quando tocou (sem insistir: uma vez a cada 20 s)
 
 function requireDmCall(user, serverId) {
   const ctx = requireServer(user, serverId);
@@ -45,6 +46,10 @@ export default {
     const { ctx, channel } = requireDmCall(user, m.serverId);
     const inCall = voicePeople(channel.id).filter((p) => p.id !== user.id);
     if (inCall.length || ringing.has(ctx.snap.id)) return { t: 'ok', channelId: channel.id, ongoing: true };
+    const key = `${user.id}|${ctx.snap.id}`;
+    if (Date.now() - (lastCall.get(key) ?? 0) < 20_000) fail('Espere um pouquinho antes de ligar de novo.');
+    lastCall.set(key, Date.now());
+    if (lastCall.size > 1000) lastCall.clear();
     const from = db.userById(user.id);
     const timer = setTimeout(() => stopRinging(ctx.snap.id, 'missed'), RING_MS);
     timer.unref?.();

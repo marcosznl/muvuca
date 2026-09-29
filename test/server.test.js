@@ -305,12 +305,14 @@ test('ligação direta: conversa tem canal de chamada; toca, recusa e fica o avi
   await dono.request({ t: 'call:decline', serverId: conv.id });
   const stop = await ana.waitFor('call:stop', (e) => e.serverId === conv.id);
   assert.equal(stop.reason, 'declined');
-  // Liga de novo e desiste: aviso de chamada perdida na conversa
-  await ana.request({ t: 'call:start', serverId: conv.id });
-  await dono.waitFor('call:ring');
-  await ana.request({ t: 'call:cancel', serverId: conv.id });
-  const missed = await dono.waitFor('msg', (e) => e.msg.system && e.msg.kind === 'call' && /perdida/.test(e.msg.text));
-  assert.match(missed.msg.text, new RegExp(ana.me.id));
+  // Ligar de novo logo em seguida: precisa esperar (ninguém fica insistindo)
+  assert.match((await ana.request({ t: 'call:start', serverId: conv.id })).message, /Espere/);
+  // A outra pessoa liga e desiste: aviso de chamada perdida na conversa
+  await dono.request({ t: 'call:start', serverId: conv.id });
+  await ana.waitFor('call:ring');
+  await dono.request({ t: 'call:cancel', serverId: conv.id });
+  const missed = await ana.waitFor('msg', (e) => e.msg.system && e.msg.kind === 'call' && /perdida/.test(e.msg.text));
+  assert.match(missed.msg.text, new RegExp(dono.me.id));
   // Servidor comum não tem ligação direta
   assert.match((await ana.request({ t: 'call:start', serverId: home })).message, /mensagens diretas/);
 });
@@ -341,6 +343,30 @@ test('limite de pessoas do canal de voz: só quem gerencia canais muda; vai de 0
   const snap = await ana.waitFor('server', (e) => e.server.id === home && e.server.channels.some((c) => c.id === voz.id && c.userLimit === 5));
   assert.ok(snap);
   await dono.request({ t: 'channel:settings', channelId: voz.id, name: voz.name, bitrate: 128, userLimit: 0 });
+});
+
+test('segurança: cabeçalhos em todas as respostas e CSP com a impressão digital dos scripts embutidos', async () => {
+  const page = await fetch(`${server.base}/`);
+  assert.equal(page.headers.get('x-frame-options'), 'DENY');
+  assert.equal(page.headers.get('x-content-type-options'), 'nosniff');
+  const csp = page.headers.get('content-security-policy');
+  assert.match(csp, /frame-ancestors 'none'/);
+  assert.match(csp, /script-src 'self' blob: 'sha256-[A-Za-z0-9+/=]+'/);
+  assert.doesNotMatch(csp, /unsafe-inline'[^;]*script|script-src[^;]*unsafe-inline/);
+  const api = await fetch(`${server.base}/health`);
+  assert.equal(api.headers.get('x-frame-options'), 'DENY');
+});
+
+test('segurança: 10 senhas erradas na mesma conta bloqueiam a conta por um tempo (de qualquer IP)', async () => {
+  const tries = [];
+  for (let i = 0; i < 11; i++) {
+    tries.push((await fetch(`${server.base}/api/login`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': `10.9.${i}.1` },
+      body: JSON.stringify({ username: 'caio3', password: `errada-${i}` }),
+    })).status);
+  }
+  assert.equal(tries[0], 401);
+  assert.equal(tries[10], 429); // IPs diferentes, mesma conta: bloqueou
 });
 
 // ---------- Site e voz ----------

@@ -54,7 +54,19 @@ function inviteInfo(url) {
   return { name: info.name, color: info.color, icon: info.icon, memberCount: info.memberCount };
 }
 
+// Cabeçalhos de segurança em todas as respostas (a CSP das páginas fica no src/static.js)
+function securityHeaders(req, res) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY'); // ninguém embute o Muvuca em outro site (clickjacking)
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Permissions-Policy', 'camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=()');
+  // Pelo link público (HTTPS via Caddy): o navegador passa a usar só HTTPS neste endereço
+  if (req.headers['x-forwarded-proto'] === 'https') res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+}
+
 const server = http.createServer(async (req, res) => {
+  securityHeaders(req, res);
   const url = new URL(req.url, 'http://x');
   try {
     const route = routes[`${req.method} ${url.pathname}`];
