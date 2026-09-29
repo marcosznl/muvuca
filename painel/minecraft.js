@@ -285,13 +285,13 @@ function wakeFor(s, name, ip) {
     const allowed = new Set([...listNames(s, 'whitelist.json'), ...listNames(s, 'ops.json')].map((n) => n.toLowerCase()));
     if (!allowed.has(name.toLowerCase())) return 'Você não está na lista de permitidos deste servidor.';
   }
-  const wait = s.modded ? 'de 1 a 3 minutos' : 'uns 30 segundos';
-  if (x.busy === 'start' || x.phase === 'starting') return `O servidor já está acordando. Entre de novo em ${wait}.`;
+  const wait = s.modded ? 'daqui a 1 a 3 minutos (modpack demora mais)' : 'daqui a uns 30 segundos';
+  if (x.busy === 'start' || x.phase === 'starting') return `O servidor já está acordando. Entre de novo ${wait}.`;
   if (Date.now() - (lastWake.get(s.id) ?? 0) < WAKE_COOLDOWN_MS) return 'O servidor foi acordado agora há pouco. Tente de novo em instantes.';
   lastWake.set(s.id, Date.now());
   audit('painel:mc:wake', { ip: String(ip ?? '').replace(/^::ffff:/, ''), detail: { servidor: s.id, jogador: name } });
   start(s).catch((err) => { st(s.id).lastError = err.message; });
-  return `Acordando o servidor! Entre de novo em ${wait}.`;
+  return `Acordando o servidor! Entre de novo ${wait}.`;
 }
 
 function handleSleepConn(s, sock) {
