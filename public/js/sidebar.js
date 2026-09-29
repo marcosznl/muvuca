@@ -649,7 +649,12 @@ export function renderUserPanel() {
   $('btn-deaf').replaceChildren(icon(state.deafened ? 'headphones-off' : 'headphones'));
   $('btn-deaf').classList.toggle('off', state.deafened);
   $('btn-deaf').title = state.deafened ? 'Parar de ensurdecer' : 'Ensurdecer';
-  window.muvucaDesktop?.setVoiceState({ muted: micOff }); // app do Mac: menu da barra de menus mostra o estado
+  syncDesktopVoiceState();
+}
+
+// App do Mac: estado do microfone (menu da barra de menus) e se está em call/música (o Mac não pode "cochilar" o app)
+export function syncDesktopVoiceState() {
+  window.muvucaDesktop?.setVoiceState({ muted: !state.micOn || state.deafened, inCall: !!voiceChannelId() || !!musicChannelId() });
 }
 
 // Menu do seu status (clique na sua foto lá embaixo)
@@ -699,6 +704,7 @@ export function renderVoicePanel() {
   const s = state.servers.find((x) => x.channels.some((c) => c.id === channelId));
   const c = s?.channels.find((x) => x.id === channelId);
   $('vp-channel').textContent = s?.kind === 'dm' ? `Chamada com ${dmTitle(s)}` : `${c?.name ?? '?'} / ${s?.name ?? '?'}`;
+  syncDesktopVoiceState();
 }
 
 $('vp-channel').onclick = () => { const id = voiceChannelId(); if (id) selectChannel(id); };

@@ -2,7 +2,7 @@
 // apertar para falar com o app em segundo plano, ícone na barra de menus, contador no Dock,
 // notificações nativas, abrir junto com o Mac e escolher tela/janela para a live.
 const {
-  app, BrowserWindow, Menu, Tray, Notification, desktopCapturer, ipcMain, nativeImage, session, shell, systemPreferences,
+  app, BrowserWindow, Menu, Tray, Notification, desktopCapturer, ipcMain, nativeImage, powerSaveBlocker, session, shell, systemPreferences,
 } = require('electron');
 const path = require('node:path');
 const os = require('node:os');
@@ -26,6 +26,11 @@ const origin = () => new URL(settings.url).origin;
 let win = null;
 let tray = null;
 let quitting = false;
+
+// Nada de "economizar" o site em segundo plano: timers e áudio seguem no ritmo normal durante call e live
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 
 // Um app só aberto: abrir de novo traz a janela para frente
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -286,7 +291,15 @@ ipcMain.handle('app:info', () => ({ version: app.getVersion(), platform: process
 // ---------- Barra de menus (ícone ao lado do relógio) e menu do app ----------
 
 let voiceMuted = false;
-ipcMain.on('voice:state', (_e, s) => { voiceMuted = !!s?.muted; buildTray(); });
+// Em call ou ouvindo música: impede o "App Nap" do macOS (com o app escondido, o Mac o faria cochilar
+// para economizar energia, e a voz/live cortariam) — o Discord faz o mesmo durante as chamadas
+let napBlocker = null;
+ipcMain.on('voice:state', (_e, s) => {
+  const muted = !!s?.muted;
+  if (muted !== voiceMuted) { voiceMuted = muted; buildTray(); }
+  if (s?.inCall && napBlocker === null) napBlocker = powerSaveBlocker.start('prevent-app-suspension');
+  else if (!s?.inCall && napBlocker !== null) { powerSaveBlocker.stop(napBlocker); napBlocker = null; }
+});
 
 function openAtLogin() { return app.getLoginItemSettings().openAtLogin; }
 function toggleOpenAtLogin() { app.setLoginItemSettings({ openAtLogin: !openAtLogin(), openAsHidden: true }); buildTray(); buildMenu(); }
