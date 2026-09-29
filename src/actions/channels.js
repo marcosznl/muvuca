@@ -1,7 +1,7 @@
 // Ações de canais e categorias: criar, renomear, configurar, organizar e excluir
 import { LIMITS } from '../config.js';
 import { db } from '../store.js';
-import { VOICE_BITRATE } from '../../db.js';
+import { VOICE_BITRATE, VOICE_LIMIT_MAX } from '../../db.js';
 import { pushServer } from '../realtime.js';
 import { requireServer, requirePerm, requireCategory } from '../guards.js';
 import { closeVoiceRoom } from '../voice.js';
@@ -65,7 +65,7 @@ export default {
     if (channel.type === 'music') music.dropChannel(channel.id);
   },
 
-  // Configurações do canal de voz: nome e qualidade do áudio
+  // Configurações do canal de voz: nome, qualidade do áudio e limite de pessoas
   'channel:settings'(user, m) {
     const { channel, ctx } = manageChannel(user, m.channelId, 'Você não tem permissão para editar canais.');
     if (channel.type !== 'voice') fail('Canal não encontrado.');
@@ -73,8 +73,11 @@ export default {
     if (!name) fail('Dê um nome ao canal.');
     const kbps = Math.round(Number(m.bitrate) / 8) * 8;
     if (!(kbps >= VOICE_BITRATE.min && kbps <= VOICE_BITRATE.max)) fail(`A qualidade vai de ${VOICE_BITRATE.min} a ${VOICE_BITRATE.max} kbps.`);
+    const limit = m.userLimit === undefined ? null : Number(m.userLimit);
+    if (limit !== null && !(Number.isInteger(limit) && limit >= 0 && limit <= VOICE_LIMIT_MAX)) fail(`O limite vai de 0 (sem limite) a ${VOICE_LIMIT_MAX} pessoas.`);
     db.renameChannel(channel.id, name);
     db.setChannelBitrate(channel.id, kbps);
+    if (limit !== null) db.setChannelLimit(channel.id, limit);
     pushServer(ctx.snap.id);
   },
 

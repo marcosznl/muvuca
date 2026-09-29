@@ -8,7 +8,7 @@ import { enablePush, disablePush, pushEnabled } from './push.js';
 import { request } from './net.js';
 import { contextMenu, promptText, confirmDialog, openModal, button } from './dialogs.js';
 import { selectServer, selectChannel, selectGames } from './app.js';
-import { joinVoice, leaveVoice, watchStream, voiceChannelId, speakingNow } from './voice.js';
+import { joinVoice, leaveVoice, watchStream, voiceChannelId, speakingNow, openUserVolumeMenu } from './voice.js';
 import { musicChannelId } from './music.js';
 import { openServerSettings, openInviteDialog } from './settings.js';
 import { dmRailItem, renderDmSidebar, dmTitle } from './dms.js';
@@ -231,7 +231,8 @@ async function renameChannel(c) {
   try { await request({ t: 'channel:rename', channelId: c.id, name }); } catch (err) { showBanner(err.message, { timeout: 4000 }); }
 }
 
-// Canal de voz: nome e qualidade do áudio (taxa de bits do Opus, igual ao "Taxa de bits" do Discord)
+// Canal de voz: nome, qualidade do áudio (taxa de bits do Opus, igual ao "Taxa de bits" do Discord) e limite de pessoas
+const LIMIT_MAX = 25;
 const BITRATE = { min: 16, max: 320, step: 8, default: 128 };
 const bitrateHint = (k) =>
   k < 48 ? 'Econômica: parece ligação de telefone. Boa para internet ruim.'
@@ -265,7 +266,28 @@ function voiceSettings(c) {
   };
   range.oninput = update;
   update();
-  form.append(nameField, rateField);
+
+  // Limite de pessoas (como o "Limite de usuários" do Discord); 0 = sem limite
+  const limitField = h('div', 'field');
+  const limitValue = h('strong', 'bitrate-value');
+  const limitRange = h('input', 'bitrate-range');
+  Object.assign(limitRange, { type: 'range', min: 0, max: LIMIT_MAX, step: 1, value: c.userLimit ?? 0 });
+  const limitScale = h('div', 'bitrate-scale');
+  limitScale.append(h('span', '', 'Sem limite'), h('span', '', `${LIMIT_MAX} pessoas`));
+  const limitHint = h('p', 'muted small bitrate-hint');
+  const limitHead = h('div', 'bitrate-head');
+  limitHead.append(h('span', 'field-label', 'Limite de pessoas'), limitValue);
+  limitField.append(limitHead, limitRange, limitScale, limitHint);
+  const updateLimit = () => {
+    const n = Number(limitRange.value);
+    limitValue.textContent = n ? `${n} ${n === 1 ? 'pessoa' : 'pessoas'}` : 'Sem limite';
+    limitHint.textContent = n
+      ? `Com ${n} dentro, mais ninguém entra (quem gerencia canais entra mesmo assim).`
+      : `Qualquer um pode entrar, até o máximo de ${LIMIT_MAX}. Cada pessoa a mais usa mais da internet da casa onde o servidor roda.`;
+  };
+  limitRange.oninput = updateLimit;
+  updateLimit();
+  form.append(nameField, rateField, limitField);
 
   const ok = button('Salvar');
   const cancel = button('Cancelar', { kind: 'link' });
@@ -274,7 +296,7 @@ function voiceSettings(c) {
     e?.preventDefault();
     if (!name.value.trim()) return name.focus();
     modal.close();
-    try { await request({ t: 'channel:settings', channelId: c.id, name: name.value.trim(), bitrate: Number(range.value) }); } catch (err) { showBanner(err.message, { timeout: 4000 }); }
+    try { await request({ t: 'channel:settings', channelId: c.id, name: name.value.trim(), bitrate: Number(range.value), userLimit: Number(limitRange.value) }); } catch (err) { showBanner(err.message, { timeout: 4000 }); }
   };
   form.onsubmit = submit;
   ok.onclick = submit;
@@ -522,7 +544,9 @@ function channelItem(s, c, canManage) {
     const people = state.voice[c.id] ?? [];
     btn.classList.toggle('connected', voiceChannelId() === c.id);
     btn.append(icon('speaker'), h('span', 'name', c.name));
-    if (people.length) btn.append(h('span', 'count', `${people.length}/6`));
+    // Com limite: "2/5" sempre à vista (como no Discord); sem limite: só quantos estão dentro
+    if (c.userLimit) btn.append(h('span', `count${people.length >= c.userLimit ? ' full' : ''}`, `${people.length}/${c.userLimit}`));
+    else if (people.length) btn.append(h('span', 'count', String(people.length)));
     btn.onclick = () => (voiceChannelId() === c.id ? selectChannel(c.id) : joinVoice(c.id));
     const members = h('ul', 'voice-members');
     for (const p of people) {
@@ -533,7 +557,7 @@ function channelItem(s, c, canManage) {
       if (p.camera) icons.append(icon('video', 14));
       if (p.muted || p.deafened) icons.append(icon('mic-off', 14));
       if (p.deafened) icons.append(icon('headphones-off', 14));
-      row.append(makeAvatar(p.name, 'sm', p.id), h('span', 'name', p.name + (p.id === state.me?.id ? ' (você)' : '')));
+      row.append(makeAvatar(p.name, 'sm', p.id), h('span', 'name', p.name));
       if (p.streaming) {
         const live = h('button', 'live-badge', 'AO VIVO');
         live.title = `Assistir a tela de ${p.name}`;
@@ -541,6 +565,8 @@ function channelItem(s, c, canManage) {
         row.append(live);
       }
       row.append(icons);
+      // Botão direito: volume dessa pessoa só para você (quando vocês estão na mesma chamada)
+      row.oncontextmenu = (e) => { if (openUserVolumeMenu(p.id, e.clientX, e.clientY)) e.preventDefault(); };
       members.append(row);
     }
     li.append(members);

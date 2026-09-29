@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Desenho, CHOOSE_MS, DRAW_MS } from '../src/games/desenho.js';
-import { Stop, WRITE_MS, VOTE_MS, SCORE_MS, ROUNDS } from '../src/games/stop.js';
+import { Stop, WRITE_MS, VOTE_MS, SCORE_MS, ROUNDS, FIXED_CATEGORIES } from '../src/games/stop.js';
 import { Impostor } from '../src/games/impostor.js';
 
 const people = (n) => Array.from({ length: n }, (_, i) => ({ id: `u${i + 1}`, name: ['Ana', 'Bia', 'Caio', 'Duda', 'Edu'][i] }));
@@ -96,6 +96,15 @@ test('stop: pontos (única 10, repetida 5) e recusa pela maioria', () => {
   assert.deepEqual(g.results.u1.slice(0, 2), [5, 10]);
   assert.deepEqual(g.results.u2.slice(0, 2), [5, 0]);   // não começa com a letra
   assert.deepEqual(g.results.u3.slice(0, 2), [10, 0]);  // recusada pela maioria
+});
+
+test('stop: Nome, Minha sogra é…, Filme / Série / Anime e CEP em toda partida, mais 2 sorteadas', () => {
+  for (const seed of [0, 0.3, 0.7, 0.99]) {
+    const g = new Stop(people(2), { random: () => seed });
+    assert.equal(g.categories.length, 6);
+    assert.deepEqual(g.categories.slice(0, 4), FIXED_CATEGORIES);
+    assert.equal(new Set(g.categories).size, 6);
+  }
 });
 
 test('stop: 4 rodadas com letras diferentes', () => {

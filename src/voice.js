@@ -24,8 +24,15 @@ export async function voiceToken(req) {
   if (!channel || channel.type !== 'voice' || !db.isMember(channel.server_id, user.id)) {
     throw new HttpError(404, 'Canal de voz não encontrado.');
   }
-  const perms = computePerms(db.snapshot(channel.server_id), user.id);
+  const snap = db.snapshot(channel.server_id);
+  const perms = computePerms(snap, user.id);
   if (!can(perms, PERMS.CONNECT)) throw new HttpError(403, 'Você não tem permissão para entrar neste canal.');
+  // Limite de pessoas do canal (quem pode gerenciar canais entra mesmo cheio, como no Discord)
+  const limit = snap.channels.find((c) => c.id === channel.id)?.userLimit ?? 0;
+  if (limit > 0 && !can(perms, PERMS.MANAGE_CHANNELS)) {
+    const inside = await roomService.listParticipants(channel.id).then((ps) => ps.map((p) => p.identity)).catch(() => voicePeople(channel.id).map((p) => p.id));
+    if (inside.filter((id) => id !== user.id).length >= limit) throw new HttpError(403, `Esse canal está cheio (máximo de ${limit} ${limit === 1 ? 'pessoa' : 'pessoas'}).`);
+  }
 
   const at = new AccessToken(API_KEY, API_SECRET, { identity: user.id, name: user.name, ttl: '6h' });
   at.addGrant({

@@ -35,6 +35,8 @@ export const ICONS = {
   'volume-off': SPEAKER_BODY + `<g ${STROKE}><path d="m16.5 9.5 5 5"/><path d="m21.5 9.5-5 5"/></g>`,
   video: '<path d="M4 5a3 3 0 0 0-3 3v8a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1.5l4.4 3.1A1 1 0 0 0 23 16.8V7.2a1 1 0 0 0-1.6-.8L17 9.5V8a3 3 0 0 0-3-3H4Z"/>',
   monitor: `<path d="${MONITOR}"/>`,
+  // Virar câmera: corpo da câmera com duas setas girando
+  'flip-camera': `<g ${STROKE}><path d="M4 7h3l2-3h6l2 3h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Z"/><path d="M8.5 12.5a3.5 3.5 0 0 1 6.3-2.1"/><path d="m15 8.5-.2 1.9-1.9-.2"/><path d="M15.5 13.5a3.5 3.5 0 0 1-6.3 2.1"/><path d="m9 17.5.2-1.9 1.9.2"/></g>`,
   'monitor-up': `<path fill-rule="evenodd" d="${MONITOR}M12 6.2 8.3 9.9l1.4 1.4L11 10v4.5h2V10l1.3 1.3 1.4-1.4L12 6.2Z"/>`,
   'bar-chart': '<rect x="3" y="13" width="4" height="8" rx="1.2"/><rect x="10" y="8" width="4" height="13" rx="1.2"/><rect x="17" y="3" width="4" height="18" rx="1.2"/>',
   maximize: `<g ${STROKE}><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></g>`,
@@ -89,6 +91,7 @@ Object.assign(ICONS, {
   search: `<g ${STROKE}><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></g>`,
   check: `<path ${STROKE} d="m5 12 5 5 9-10"/>`,
   phone: '<path d="M6.6 2.2a1.6 1.6 0 0 1 1.9.9l1.4 3.3a1.6 1.6 0 0 1-.4 1.8L7.8 9.7a13 13 0 0 0 6.5 6.5l1.5-1.7a1.6 1.6 0 0 1 1.8-.4l3.3 1.4a1.6 1.6 0 0 1 .9 1.9l-.7 2.6A2.2 2.2 0 0 1 19 21.6C9.8 21.2 2.8 14.2 2.4 5a2.2 2.2 0 0 1 1.6-2.1l2.6-.7Z"/>',
+  grip: '<g><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></g>',
   file: '<path d="M6 2a3 3 0 0 0-3 3v14a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3V9.4a2 2 0 0 0-.6-1.4l-5.4-5.4A2 2 0 0 0 13.6 2H6Zm7 1.8V8a1 1 0 0 0 1 1h4.2L13 3.8Z"/>',
   download: `<path ${STROKE} d="M12 4v11m-5-5 5 5 5-5M5 20h14"/>`,
 });

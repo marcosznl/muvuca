@@ -339,9 +339,62 @@ function toggleMute() {
 
 // ---------- Painel da direita: cabine, fila, busca, ouvintes ----------
 
+// Arrastar para reordenar a fila (mouse e dedo): enquanto arrasta, os redesenhos esperam o fim
+let dragging = null;  // { list, row, from, pointerId }
+
+function startQueueDrag(e, row, list, from) {
+  if (e.button > 0 || m.queue.length < 2) return;
+  e.preventDefault();
+  dragging = { list, row, from, pointerId: e.pointerId };
+  row.classList.add('dragging');
+  list.classList.add('sorting');
+  // Escuta na janela: a linha muda de lugar no meio do arraste e perderia o "soltar"
+  window.addEventListener('pointermove', moveQueueDrag);
+  window.addEventListener('pointerup', endQueueDrag);
+  window.addEventListener('pointercancel', endQueueDrag);
+}
+
+function moveQueueDrag(e) {
+  if (!dragging || e.pointerId !== dragging.pointerId) return;
+  const { list, row } = dragging;
+  // Vai trocando de lugar até ficar entre as músicas certas (um movimento rápido pode pular várias)
+  const rows = () => [...list.querySelectorAll('.queue-row')];
+  for (let moved = true; moved;) {
+    moved = false;
+    const i = rows().indexOf(row);
+    const prev = rows()[i - 1];
+    const next = rows()[i + 1];
+    if (prev && e.clientY < prev.getBoundingClientRect().top + prev.offsetHeight / 2) { list.insertBefore(row, prev); moved = true; }
+    else if (next && e.clientY > next.getBoundingClientRect().top + next.offsetHeight / 2) { next.after(row); moved = true; }
+  }
+  // Perto das bordas da lista, rola sozinho
+  const scroller = list.closest('.members, .music-side') ?? list.parentElement;
+  const box = scroller.getBoundingClientRect();
+  if (e.clientY < box.top + 30) scroller.scrollTop -= 8;
+  else if (e.clientY > box.bottom - 30) scroller.scrollTop += 8;
+}
+
+function endQueueDrag(e) {
+  if (!dragging || (e && e.pointerId !== dragging.pointerId)) return;
+  const { list, row, from } = dragging;
+  window.removeEventListener('pointermove', moveQueueDrag);
+  window.removeEventListener('pointerup', endQueueDrag);
+  window.removeEventListener('pointercancel', endQueueDrag);
+  const to = [...list.querySelectorAll('.queue-row')].indexOf(row);
+  row.classList.remove('dragging');
+  list.classList.remove('sorting');
+  dragging = null;
+  if (to >= 0 && to !== from) {
+    m.queue.splice(to, 0, ...m.queue.splice(from, 1)); // já mostra no lugar novo (o servidor confirma em seguida)
+    send({ t: 'music:move', channelId: m.channelId, from, to });
+  }
+  renderSide();
+}
+
 export function renderSide(container = $('member-list')) {
   const { server, channel } = findChannel(state.view.channelId);
   if (!container || channel?.type !== 'music') return;
+  if (dragging) return; // termina de arrastar e redesenha
   // Redesenhar não pode apagar o que a pessoa está digitando na busca
   const typing = document.activeElement?.closest?.('.music-search');
   const caret = typing ? document.activeElement.selectionStart : null;
@@ -391,7 +444,11 @@ export function renderSide(container = $('member-list')) {
     if (!m.queue.length) list.append(h('div', 'muted small side-pad', 'Sua fila está vazia. Busque ou cole um link abaixo.'));
     m.queue.forEach((item, i) => {
       const row = h('div', 'queue-row');
-      row.append(h('span', 'booth-pos', String(i + 1)), h('span', 'queue-title', item.title));
+      const grip = h('span', 'queue-grip');
+      grip.title = 'Arraste para mudar a ordem';
+      grip.append(icon('grip', 14));
+      grip.onpointerdown = (e) => startQueueDrag(e, row, list, i);
+      row.append(grip, h('span', 'booth-pos', String(i + 1)), h('span', 'queue-title', item.title));
       row.title = item.title;
       const tools = h('span', 'queue-tools');
       if (i > 0) tools.append(tool('arrow-up', 'Subir', () => send({ t: 'music:move', channelId: m.channelId, from: i, to: i - 1 })));

@@ -236,6 +236,8 @@ export function openDb(file) {
 
 // Taxa de bits da voz (kbps): o mesmo limite vale no site (controle deslizante)
 export const VOICE_BITRATE = { min: 16, max: 320, default: 128 };
+// Limite de pessoas por canal de voz (0 = sem limite, até o teto do LiveKit em livekit.yaml)
+export const VOICE_LIMIT_MAX = 25;
 
 const DEFAULT_CATEGORIES = [['text', 'Canais de texto'], ['voice', 'Canais de voz'], ['music', 'Canais de música']];
 
@@ -291,6 +293,7 @@ function migrate(db) {
   // Banner com imagem (ou GIF), como no Discord; a cor fica por baixo enquanto carrega
   if (!userCols.includes('banner_image')) db.exec('ALTER TABLE users ADD COLUMN banner_image TEXT');
   // Qualidade do áudio por canal de voz (kbps; NULL = padrão)
+  if (!db.prepare('PRAGMA table_info(channels)').all().some((c) => c.name === 'user_limit')) db.exec('ALTER TABLE channels ADD COLUMN user_limit INTEGER');
   if (!db.prepare('PRAGMA table_info(channels)').all().some((c) => c.name === 'bitrate')) {
     db.exec('ALTER TABLE channels ADD COLUMN bitrate INTEGER');
   }
@@ -755,7 +758,7 @@ class Store {
       categories: this.q.categories.all(serverId).map((k) => ({ id: k.id, name: k.name })),
       channels: this.q.channels.all(serverId).map((c) => ({
         id: c.id, type: c.type, name: c.name, categoryId: c.category_id, topic: c.topic ?? '',
-        ...(c.type === 'voice' ? { bitrate: c.bitrate ?? VOICE_BITRATE.default } : {}),
+        ...(c.type === 'voice' ? { bitrate: c.bitrate ?? VOICE_BITRATE.default, userLimit: c.user_limit ?? 0 } : {}),
       })),
       roles: this.q.roles.all(serverId).map((r) => ({
         id: r.id, name: r.name, color: r.color, position: r.position, permissions: r.permissions, isDefault: r.is_default === 1,
@@ -862,6 +865,7 @@ class Store {
 
   renameChannel(id, name) { this.q.renameChannel.run(name, id); }
   setChannelBitrate(id, kbps) { this.q.setChannelBitrate.run(kbps, id); }
+  setChannelLimit(id, limit) { this.db.prepare('UPDATE channels SET user_limit = ? WHERE id = ?').run(limit || null, id); }
   deleteChannel(id) { this.q.deleteChannel.run(id); } // as mensagens vão junto (ON DELETE CASCADE)
 
   // ---------- Anexos do chat ----------

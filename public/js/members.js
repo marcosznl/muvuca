@@ -52,7 +52,7 @@ function memberRow(s, m, where, isOffline) {
   if (!isOffline) avatar.classList.add('online', `status-${status}`);
   avatar.title = STATUS_LABEL[status];
   const info = h('div', 'info');
-  const name = h('div', 'name', m.name + (m.id === state.me?.id ? ' (você)' : ''));
+  const name = h('div', 'name', m.name);
   const color = nameColor(s, m.id);
   if (color) name.style.color = color;
   if (m.id === s.ownerId) {

@@ -9,9 +9,11 @@ export const STOP_GRACE_MS = 5000;
 export const VOTE_MS = 40_000;
 export const SCORE_MS = 7000;
 export const LETTERS = 'ABCDEFGHIJLMNOPRSTUV'.split('');
+// As fixas aparecem em toda partida (escolha da galera); o resto da lista é sorteado
+export const FIXED_CATEGORIES = ['Nome', 'Minha sogra é…', 'Filme / Série / Anime', 'CEP (cidade, estado ou país)'];
 export const CATEGORIES = [
-  'Nome', 'Animal', 'Cor', 'Fruta, legume ou verdura', 'Cidade, estado ou país', 'Objeto', 'Profissão', 'Marca',
-  'Comida', 'Filme ou série', 'Parte do corpo', 'Esporte', 'Cantor(a) ou banda', 'Time de futebol', 'Coisa que tem na praia',
+  ...FIXED_CATEGORIES, 'Animal', 'Cor', 'Fruta, legume ou verdura', 'Objeto', 'Profissão', 'Marca',
+  'Comida', 'Parte do corpo', 'Esporte', 'Cantor(a) ou banda', 'Time de futebol', 'Coisa que tem na praia',
 ];
 const PER_GAME = 6;
 
@@ -21,8 +23,8 @@ export class Stop {
   constructor(players, { random = Math.random } = {}) {
     this.random = random;
     this.players = players.slice(0, MAX_PLAYERS).map((p, i) => ({ id: p.id, name: p.name, color: i, score: 0, alive: true }));
-    const pool = [...CATEGORIES];
-    this.categories = [];
+    const pool = CATEGORIES.filter((c) => !FIXED_CATEGORIES.includes(c));
+    this.categories = [...FIXED_CATEGORIES];
     while (this.categories.length < PER_GAME) this.categories.push(pool.splice(Math.floor(this.random() * pool.length), 1)[0]);
     this.usedLetters = new Set();
     this.round = 0;

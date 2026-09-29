@@ -6,8 +6,8 @@ import { icon } from './icons.js';
 import { state } from './state.js';
 import { request, send } from './net.js';
 import { colorOf } from './games/common.js';
-import { sounds } from './sounds.js';
 import { confetti } from './confetti.js';
+import { gameSounds, gameSoundsOn, setGameSounds, gameVolume, setGameVolume, sfx } from './games/sfx.js';
 import bomberman from './games/bomberman.js';
 import tron from './games/tron.js';
 import tanks from './games/tanks.js';
@@ -46,6 +46,9 @@ export function onGameRoom(m) {
 
 export function onGameState(m) {
   if (!games.room || m.roomId !== games.room.id) return;
+  // Sons: compara com o estado anterior (só com a sala na tela)
+  const prev = games.snaps[games.snaps.length - 1]?.s;
+  if (inGames()) gameSounds(games.room.game, prev, m.state, state.me?.id);
   games.snaps.push({ at: performance.now(), s: m.state });
   if (games.snaps.length > 3) games.snaps.shift();
   if (GAME_INFO[games.room.game]?.dom) scheduleDom(); // jogos de tela comum (não canvas) redesenham quando muda
@@ -400,7 +403,7 @@ function roomView(r) {
     const avatar = makeAvatar(p.name, 'sm', p.id);
     avatar.classList.add('game-avatar');
     avatar.style.setProperty('--ring', colorOf(i));
-    chip.append(avatar, h('span', 'game-name', p.name + (p.id === state.me?.id ? ' (você)' : '')));
+    chip.append(avatar, h('span', 'game-name', p.name));
     if (p.id === r.hostId) chip.append(icon('crown', 14));
     chip.append(h('span', 'game-score', `🏆 ${r.scores[p.id] ?? 0}`));
     players.append(chip);
@@ -425,7 +428,7 @@ function roomView(r) {
   }
   const leave = h('button', 'btn link', 'Sair da sala');
   leave.onclick = leaveRoom;
-  side.append(status, leave);
+  side.append(status, soundControl(), leave);
   top.append(players, side);
 
   const stage = h('div', 'game-stage');
@@ -477,6 +480,29 @@ function frame() {
   requestAnimationFrame(frame);
 }
 
+// Som dos jogos: liga/desliga e volume (fica salvo; vale para todos os jogos)
+function soundControl() {
+  const box = h('div', 'game-sound');
+  const btn = h('button', 'icon-btn');
+  btn.type = 'button';
+  const range = h('input');
+  Object.assign(range, { type: 'range', min: 0, max: 100, step: 5, value: Math.round(gameVolume() * 100), title: 'Volume dos sons do jogo' });
+  const paint = () => {
+    const on = gameSoundsOn() && Number(range.value) > 0;
+    btn.replaceChildren(icon(on ? 'speaker' : 'volume-off', 18));
+    btn.title = on ? 'Silenciar os sons do jogo' : 'Ligar os sons do jogo';
+    btn.classList.toggle('off', !on);
+    range.hidden = !gameSoundsOn();
+    range.style.setProperty('--fill', `${range.value}%`);
+  };
+  btn.onclick = () => { setGameSounds(!gameSoundsOn()); paint(); if (gameSoundsOn()) sfx.pop(); };
+  range.oninput = () => { setGameVolume(range.value); paint(); };
+  range.onchange = () => sfx.pop(); // ouve como ficou
+  box.append(btn, range);
+  paint();
+  return box;
+}
+
 // Relógio e números do jogo em cima; no meio, o resultado no fim (ou o recado que o jogo pedir)
 let lastStatus = '';
 let celebrated = null;
@@ -492,7 +518,7 @@ function updateStatus(out) {
   const matchKey = `${games.room?.id}:${games.room?.round}`;
   if (s.over && celebrated !== matchKey) {
     celebrated = matchKey; // uma festa por partida
-    if (s.winner === state.me?.id && s.players.length > 1) { confetti(); sounds.win(); }
+    if (s.winner === state.me?.id && s.players.length > 1) confetti(); // o som da vitória vem do games/sfx.js
   }
   if (s.over) {
     const winner = s.players.find((p) => p.id === s.winner);

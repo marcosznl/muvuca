@@ -73,7 +73,7 @@ export default {
         box.append(h('div', 'imp-section', `Quem é o impostor? (${s.votedCount} votaram)`));
         const grid = h('div', 'imp-vote');
         for (const p of s.players.filter((x) => x.alive)) {
-          const b = h('button', s.myVote === p.id ? 'imp-vote-btn on' : 'imp-vote-btn', p.name + (isMe(p.id) ? ' (você)' : ''));
+          const b = h('button', s.myVote === p.id ? 'imp-vote-btn on' : 'imp-vote-btn', p.name);
           b.type = 'button';
           b.disabled = isMe(p.id) || !ctx.isPlayer;
           b.onclick = () => ctx.send({ target: p.id });

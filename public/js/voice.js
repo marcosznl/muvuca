@@ -1,7 +1,7 @@
 // Canais de voz: conexão LiveKit, quadros de vídeo, volumes, indicador de fala, ping e painel de qualidade
 import { $, h, store, makeAvatar, showBanner } from './util.js';
 import { icon } from './icons.js';
-import { openModal, button } from './dialogs.js';
+import { openModal, button, contextMenu } from './dialogs.js';
 import { avatarOf } from './state.js';
 import { state, findChannel, canIn, PERMS, rememberedTextChannel } from './state.js';
 import { api, send, request } from './net.js';
@@ -10,7 +10,7 @@ import { renderChannels, renderUserPanel, renderVoicePanel } from './sidebar.js'
 import { applyVolume as applyMusicVolume } from './music.js';
 import { BUILTIN_SOUNDS, soundboardVolume, setSoundboardVolume, playBoardSound } from './sounds.js';
 
-const { Room, RoomEvent, Track, VideoPresets, VideoPreset, ScreenSharePresets, AudioPresets, DisconnectReason } = LivekitClient;
+const { Room, RoomEvent, Track, VideoPresets, VideoPreset, VideoQuality, ConnectionQuality, ScreenSharePresets, AudioPresets, DisconnectReason } = LivekitClient;
 
 // Áudio em alta fidelidade (Opus). O padrão do LiveKit é 48 kbps com DTX, que corta o início das falas.
 // A taxa de bits da voz vem da configuração do canal (padrão 128 kbps)
@@ -53,6 +53,7 @@ export async function setMicDevice(id) {
 export async function setSpeakerDevice(id) {
   store.set('speakerDevice', id === 'default' ? null : id);
   for (const el of audioSink.children) el.setSinkId?.(id === 'default' ? '' : id).catch(() => {});
+  callCtx?.setSinkId?.(id === 'default' ? '' : id).catch(() => {});
   if (room) await room.switchActiveDevice('audiooutput', id).catch(() => {});
 }
 export function setInputVolume(v) {
@@ -84,16 +85,47 @@ const STREAM_AUDIO = {
 
 // Qualidades de transmissão de tela (resolução + bitrate máximo)
 // Opções da janela "Transmitir tela": resolução (bitrate base a 30 FPS) e quadros por segundo
+// Cada resolução leva cópias menores ("degraus"): quando a internet de alguém aperta, ele cai um degrau só
+// (1080p → 720p → 360p) em vez de despencar direto para uma imagem ruim
 const SCREEN_RES = {
-  '720': { label: '720p', width: 1280, height: 720, bitrate: 3_000_000 },
-  '1080': { label: '1080p', width: 1920, height: 1080, bitrate: 5_000_000 },
-  '1440': { label: '1440p', width: 2560, height: 1440, bitrate: 8_000_000 },
-  source: { label: 'Nativa', width: 3840, height: 2160, bitrate: 10_000_000, hint: 'resolução da sua tela' },
+  '720': { label: '720p', width: 1280, height: 720, bitrate: 2_500_000, layers: ['360'] },
+  '1080': { label: '1080p', width: 1920, height: 1080, bitrate: 4_500_000, layers: ['360', '720'] },
+  '1440': { label: '1440p', width: 2560, height: 1440, bitrate: 7_000_000, layers: ['720', '1080'] },
+  source: { label: 'Nativa', width: 3840, height: 2160, bitrate: 9_000_000, layers: ['720', '1080'], hint: 'resolução da sua tela' },
 };
-const SCREEN_FPS = { 15: 0.6, 30: 1, 60: 1.6 }; // multiplicador do bitrate
-const screenBitrate = (res, fps) => Math.min(14_000_000, Math.round(SCREEN_RES[res].bitrate * SCREEN_FPS[fps]));
+const SCREEN_LAYERS = { // largura, altura e bitrate base (a 30 FPS) de cada degrau
+  '360': [640, 360, 700_000],
+  '720': [1280, 720, 2_300_000],
+  '1080': [1920, 1080, 4_500_000],
+};
+// Multiplicador do bitrate por FPS: o dobro de quadros não precisa do dobro de dados (quadros seguidos se parecem)
+const SCREEN_FPS = { 15: 0.6, 30: 1, 60: 1.35 };
+const screenBitrate = (res, fps) => Math.min(12_000_000, Math.round(SCREEN_RES[res].bitrate * SCREEN_FPS[fps]));
+const screenLayers = (res, fps) => SCREEN_RES[res].layers.map((k) => {
+  const [w, h, base] = SCREEN_LAYERS[k];
+  const layerFps = k === '360' ? Math.min(fps, 30) : fps; // o degrau menor é só o "estepe": 30 FPS bastam
+  return new VideoPreset(w, h, Math.round(base * SCREEN_FPS[layerFps]), layerFps);
+});
 
 const IS_SAFARI = /^((?!chrome|chromium|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent);
+
+// Volume acima de 100% (até 200%, como no Discord): o som de cada pessoa passa por um amplificador (Web Audio).
+// Só onde o navegador também deixa escolher o fone nesse modo (Chrome, Edge, Opera); no Safari/Firefox fica até 100%.
+export const CAN_BOOST = !IS_SAFARI && typeof AudioContext !== 'undefined' && 'setSinkId' in AudioContext.prototype;
+export const MAX_PERSON_VOLUME = CAN_BOOST ? 2 : 1;
+let callCtx = null; // um só para a página; "ensurdecer" pausa ele
+function callAudioContext() {
+  if (!CAN_BOOST) return null;
+  callCtx ??= new AudioContext({ latencyHint: 'interactive' });
+  const out = store.get('speakerDevice');
+  if (out) callCtx.setSinkId(out).catch(() => {});
+  return callCtx;
+}
+function applyDeafenToContext() {
+  if (!callCtx) return;
+  if (state.deafened) callCtx.suspend().catch(() => {});
+  else callCtx.resume().catch(() => {});
+}
 
 let room = null;             // conexão de voz (LiveKit)
 let roomChannel = null;
@@ -158,6 +190,7 @@ export async function joinVoice(channelId) {
       videoCaptureDefaults: { resolution: VideoPresets.h720.resolution },
       // Cancelamento de eco e redução de ruído continuam ligados: sem eles, quem usa caixa de som gera eco para todos
       audioCaptureDefaults: captureOptions(),
+      webAudioMix: CAN_BOOST ? { audioContext: callAudioContext() } : false,
       ...(store.get('speakerDevice') ? { audioOutput: { deviceId: store.get('speakerDevice') } } : {}),
       publishDefaults: { ...VOICE_AUDIO, audioPreset: { maxBitrate: channelBitrate(channelId) }, forceStereo: musicMode, ...CAMERA_VIDEO },
     });
@@ -166,6 +199,7 @@ export async function joinVoice(channelId) {
       .on(RoomEvent.ParticipantDisconnected, renderStage)
       .on(RoomEvent.TrackSubscribed, onTrackSubscribed)
       .on(RoomEvent.TrackUnsubscribed, onTrackUnsubscribed)
+      .on(RoomEvent.ConnectionQualityChanged, renderStage) // aviso de conexão instável nos quadros
       .on(RoomEvent.TrackMuted, onMuteChange)
       .on(RoomEvent.TrackUnmuted, onMuteChange)
       .on(RoomEvent.LocalTrackPublished, (pub) => {
@@ -192,6 +226,7 @@ export async function joinVoice(channelId) {
 
     meterCtx ??= new AudioContext();
     meterCtx.resume().catch(() => {}); // precisa do clique do usuário, que é o caso aqui
+    applyDeafenToContext(); // o amplificador de volume também só toca depois de um clique
     await r.connect(data.url, data.token);
     room = r;
     roomChannel = channelId;
@@ -205,9 +240,9 @@ export async function joinVoice(channelId) {
     renderVoicePanel();
   } catch (err) {
     console.error(err);
-    showBanner(/full|max/i.test(err.message)
-      ? 'Esse canal está cheio (máximo de 6 pessoas).'
-      : `Não foi possível entrar no canal: ${err.message}`, { timeout: 5000 });
+    showBanner(/cheio/.test(err.message) ? err.message
+      : /full|max/i.test(err.message) ? 'Esse canal está cheio (máximo de 25 pessoas).'
+        : `Não foi possível entrar no canal: ${err.message}`, { timeout: 5000 });
   } finally {
     joining = false;
   }
@@ -241,6 +276,7 @@ function onVoiceClosed({ keepView = false } = {}) {
 // Microfone + ensurdecer (igual ao Discord: ensurdecer também silencia o microfone)
 export async function applyAudioState() {
   for (const el of audioSink.children) el.muted = state.deafened;
+  applyDeafenToContext(); // com o amplificador, o som sai pelo Web Audio (os elementos ficam mudos)
   if (!room) return;
   const lp = room.localParticipant;
   try {
@@ -506,7 +542,7 @@ const VOLUME_KINDS = {
 function savedVolume(p, kind) {
   const raw = store.get(`${VOLUME_KINDS[kind].key}:${p.name}`);
   const v = Number(raw);
-  return raw === null || Number.isNaN(v) ? 1 : Math.min(Math.max(v, 0), 1);
+  return raw === null || Number.isNaN(v) ? 1 : Math.min(Math.max(v, 0), MAX_PERSON_VOLUME);
 }
 
 function saveVolume(p, kind, volume) {
@@ -520,7 +556,7 @@ function buildVolumeControl(el) {
   const box = h('div', 'vol');
   const btn = h('button', 'vol-btn');
   const slider = h('input');
-  Object.assign(slider, { type: 'range', min: 0, max: 100, step: 1 });
+  Object.assign(slider, { type: 'range', min: 0, max: MAX_PERSON_VOLUME * 100, step: 1 });
   box.append(btn, slider);
 
   // Não deixa o clique no controle fixar/soltar o quadro
@@ -541,6 +577,79 @@ function buildVolumeControl(el) {
     syncVolumeControl(el);
   };
   return box;
+}
+
+// Botão direito na pessoa (lista do canal ou quadro da chamada): volume dela só para você, como no Discord
+let userMenu = null;
+function closeUserMenu() {
+  userMenu?.remove();
+  userMenu = null;
+  document.removeEventListener('mousedown', outsideUserMenu, true);
+  document.removeEventListener('keydown', escUserMenu, true);
+}
+function outsideUserMenu(e) { if (userMenu && !userMenu.contains(e.target)) closeUserMenu(); }
+function escUserMenu(e) { if (e.key === 'Escape') { e.stopPropagation(); closeUserMenu(); } }
+
+export function openUserVolumeMenu(identity, x, y) {
+  const p = room?.remoteParticipants.get(identity);
+  if (!p) return false; // só dentro da mesma chamada (e nunca em você mesmo)
+  closeUserMenu();
+  const menu = h('div', 'audio-menu user-volume-menu');
+  menu.append(h('div', 'uv-name', p.name || p.identity));
+  const slider = (kind) => {
+    const box = h('div', 'am-slider');
+    const head = h('div', 'am-slider-head');
+    const num = h('span', 'am-slider-num');
+    head.append(h('span', 'am-title', VOLUME_KINDS[kind].label), num);
+    const range = h('input');
+    Object.assign(range, { type: 'range', min: 0, max: MAX_PERSON_VOLUME * 100, step: 1, value: Math.round(savedVolume(p, kind) * 100) });
+    const paint = () => {
+      range.style.setProperty('--fill', `${(range.value / range.max) * 100}%`);
+      num.textContent = `${range.value}%`;
+      num.classList.toggle('boost', Number(range.value) > 100); // acima de 100%: amplificado
+    };
+    range.oninput = () => { saveVolume(p, kind, Number(range.value) / 100); paint(); paintMute(); renderStage(); };
+    paint();
+    box.append(head, range);
+    box._range = range;
+    return box;
+  };
+  const voice = slider('voice');
+  menu.append(voice);
+  // Volume da live aparece só se a pessoa estiver transmitindo com som
+  if (p.getTrackPublication(Track.Source.ScreenShareAudio)) menu.append(slider('stream'));
+  menu.append(h('div', 'am-sep'));
+  // Silenciar para mim: volume da voz em 0 (desfazer volta ao volume de antes)
+  const mute = h('button', 'am-row uv-toggle');
+  mute.type = 'button';
+  const box = h('span', 'uv-check');
+  mute.append(h('span', 'am-title', 'Silenciar para mim'), box);
+  const paintMute = () => mute.classList.toggle('on', savedVolume(p, 'voice') === 0);
+  mute.onclick = () => {
+    const now = savedVolume(p, 'voice');
+    const next = now > 0 ? 0 : Number(store.get(`voiceVolumeBefore:${p.name}`)) || 1;
+    if (now > 0) store.set(`voiceVolumeBefore:${p.name}`, String(now));
+    saveVolume(p, 'voice', next);
+    voice._range.value = String(Math.round(next * 100));
+    voice._range.dispatchEvent(new Event('input'));
+  };
+  paintMute();
+  const profile = h('button', 'am-row');
+  profile.type = 'button';
+  profile.append(h('span', 'am-title', 'Ver perfil'));
+  profile.onclick = () => { closeUserMenu(); import('./profile.js').then(({ openProfileCard }) => openProfileCard(identity, x, y)); };
+  menu.append(mute, profile);
+  document.body.append(menu);
+  const w = menu.offsetWidth;
+  const hgt = menu.offsetHeight;
+  menu.style.left = `${Math.max(8, Math.min(x, innerWidth - w - 8))}px`;
+  menu.style.top = `${Math.max(8, Math.min(y, innerHeight - hgt - 8))}px`;
+  userMenu = menu;
+  setTimeout(() => {
+    document.addEventListener('mousedown', outsideUserMenu, true);
+    document.addEventListener('keydown', escUserMenu, true);
+  }, 0);
+  return true;
 }
 
 function syncVolumeControl(el) {
@@ -582,10 +691,52 @@ function warnDevice(what) {
 $('btn-cam').onclick = async () => {
   if (!room) return;
   const lp = room.localParticipant;
-  await lp.setCameraEnabled(!lp.isCameraEnabled).catch(warnDevice('câmera'));
+  const turningOn = !lp.isCameraEnabled;
+  // No celular, liga na câmera que a pessoa usou por último (frontal ou traseira)
+  await lp.setCameraEnabled(turningOn, turningOn && isTouch ? { facingMode: cameraFacing } : undefined).catch(warnDevice('câmera'));
+  if (turningOn) await countCameras(); // com a permissão dada, a lista de câmeras vem completa
   updateMediaButtons();
   renderStage();
 };
+
+// ---------- Virar câmera (frontal ↔ traseira no celular; próxima câmera no computador) ----------
+const isTouch = matchMedia('(pointer: coarse)').matches;
+let cameraFacing = store.get('cameraFacing') === 'environment' ? 'environment' : 'user';
+let cameraCount = 0;
+async function countCameras() {
+  const all = await navigator.mediaDevices?.enumerateDevices?.().catch(() => []) ?? [];
+  cameraCount = all.filter((d) => d.kind === 'videoinput').length;
+}
+export const mirrorLocalCamera = () => cameraFacing === 'user'; // a traseira não é espelhada (texto legível)
+
+async function flipCamera() {
+  const track = room?.localParticipant.getTrackPublication(Track.Source.Camera)?.track;
+  if (!track) return;
+  const btns = [$('btn-flip'), $('vp-flip')];
+  for (const b of btns) b.disabled = true;
+  try {
+    const caps = track.mediaStreamTrack?.getCapabilities?.() ?? {};
+    if (isTouch || caps.facingMode?.length) {
+      const next = cameraFacing === 'user' ? 'environment' : 'user';
+      await track.restartTrack({ facingMode: next, resolution: VideoPresets.h720.resolution });
+      cameraFacing = next;
+      store.set('cameraFacing', next === 'environment' ? next : null);
+    } else {
+      // Computador com várias câmeras: passa para a próxima da lista
+      const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput' && d.deviceId);
+      const current = track.mediaStreamTrack?.getSettings?.().deviceId;
+      const next = cams[(cams.findIndex((d) => d.deviceId === current) + 1) % cams.length];
+      if (next) await room.switchActiveDevice('videoinput', next.deviceId);
+    }
+  } catch (err) {
+    warnDevice('outra câmera')(err);
+  } finally {
+    for (const b of btns) b.disabled = false;
+  }
+  renderStage();
+}
+$('btn-flip').onclick = flipCamera;
+$('vp-flip').onclick = flipCamera;
 
 $('btn-screen').onclick = async () => {
   if (!room) return;
@@ -672,7 +823,8 @@ async function startScreenShare({ res, fps, audio }) {
         selfBrowserSurface: 'exclude',
       },
       {
-        screenShareEncoding: { maxBitrate: bitrate, maxFramerate: fps, priority: 'medium' },
+        screenShareEncoding: { maxBitrate: bitrate, maxFramerate: fps, priority: 'high' },
+        screenShareSimulcastLayers: screenLayers(res, fps),
         // H.264 costuma ser codificado pela placa de vídeo (VP8 usa o processador): muito mais leve durante jogos
         videoCodec: 'h264',
         // O padrão do LiveKit para tela é manter a resolução e derrubar o FPS quando o PC não dá conta
@@ -691,13 +843,18 @@ async function startScreenShare({ res, fps, audio }) {
 $('btn-leave').onclick = () => leaveVoice();
 
 export function updateMediaButtons() {
-  if (!room) return $('btn-cam').replaceChildren(icon('video-off'));
+  if (!room) {
+    $('btn-flip').hidden = $('vp-flip').hidden = true;
+    return $('btn-cam').replaceChildren(icon('video-off'));
+  }
   const canVideo = canIn(findChannel(roomChannel).server, PERMS.VIDEO);
   for (const id of ['btn-cam', 'btn-screen']) $(id).hidden = !canVideo;
   const lp = room.localParticipant;
   $('btn-cam').replaceChildren(icon(lp.isCameraEnabled ? 'video' : 'video-off'));
   $('btn-cam').title = lp.isCameraEnabled ? 'Desligar câmera' : 'Ligar câmera';
   $('btn-cam').classList.toggle('on', lp.isCameraEnabled);
+  // Virar câmera: só com a câmera ligada e mais de uma câmera no aparelho
+  $('btn-flip').hidden = $('vp-flip').hidden = !canVideo || !lp.isCameraEnabled || cameraCount < 2;
   $('btn-screen').classList.toggle('on', lp.isScreenShareEnabled);
   $('btn-screen').title = lp.isScreenShareEnabled ? 'Parar transmissão' : 'Transmitir tela';
   // Botões do painel "Voz conectada" (mesmas ações, sem sair do chat)
@@ -837,8 +994,31 @@ export function renderStage() {
     stripToggle.remove();
     strip.remove();
   }
+  layoutGrid();
   updateSpeaking();
 }
+
+// Grade como a do Discord: todos os quadros em 16:9, com o número de colunas que deixa cada um o maior possível
+// (antes as colunas esticavam até a altura toda e os quadros ficavam compridos em pé)
+const TILE_RATIO = 16 / 9;
+const GRID_GAP = 10;
+function layoutGrid() {
+  if (stage.classList.contains('focus')) return;
+  const n = stage.querySelectorAll(':scope > .tile').length;
+  if (!n) return;
+  const cs = getComputedStyle(stage);
+  const W = stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const H = stage.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  if (W <= 0 || H <= 0) return;
+  let best = { w: 0, cols: 1 };
+  for (let cols = 1; cols <= n; cols++) {
+    const rows = Math.ceil(n / cols);
+    const w = Math.min((W - GRID_GAP * (cols - 1)) / cols, ((H - GRID_GAP * (rows - 1)) / rows) * TILE_RATIO);
+    if (w > best.w) best = { w, cols };
+  }
+  stage.style.setProperty('--tile-w', `${Math.floor(best.w)}px`);
+}
+new ResizeObserver(() => layoutGrid()).observe(stage);
 
 // Faixa de participantes embaixo da live
 const strip = h('div', 'strip');
@@ -857,10 +1037,14 @@ function createTile(key) {
     <video autoplay playsinline muted hidden></video>
     <span class="label"></span>
     <pre class="stats" hidden></pre>
+    <span class="conn-warn" hidden></span>
+    <button class="qual" title="Qualidade da live" hidden></button>
     <button class="fs" title="Tela cheia" hidden></button>`;
+  el.querySelector('.qual').onclick = (e) => { e.stopPropagation(); openQualityMenu(el, e.currentTarget); };
   el.querySelector('.fs').append(icon('maximize', 16));
   el.append(Object.assign(buildVolumeControl(el), { hidden: true }));
   el.onclick = () => { pinnedKey = pinnedKey === key ? null : key; renderStage(); };
+  el.oncontextmenu = (e) => { if (openUserVolumeMenu(el.dataset.identity, e.clientX, e.clientY)) e.preventDefault(); };
   el.querySelector('.fs').onclick = (e) => {
     e.stopPropagation();
     el.querySelector('video').requestFullscreen?.();
@@ -884,7 +1068,7 @@ function updateTile(el, { p, pub, screen }, isMain) {
 
   const name = p.name || p.identity;
   video.hidden = !showVideo;
-  video.style.transform = p.isLocal && !screen ? 'scaleX(-1)' : ''; // espelha só a própria câmera
+  video.style.transform = p.isLocal && !screen && mirrorLocalCamera() ? 'scaleX(-1)' : ''; // espelha só a própria câmera frontal
 
   // Avatar com a cor da pessoa quando não há vídeo
   let avatar = el.querySelector('.avatar');
@@ -898,6 +1082,16 @@ function updateTile(el, { p, pub, screen }, isMain) {
   avatar.hidden = showVideo;
 
   el.querySelector('.fs').hidden = !screen;
+  // Live de outra pessoa: escolha de qualidade (teto para o automático) e a resolução que está chegando
+  const qual = el.querySelector('.qual');
+  qual.hidden = !screen || p.isLocal || !showVideo;
+  el._pub = pub;
+  if (!qual.hidden) { applyStreamQuality(pub); paintQualityButton(el); }
+  // Conexão instável de quem está no quadro (é dela que vem a imagem e a voz)
+  const cq = p.connectionQuality;
+  const warn = el.querySelector('.conn-warn');
+  warn.hidden = cq !== ConnectionQuality.Poor && cq !== ConnectionQuality.Lost;
+  if (!warn.hidden) warn.replaceChildren(icon('signal', 12), p.isLocal ? ' Sua conexão está instável' : ' Conexão instável');
   el.classList.toggle('screen', screen);
   el.classList.toggle('main', isMain);
   el.dataset.identity = p.identity;
@@ -911,7 +1105,7 @@ function updateTile(el, { p, pub, screen }, isMain) {
   if (screen) label.append(icon('monitor', 14), ` Tela de ${name}`);
   else {
     if (muted) label.append(icon('mic-off', 14), ' ');
-    label.append(`${name}${p.isLocal ? ' (você)' : ''}`);
+    label.append(name);
   }
 
   // Volume individual: voz no quadro da pessoa, som da live no quadro da tela (nunca no seu próprio)
@@ -931,6 +1125,49 @@ function updateSpeaking() {
   for (const row of document.querySelectorAll('.voice-member')) {
     row.classList.toggle('speaking', speaking.has(row.dataset.id));
   }
+}
+
+// ---------- Qualidade da live para quem assiste ----------
+// Automático: o sistema escolhe o degrau (1080p/720p/360p) pela internet de cada um e pelo tamanho do quadro.
+// Dá para travar num teto menor (economiza internet, ou evita o sobe-e-desce numa conexão ruim).
+const STREAM_QUALITY = {
+  auto: { label: 'Automática', hint: 'a melhor que a sua internet aguenta', q: VideoQuality.HIGH },
+  medium: { label: 'Média', hint: 'até 720p', q: VideoQuality.MEDIUM },
+  low: { label: 'Baixa', hint: 'até 360p, economiza internet', q: VideoQuality.LOW },
+};
+const streamQuality = () => (STREAM_QUALITY[store.get('streamQuality')] ? store.get('streamQuality') : 'auto');
+
+function applyStreamQuality(pub) {
+  if (pub && !pub.track?.isLocal && pub.setVideoQuality) pub.setVideoQuality(STREAM_QUALITY[streamQuality()].q);
+}
+
+function paintQualityButton(el) {
+  const video = el.querySelector('video');
+  const vh = video?.videoHeight;
+  const now = vh ? `${vh >= 1000 ? 1080 : vh >= 700 ? 720 : vh >= 520 ? 540 : vh >= 340 ? 360 : vh}p` : '';
+  const mode = streamQuality();
+  el.querySelector('.qual').textContent = `${mode === 'auto' ? 'Auto' : STREAM_QUALITY[mode].label}${now ? ` · ${now}` : ''}`;
+}
+// A resolução que chega muda sozinha: atualiza o botão a cada 2 s
+setInterval(() => { for (const el of tiles.values()) if (!el.querySelector('.qual').hidden) paintQualityButton(el); }, 2000);
+
+const CONN_LABEL = { excellent: 'excelente', good: 'boa', poor: 'instável', lost: 'caindo', unknown: 'medindo…' };
+function openQualityMenu(el, btn) {
+  const r = btn.getBoundingClientRect();
+  const who = room?.getParticipantByIdentity?.(el.dataset.identity) ?? room?.remoteParticipants.get(el.dataset.identity);
+  const mine = room?.localParticipant.connectionQuality;
+  contextMenu(r.left, r.bottom + 4, [
+    ...Object.entries(STREAM_QUALITY).map(([id, o]) => ({
+      label: `${o.label} (${o.hint})${streamQuality() === id ? '  ✓' : ''}`,
+      onClick: () => {
+        store.set('streamQuality', id === 'auto' ? null : id);
+        for (const t of tiles.values()) if (t._pub && !t.querySelector('.qual').hidden) { applyStreamQuality(t._pub); paintQualityButton(t); }
+      },
+    })),
+    'sep',
+    { label: `Conexão de ${who?.name ?? 'quem transmite'}: ${CONN_LABEL[who?.connectionQuality] ?? '?'}`, icon: 'signal', onClick: () => {} },
+    { label: `Sua conexão: ${CONN_LABEL[mine] ?? '?'}`, icon: 'signal', onClick: () => {} },
+  ]);
 }
 
 // ---------- Painel de qualidade ----------

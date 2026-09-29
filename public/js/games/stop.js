@@ -16,7 +16,7 @@ function writePhase(el, s, ctx) {
   inputs = s.categories.map((cat, i) => {
     const field = h('label', 'stop-field');
     const input = h('input');
-    Object.assign(input, { value: s.mine?.[i] ?? '', maxLength: 40, placeholder: `${cat} com ${s.letter}…`, autocomplete: 'off', spellcheck: false });
+    Object.assign(input, { value: s.mine?.[i] ?? '', maxLength: 40, placeholder: `Com ${s.letter}…`, autocomplete: 'off', spellcheck: false });
     input.disabled = !ctx.isPlayer;
     const ok = h('span', 'stop-ok');
     field.append(h('span', 'stop-cat', cat), input, ok);

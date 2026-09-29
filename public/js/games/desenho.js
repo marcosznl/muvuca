@@ -202,7 +202,7 @@ export default {
       row.classList.toggle('guessed', s.guessed.includes(p.id));
       row.classList.toggle('gone', !p.alive);
       const mark = p.id === s.drawer ? '✏️' : s.guessed.includes(p.id) ? '✅' : '';
-      row.append(h('span', 'draw-mark', mark), h('span', 'draw-name', p.name + (isMe(p.id) ? ' (você)' : '')), h('span', 'draw-pts', String(p.score)));
+      row.append(h('span', 'draw-mark', mark), h('span', 'draw-name', p.name), h('span', 'draw-pts', String(p.score)));
       els.side.append(row);
     }
     paint(ctx, s);

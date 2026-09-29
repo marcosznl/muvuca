@@ -7,7 +7,7 @@ rtc:
   # Descobre e anuncia o IPv4 público da casa (sem CGNAT desde a liberação da operadora)
   use_external_ip: true
 room:
-  max_participants: 6
+  max_participants: 25 # teto geral; cada canal de voz pode ter um limite menor nas configurações
   empty_timeout: 300
 logging:
   level: warn   # "info" anotava cada consulta das salas (1 linha a cada 1,5 s)

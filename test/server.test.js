@@ -332,6 +332,17 @@ test('grupo: qualquer pessoa renomeia; conversa a dois não tem nome', async () 
   caio.close();
 });
 
+test('limite de pessoas do canal de voz: só quem gerencia canais muda; vai de 0 (sem limite) a 25', async () => {
+  const voz = dono.server_(home).channels.find((c) => c.type === 'voice');
+  assert.equal(voz.userLimit, 0);
+  assert.match((await ana.request({ t: 'channel:settings', channelId: voz.id, name: voz.name, bitrate: 128, userLimit: 5 })).message, /permissão/);
+  assert.match((await dono.request({ t: 'channel:settings', channelId: voz.id, name: voz.name, bitrate: 128, userLimit: 99 })).message, /25/);
+  assert.equal((await dono.request({ t: 'channel:settings', channelId: voz.id, name: voz.name, bitrate: 128, userLimit: 5 })).t, 'ok');
+  const snap = await ana.waitFor('server', (e) => e.server.id === home && e.server.channels.some((c) => c.id === voz.id && c.userLimit === 5));
+  assert.ok(snap);
+  await dono.request({ t: 'channel:settings', channelId: voz.id, name: voz.name, bitrate: 128, userLimit: 0 });
+});
+
 // ---------- Site e voz ----------
 
 test('arquivos do site: 304 quando não mudou, e nada fora da pasta public', async () => {
