@@ -1,14 +1,15 @@
 {
   "name": "muvuca-desktop",
   "productName": "Muvuca",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Muvuca para Mac",
   "main": "main.js",
   "private": true,
   "author": "marcos",
   "scripts": {
     "start": "electron .",
-    "dist": "native/build.sh && electron-builder --mac"
+    "dist": "native/build.sh && electron-builder --mac",
+    "dist:win": "electron-builder --win"
   },
   "devDependencies": {
     "electron": "^44.4.5",
@@ -36,10 +37,12 @@
       "picker-preload.js",
       "picker.html",
       "offline.html",
-      "build/trayTemplate*.png",
       "package.json",
       "node_modules/uiohook-napi/**/*",
-      "node_modules/node-gyp-build/**/*"
+      "node_modules/node-gyp-build/**/*",
+      "build/trayTemplate*.png",
+      "build/tray-win*.png",
+      "build/badge*.png"
     ],
     "asarUnpack": [
       "node_modules/uiohook-napi/**/*"
@@ -71,20 +74,51 @@
         "NSAudioCaptureUsageDescription": "O Muvuca captura o som do computador quando você transmite a tela com áudio.",
         "LSMinimumSystemVersion": "12.0"
       },
-      "artifactName": "Muvuca-${version}-${arch}-mac.${ext}"
+      "artifactName": "Muvuca-${version}-${arch}-mac.${ext}",
+      "extraResources": [
+        {
+          "from": "build/bin",
+          "to": "bin",
+          "filter": [
+            "muvuca-audio"
+          ]
+        }
+      ]
     },
     "dmg": {
       "title": "Muvuca",
       "artifactName": "Muvuca-${version}-${arch}.${ext}"
     },
-    "extraResources": [
-      {
-        "from": "build/bin",
-        "to": "bin",
-        "filter": [
-          "muvuca-audio"
-        ]
-      }
-    ]
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "artifactName": "Muvuca-${version}-${arch}-windows.${ext}",
+      "signAndEditExecutable": true,
+      "signExecutable": false
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Muvuca",
+      "uninstallDisplayName": "Muvuca",
+      "deleteAppDataOnUninstall": false,
+      "buildUniversalInstaller": false
+    },
+    "npmRebuild": false,
+    "toolsets": {
+      "nsis": "1.2.1"
+    }
   }
 }

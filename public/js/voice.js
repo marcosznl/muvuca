@@ -799,6 +799,8 @@ function openScreenDialog() {
   const audioBox = h('input');
   audioBox.type = 'checkbox';
   audioLabel.append(audioBox, h('span', '', IS_SAFARI ? 'Transmitir o som (o Safari não envia som de tela; use Chrome ou Edge)' : 'Transmitir o som também'));
+  // App do Windows: o som vai do computador inteiro (o Windows não separa por app sem módulo próprio)
+  if (desktop?.platform === 'win32') audioLabel.append(h('span', 'muted small', ' — vai todo o som do computador. Se a galera ouvir a call de volta, desmarque.'));
   audioBox.onchange = () => { opts.audio = audioBox.checked; };
   const summary = h('p', 'muted small screen-summary');
   body.append(audioLabel, summary);
@@ -870,7 +872,8 @@ desktop?.onAppAudioState?.((s) => {
 async function startScreenShare({ res, fps, audio }) {
   if (!room) return;
   // App do Mac: o som vem pelo ScreenCaptureKit (o app começa ao escolher a janela)
-  if (desktop?.platform === 'darwin' && desktop.appAudioSupported) desktop.wantAppAudio(!!audio && await desktop.appAudioSupported());
+  // App do Mac: o som vem pelo ScreenCaptureKit; app do Windows: pelo som do sistema (loopback)
+  if (desktop?.wantAppAudio) desktop.wantAppAudio(!!audio && (desktop.platform !== 'darwin' || await desktop.appAudioSupported()));
   const r = SCREEN_RES[res];
   const bitrate = screenBitrate(res, fps);
   try {

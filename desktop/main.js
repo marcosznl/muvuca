@@ -10,6 +10,10 @@ const { spawn } = require('node:child_process');
 const updater = require('./updater');
 const fs = require('node:fs');
 
+const IS_MAC = process.platform === 'darwin';
+const IS_WIN = process.platform === 'win32';
+if (IS_WIN) app.setAppUserModelId('br.malegna.muvuca'); // notificações do Windows com o nome e o ícone certos
+
 // Endereço do servidor: o link público por padrão; dá para trocar no menu (ex.: http://localhost:3000 em casa)
 const DEFAULT_URL = 'https://seu-dominio.duckdns.org:8443';
 const settingsFile = () => path.join(app.getPath('userData'), 'configuracoes.json');
@@ -24,6 +28,7 @@ let settings = { url: DEFAULT_URL };
 const origin = () => new URL(settings.url).origin;
 
 let win = null;
+let startHidden = false; // aberto junto com o computador: começa só na barra de menus/bandeja
 let tray = null;
 let quitting = false;
 
@@ -50,8 +55,13 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: 'Muvuca',
-    titleBarStyle: 'hiddenInset', // barra de título integrada, como no Discord
-    trafficLightPosition: { x: 12, y: 8 }, // centralizados na faixa de 30 px do topo
+    // Barra de título integrada, como no Discord: no Mac os três botões ficam na faixa de 30 px do topo;
+    // no Windows, minimizar/maximizar/fechar ficam no canto direito da mesma faixa
+    ...(IS_MAC
+      ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 12, y: 8 } }
+      : { titleBarStyle: 'hidden', titleBarOverlay: { color: '#1e1f22', symbolColor: '#b5bac1', height: 30 } }),
+    icon: IS_WIN ? path.join(__dirname, 'build', 'tray-win@2x.png') : undefined,
+    autoHideMenuBar: true,
     backgroundColor: '#1e1f22',
     show: false,
     webPreferences: {
@@ -62,7 +72,7 @@ function createWindow() {
       backgroundThrottling: false, // a voz e os jogos continuam fluindo com a janela escondida
     },
   });
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => { if (!startHidden) win.show(); });
   win.loadURL(settings.url);
 
   // Fechar a janela só esconde (a voz continua); sair de verdade é pelo menu ou ⌘Q
@@ -71,11 +81,19 @@ function createWindow() {
   });
   win.on('closed', () => { win = null; });
 
-  // Contador no Dock: o site já põe "(3) Muvuca" no título quando há não lidas
+  // Não lidas: número no Dock (Mac) ou bolinha vermelha no ícone da barra de tarefas (Windows).
+  // O site já põe "(3) Muvuca" no título quando há mensagens novas.
+  let lastUnread = 0;
   win.on('page-title-updated', (_e, title) => {
     const n = Number(/^\((\d+)\)/.exec(title)?.[1] ?? 0);
-    app.dock?.setBadge(n ? String(n) : '');
+    if (IS_MAC) app.dock?.setBadge(n ? String(n) : '');
+    if (IS_WIN) {
+      win.setOverlayIcon(n ? nativeImage.createFromPath(path.join(__dirname, 'build', 'badge@2x.png')) : null, n ? `${n} não lidas` : '');
+      if (n > lastUnread && !win.isFocused()) win.flashFrame(true); // pisca na barra de tarefas
+    }
+    lastUnread = n;
   });
+  win.on('focus', () => { if (IS_WIN) win.flashFrame(false); });
 
   // Links para fora do Muvuca abrem no navegador; dentro, na própria janela
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -118,9 +136,10 @@ function setupPermissions() {
       const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 320, height: 200 }, fetchWindowIcons: true });
       const chosen = await pickSource(sources);
       if (!chosen) return callback({});
-      callback({ video: chosen });
-      // Som da live no Mac: o Electron não captura; o muvuca-audio (ScreenCaptureKit) pega o som do app da janela
-      if (wantAppAudio && canCaptureAppAudio()) startAppAudio(chosen.id);
+      // Windows: o próprio Electron captura o som do sistema (loopback) junto com a imagem
+      callback({ video: chosen, ...(IS_WIN && wantAppAudio ? { audio: 'loopback' } : {}) });
+      // Mac: o Electron não captura som; o muvuca-audio (ScreenCaptureKit) pega o som do app da janela
+      if (IS_MAC && wantAppAudio && canCaptureAppAudio()) startAppAudio(chosen.id);
     } catch (err) {
       console.error('captura de tela', err);
       callback({});
@@ -252,7 +271,7 @@ function setPtt({ enabled, code }) {
     if (pttDown) sendPtt(false);
     return { ok: true };
   }
-  if (process.platform === 'darwin' && !systemPreferences.isTrustedAccessibilityClient(false)) {
+  if (IS_MAC && !systemPreferences.isTrustedAccessibilityClient(false)) {
     systemPreferences.isTrustedAccessibilityClient(true); // abre o pedido de permissão do macOS
     return { ok: false, reason: 'permissao' };
   }
@@ -302,14 +321,21 @@ ipcMain.on('voice:state', (_e, s) => {
 });
 
 function openAtLogin() { return app.getLoginItemSettings().openAtLogin; }
-function toggleOpenAtLogin() { app.setLoginItemSettings({ openAtLogin: !openAtLogin(), openAsHidden: true }); buildTray(); buildMenu(); }
+// Abrir junto com o computador, já escondido na barra de menus/bandeja
+function toggleOpenAtLogin() {
+  app.setLoginItemSettings({ openAtLogin: !openAtLogin(), openAsHidden: true, args: IS_WIN ? ['--escondido'] : [] });
+  buildTray();
+  buildMenu();
+}
 
 function buildTray() {
   if (!tray) {
-    const icon = nativeImage.createFromPath(path.join(__dirname, 'build', 'trayTemplate.png'));
-    icon.setTemplateImage(true);
+    // Mac: ícone "molde" (o sistema pinta claro/escuro); Windows: ícone colorido, e um clique abre o app
+    const icon = nativeImage.createFromPath(path.join(__dirname, 'build', IS_MAC ? 'trayTemplate.png' : 'tray-win.png'));
+    if (IS_MAC) icon.setTemplateImage(true);
     tray = new Tray(icon);
     tray.setToolTip('Muvuca');
+    if (!IS_MAC) tray.on('click', showWindow);
   }
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Abrir o Muvuca', click: showWindow },
@@ -341,21 +367,18 @@ async function chooseServer() {
 }
 
 function buildMenu() {
+  const macOnly = (items) => (IS_MAC ? items : []);
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     {
       label: 'Muvuca',
       submenu: [
-        { role: 'about', label: 'Sobre o Muvuca' },
-        { type: 'separator' },
+        ...macOnly([{ role: 'about', label: 'Sobre o Muvuca' }, { type: 'separator' }]),
         { label: 'Abrir junto com o Mac', type: 'checkbox', checked: openAtLogin(), click: toggleOpenAtLogin },
         { label: 'Endereço do servidor…', click: chooseServer },
         { label: 'Procurar atualizações', click: () => updater.check({ manual: true }) },
         { type: 'separator' },
-        { role: 'hide', label: 'Ocultar o Muvuca' },
-        { role: 'hideOthers', label: 'Ocultar outros' },
-        { role: 'unhide', label: 'Mostrar tudo' },
-        { type: 'separator' },
-        { label: 'Sair do Muvuca', accelerator: 'Cmd+Q', click: () => { quitting = true; app.quit(); } },
+        ...macOnly([{ role: 'hide', label: 'Ocultar o Muvuca' }, { role: 'hideOthers', label: 'Ocultar outros' }, { role: 'unhide', label: 'Mostrar tudo' }, { type: 'separator' }]),
+        { label: 'Sair do Muvuca', accelerator: 'CmdOrCtrl+Q', click: () => { quitting = true; app.quit(); } },
       ],
     },
     {
@@ -377,7 +400,7 @@ function buildMenu() {
         { role: 'togglefullscreen', label: 'Tela cheia' },
       ],
     },
-    { role: 'windowMenu', label: 'Janela' },
+    ...macOnly([{ role: 'windowMenu', label: 'Janela' }]),
   ]));
 }
 
@@ -394,6 +417,7 @@ app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(
 
 app.whenReady().then(() => {
   settings = loadSettings();
+  startHidden = process.argv.includes('--escondido') || (IS_MAC && app.getLoginItemSettings().wasOpenedAsHidden);
   setupPermissions();
   buildMenu();
   buildTray();

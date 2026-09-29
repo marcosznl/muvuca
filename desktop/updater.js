@@ -1,4 +1,6 @@
-// Atualização automática do app do Mac, sem depender da assinatura paga da Apple:
+// Atualização automática do app (Mac e Windows), sem depender de assinatura paga:
+// Windows: baixa o instalador novo, confere e roda em silêncio (ele fecha o app, instala e reabre).
+// Mac:
 // 1. lê downloads/latest.json no servidor do Muvuca;  2. baixa o pacote (.zip) em segundo plano;
 // 3. confere tamanho, impressão digital (SHA-512), versão e assinatura do app novo;
 // 4. pergunta se reinicia agora (ou troca ao fechar);  5. um script pequeno espera o app fechar,
@@ -12,6 +14,7 @@ const { execFile, spawn } = require('node:child_process');
 const { promisify } = require('node:util');
 
 const run = promisify(execFile);
+const IS_WIN = process.platform === 'win32';
 const newer = (a, b) => {
   const pa = String(a).split('.').map(Number);
   const pb = String(b).split('.').map(Number);
@@ -30,6 +33,7 @@ function bundlePath() {
 }
 function whyCannotUpdate() {
   if (!app.isPackaged) return 'modo de desenvolvimento';
+  if (IS_WIN) return null; // o instalador cuida de tudo (instala na pasta do usuário, sem pedir administrador)
   const b = bundlePath();
   if (!b) return 'não achei o app';
   if (b.includes('/AppTranslocation/') || b.startsWith('/Volumes/')) return 'fora da pasta Aplicativos';
@@ -73,7 +77,19 @@ async function download(url, file, size, sha512, onProgress) {
 }
 
 // Baixa, confere e deixa pronto para trocar
+async function prepareWindows(info) {
+  const pkg = info.win?.[process.arch === 'arm64' ? 'arm64' : 'x64'] ?? info.win?.x64;
+  if (!pkg?.sha512) throw new Error('não tem instalador para este Windows');
+  const dir = path.join(updatesDir(), info.version);
+  await fsp.rm(dir, { recursive: true, force: true });
+  await fsp.mkdir(dir, { recursive: true });
+  const exe = path.join(dir, pkg.file);
+  await download(`${getOrigin()}/downloads/${pkg.file}`, exe, pkg.size, pkg.sha512);
+  return exe;
+}
+
 async function prepare(info) {
+  if (IS_WIN) return prepareWindows(info);
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
   const pkg = info.mac?.[arch]?.update;
   if (!pkg) throw new Error('não tem pacote de atualização para este Mac');
@@ -95,6 +111,12 @@ async function prepare(info) {
 // Troca e reabre: um script espera este app fechar, move o antigo para o lado, põe o novo e abre
 function applyAndRelaunch(reopen = true) {
   const ready = state.ready;
+  if (IS_WIN && ready) {
+    // Instalador em silêncio; "--force-run" reabre o app no fim
+    spawn(ready.appPath, ['/S', ...(reopen ? ['--force-run'] : [])], { detached: true, stdio: 'ignore' }).unref();
+    state.ready = null;
+    return true;
+  }
   const target = bundlePath();
   if (!ready || !target) return false;
   const script = path.join(updatesDir(), 'trocar.sh');

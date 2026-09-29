@@ -8,23 +8,27 @@
 <link rel="stylesheet" href="/style.css">
 <style>
   body { background: radial-gradient(circle at 20% 10%, #5865f2 0, #3b45d8 35%, transparent 60%), radial-gradient(circle at 85% 85%, #eb459e 0, transparent 45%), #3b45d8; min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; }
-  .dl { width: min(640px, 100%); background: var(--bg-side); border-radius: 12px; padding: 32px 28px; box-shadow: 0 12px 40px rgba(0,0,0,.35); }
+  .dl { width: min(660px, 100%); background: var(--bg-side); border-radius: 12px; padding: 32px 28px; box-shadow: 0 12px 40px rgba(0,0,0,.35); }
   .dl-head { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }
   .dl-head img { width: 64px; height: 64px; border-radius: 16px; }
   .dl h1 { margin: 0; font-size: 26px; color: var(--text-strong); }
   .dl .ver { color: var(--muted); font-size: 14px; }
   .dl p { color: var(--text); line-height: 1.5; }
-  .dl-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 22px 0 8px; }
+  .dl-tabs { display: flex; gap: 6px; margin: 20px 0 4px; }
+  .dl-tabs button { padding: 7px 14px; border-radius: 6px; color: var(--muted); font-weight: 600; }
+  .dl-tabs button.on { background: var(--bg-active); color: var(--text-strong); }
+  .dl-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0 8px; }
   .dl-btn { display: grid; gap: 4px; padding: 14px 16px; border-radius: 8px; background: var(--bg-dark); color: var(--text-strong); text-decoration: none; border: 2px solid transparent; }
   .dl-btn:hover { border-color: var(--accent); text-decoration: none; }
   .dl-btn.best { background: var(--accent); color: #fff; }
   .dl-btn strong { font-size: 16px; }
   .dl-btn span { font-size: 12px; opacity: .8; }
-  .dl-steps { margin: 18px 0 0; padding-left: 20px; color: var(--text); line-height: 1.6; font-size: 14px; }
+  .dl-steps { margin: 12px 0 0; padding-left: 20px; color: var(--text); line-height: 1.6; font-size: 14px; }
   .dl-steps b { color: var(--text-strong); }
-  .dl h2 { font-size: 15px; color: var(--text-strong); margin: 24px 0 6px; }
+  .dl h2 { font-size: 15px; color: var(--text-strong); margin: 22px 0 6px; }
   .dl .muted { font-size: 13px; }
   .dl-back { display: inline-block; margin-top: 22px; font-size: 14px; }
+  .os[hidden] { display: none; }
   @media (max-width: 560px) { .dl-btns { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -32,26 +36,55 @@
   <main class="dl">
     <div class="dl-head">
       <img src="/icons/icon-192.png" alt="">
-      <div><h1>Muvuca para Mac</h1><div class="ver" id="ver">Carregando…</div></div>
+      <div><h1>Baixar o Muvuca</h1><div class="ver" id="ver">Carregando…</div></div>
     </div>
-    <p>O app tem tudo que o site tem e mais: <b>apertar para falar funcionando mesmo com o Muvuca em segundo plano</b> (jogando em tela cheia, por exemplo), ícone na barra de menus, contador de mensagens no Dock e notificações do Mac.</p>
-    <div class="dl-btns" id="btns"></div>
-    <p class="muted" id="which"></p>
+    <p>O app tem tudo que o site tem e mais: <b>apertar para falar funcionando mesmo com o Muvuca em segundo plano</b> (jogando em tela cheia, por exemplo), <b>live com som</b>, ícone perto do relógio, contador de mensagens e notificações do sistema. Atualiza sozinho.</p>
+    <div class="dl-tabs"><button id="tab-mac" type="button">Mac</button><button id="tab-win" type="button">Windows</button></div>
 
-    <h2>Primeira vez abrindo</h2>
-    <p class="muted">O app ainda não tem a assinatura paga da Apple, então o Mac desconfia na primeira vez. É só liberar uma vez:</p>
-    <ol class="dl-steps">
-      <li>Abra o arquivo baixado e arraste o <b>Muvuca</b> para a pasta <b>Aplicativos</b>.</li>
-      <li>Abra o Muvuca. O Mac vai dizer que não pode verificar o app — clique em <b>OK</b> (ou Concluído).</li>
-      <li>Vá em <b>Ajustes do Sistema → Privacidade e Segurança</b>, role até o fim e clique em <b>Abrir Mesmo Assim</b> ao lado do Muvuca. Confirme com sua senha.</li>
-      <li>Pronto: das próximas vezes ele abre direto.</li>
-    </ol>
-    <h2>Apertar para falar em segundo plano</h2>
-    <p class="muted">Na primeira vez que você usar o apertar para falar numa call, o Mac pede para liberar o Muvuca em <b>Ajustes do Sistema → Privacidade e Segurança → Acessibilidade</b>. Libere, saia e entre na call de novo.</p>
+    <section class="os" id="os-mac">
+      <div class="dl-btns" id="btns-mac"></div>
+      <p class="muted" id="which-mac"></p>
+      <h2>Primeira vez abrindo</h2>
+      <p class="muted">O app ainda não tem a assinatura paga da Apple, então o Mac desconfia na primeira vez. É só liberar uma vez:</p>
+      <ol class="dl-steps">
+        <li>Abra o arquivo baixado e arraste o <b>Muvuca</b> para a pasta <b>Aplicativos</b>.</li>
+        <li>Abra o Muvuca. O Mac vai dizer que não pode verificar o app — clique em <b>OK</b> (ou Concluído).</li>
+        <li>Vá em <b>Ajustes do Sistema → Privacidade e Segurança</b>, role até o fim e clique em <b>Abrir Mesmo Assim</b> ao lado do Muvuca. Confirme com sua senha.</li>
+        <li>Pronto: das próximas vezes ele abre direto (e se atualiza sozinho).</li>
+      </ol>
+      <h2>Apertar para falar e som da live</h2>
+      <p class="muted">O Mac pede duas liberações na primeira vez: <b>Acessibilidade</b> (para o apertar para falar em segundo plano) e <b>Gravação de Tela e Áudio do Sistema</b> (para a live com som). Ambas em Ajustes do Sistema → Privacidade e Segurança. Depois de liberar, saia e entre na call de novo.</p>
+    </section>
+
+    <section class="os" id="os-win" hidden>
+      <div class="dl-btns" id="btns-win"></div>
+      <p class="muted" id="which-win"></p>
+      <h2>Primeira vez abrindo</h2>
+      <p class="muted">O app ainda não tem certificado pago, então o Windows mostra um aviso na primeira vez:</p>
+      <ol class="dl-steps">
+        <li>Abra o arquivo baixado. Se aparecer <b>"O Windows protegeu o computador"</b>, clique em <b>Mais informações</b> e depois em <b>Executar assim mesmo</b>.</li>
+        <li>A instalação é automática (não pede senha de administrador) e o Muvuca abre sozinho no fim.</li>
+        <li>Ele fica no menu Iniciar e na área de trabalho, e se atualiza sozinho.</li>
+      </ol>
+      <h2>Som da live</h2>
+      <p class="muted">No Windows, a live com som envia <b>todo o som do computador</b>. Se a galera ouvir a call de volta, desmarque "Transmitir o som também" ao começar a live.</p>
+    </section>
+
     <a class="dl-back" href="/">← Voltar para o Muvuca</a>
   </main>
 <script>
-  // Chip Apple ou Intel: o navegador não diz direto; a placa de vídeo dá a pista (Apple GPU = chip Apple)
+  const isWin = /Windows/i.test(navigator.userAgent);
+  function show(win) {
+    document.getElementById('os-mac').hidden = win;
+    document.getElementById('os-win').hidden = !win;
+    document.getElementById('tab-mac').classList.toggle('on', !win);
+    document.getElementById('tab-win').classList.toggle('on', win);
+  }
+  document.getElementById('tab-mac').onclick = () => show(false);
+  document.getElementById('tab-win').onclick = () => show(true);
+  show(isWin);
+
+  // Mac com chip Apple ou Intel: a placa de vídeo dá a pista (Apple GPU = chip Apple)
   function guessAppleSilicon() {
     try {
       const gl = document.createElement('canvas').getContext('webgl');
@@ -62,29 +95,40 @@
     } catch {}
     return null;
   }
+  // Windows em processador ARM (Snapdragon): raro; o navegador às vezes conta
+  async function guessWinArm() {
+    try { return (await navigator.userAgentData?.getHighEntropyValues(['architecture']))?.architecture === 'arm'; } catch { return false; }
+  }
   const size = (b) => `${Math.round(b / 1024 / 1024)} MB`;
-  fetch('/downloads/latest.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => {
-    document.getElementById('ver').textContent = `Versão ${d.version}${d.date ? ` · ${new Date(d.date).toLocaleDateString('pt-BR')}` : ''}`;
-    const arm = guessAppleSilicon();
-    const btns = document.getElementById('btns');
-    const opts = [
-      ['arm64', 'Mac com chip Apple', 'M1, M2, M3, M4… (a maioria dos Macs de 2021 para cá)'],
-      ['x64', 'Mac com Intel', 'Macs mais antigos'],
-    ];
-    for (const [arch, title, sub] of opts) {
-      const f = d.mac?.[arch];
+  function buttons(box, entries, best) {
+    for (const [f, title, sub, isBest] of entries) {
       if (!f) continue;
       const a = document.createElement('a');
-      a.className = `dl-btn${(arch === 'arm64') === (arm ?? true) ? ' best' : ''}`;
+      a.className = `dl-btn${isBest ? ' best' : ''}`;
       a.href = `/downloads/${f.file}`;
       a.innerHTML = '<strong></strong><span></span>';
       a.querySelector('strong').textContent = `⬇ ${title}`;
       a.querySelector('span').textContent = `${sub} · ${size(f.size)}`;
-      btns.append(a);
+      box.append(a);
     }
-    document.getElementById('which').textContent = arm === null
+  }
+  fetch('/downloads/latest.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : Promise.reject())).then(async (d) => {
+    document.getElementById('ver').textContent = `Versão ${d.version}${d.date ? ` · ${new Date(d.date).toLocaleDateString('pt-BR')}` : ''}`;
+    const arm = guessAppleSilicon();
+    buttons(document.getElementById('btns-mac'), [
+      [d.mac?.arm64, 'Mac com chip Apple', 'M1, M2, M3, M4… (a maioria dos Macs de 2021 para cá)', arm ?? true],
+      [d.mac?.x64, 'Mac com Intel', 'Macs mais antigos', arm === false],
+    ]);
+    document.getElementById('which-mac').textContent = arm === null
       ? 'Não sabe qual é o seu? Menu Apple → Sobre Este Mac: se aparecer "Chip Apple M…", é o primeiro.'
-      : `Pelo jeito o seu Mac é ${arm ? 'com chip Apple' : 'Intel'} — o botão em destaque é o certo. (Confira em menu Apple → Sobre Este Mac.)`;
+      : `Pelo jeito o seu Mac é ${arm ? 'com chip Apple' : 'Intel'} — o botão em destaque é o certo.`;
+    const winArm = isWin && await guessWinArm(); // só adivinha no próprio Windows
+    buttons(document.getElementById('btns-win'), [
+      [d.win?.x64, 'Windows', 'Windows 10 e 11 (a maioria dos PCs)', !winArm],
+      [d.win?.arm64, 'Windows ARM', 'Notebooks com Snapdragon', winArm],
+    ]);
+    document.getElementById('which-win').textContent = 'Na dúvida, é o primeiro: o "ARM" é só para notebooks com processador Snapdragon.';
+    if (!d.win) document.getElementById('btns-win').textContent = 'A versão para Windows ainda não foi publicada.';
   }).catch(() => {
     document.getElementById('ver').textContent = 'Nenhuma versão disponível ainda.';
   });
