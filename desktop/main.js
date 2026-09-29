@@ -7,6 +7,7 @@ const {
 const path = require('node:path');
 const os = require('node:os');
 const { spawn } = require('node:child_process');
+const updater = require('./updater');
 const fs = require('node:fs');
 
 // Endereço do servidor: o link público por padrão; dá para trocar no menu (ex.: http://localhost:3000 em casa)
@@ -335,7 +336,7 @@ function buildMenu() {
         { type: 'separator' },
         { label: 'Abrir junto com o Mac', type: 'checkbox', checked: openAtLogin(), click: toggleOpenAtLogin },
         { label: 'Endereço do servidor…', click: chooseServer },
-        { label: 'Procurar atualizações', click: () => { offered = null; checkUpdate(true); } },
+        { label: 'Procurar atualizações', click: () => updater.check({ manual: true }) },
         { type: 'separator' },
         { role: 'hide', label: 'Ocultar o Muvuca' },
         { role: 'hideOthers', label: 'Ocultar outros' },
@@ -370,42 +371,13 @@ function buildMenu() {
 // ---------- Começo ----------
 
 app.setAboutPanelOptions({ applicationName: 'Muvuca', applicationVersion: app.getVersion(), copyright: 'Feito pela galera da Malegna' });
-app.on('before-quit', () => { quitting = true; });
+app.on('before-quit', () => { quitting = true; updater.onQuit(); });
+app.on('muvuca-quit', () => { quitting = true; app.quit(); }); // "Reiniciar agora" da atualização
 app.on('activate', () => showWindow()); // clicar no ícone do Dock com a janela escondida
 // Sem janelas o app continua vivo (barra de menus e Dock), como o Discord; sair é pelo menu ou ⌘Q
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
-// ---------- Versão nova: o servidor diz qual é a mais recente (downloads/latest.json) ----------
-const newer = (a, b) => {
-  const pa = a.split('.').map(Number);
-  const pb = b.split('.').map(Number);
-  for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
-  return false;
-};
-let offered = null; // não pergunta de novo pela mesma versão enquanto o app estiver aberto
-async function checkUpdate(manual = false) {
-  try {
-    const res = await fetch(`${origin()}/downloads/latest.json`, { cache: 'no-cache' });
-    if (!res.ok) return;
-    const { version } = await res.json();
-    const { dialog } = require('electron');
-    if (manual && version && !newer(version, app.getVersion())) {
-      dialog.showMessageBox(win ?? undefined, { type: 'info', message: 'Você já está com a versão mais nova', detail: `Muvuca ${app.getVersion()}` });
-      return;
-    }
-    if (!version || !newer(version, app.getVersion()) || offered === version) return;
-    offered = version;
-    const r = await dialog.showMessageBox(win ?? undefined, {
-      type: 'info',
-      message: `Tem versão nova do Muvuca (${version})`,
-      detail: `Você está com a ${app.getVersion()}. Baixe a nova e arraste para Aplicativos, substituindo a antiga.`,
-      buttons: ['Baixar', 'Depois'],
-      defaultId: 0,
-      cancelId: 1,
-    });
-    if (r.response === 0) shell.openExternal(`${origin()}/baixar`);
-  } catch {}
-}
+// ---------- Começo (a atualização automática fica no updater.js) ----------
 
 app.whenReady().then(() => {
   settings = loadSettings();
@@ -413,8 +385,9 @@ app.whenReady().then(() => {
   buildMenu();
   buildTray();
   createWindow();
-  setTimeout(checkUpdate, 15_000);
-  setInterval(checkUpdate, 6 * 3600_000);
+  updater.init({ window: () => win, origin });
+  setTimeout(() => updater.check(), 15_000);
+  setInterval(() => updater.check(), 6 * 3600_000);
 });
 
 app.on('will-quit', () => { try { hook?.stop(); } catch {} stopAppAudio(); });

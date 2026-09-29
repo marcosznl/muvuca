@@ -17,17 +17,25 @@ out=../downloads
 mkdir -p "$out"
 for arch in arm64 x64; do
   cp "dist/Muvuca-$version-$arch.dmg" "$out/"
+  cp "dist/Muvuca-$version-$arch-mac.zip" "$out/" # pacote da atualização automática (o app baixa sozinho)
 done
 
 # Lista que a página /baixar e o próprio app leem para saber a versão mais nova
 node -e "
 const fs = require('fs');
-const f = (arch) => { const file = 'Muvuca-$version-' + arch + '.dmg'; return { file, size: fs.statSync('$out/' + file).size }; };
+const crypto = require('crypto');
+const f = (arch) => {
+  const file = 'Muvuca-$version-' + arch + '.dmg';
+  const zip = 'Muvuca-$version-' + arch + '-mac.zip';
+  const data = fs.readFileSync('$out/' + zip);
+  return { file, size: fs.statSync('$out/' + file).size,
+    update: { file: zip, size: data.length, sha512: crypto.createHash('sha512').update(data).digest('hex') } };
+};
 fs.writeFileSync('$out/latest.json', JSON.stringify({ version: '$version', date: new Date().toISOString(), mac: { arm64: f('arm64'), x64: f('x64') } }, null, 2));
 "
 
 # Mantém só os instaladores desta versão (apaga os antigos pelo nome exato, nunca por lista vazia)
-for old in "$out"/Muvuca-*.dmg(N); do
+for old in "$out"/Muvuca-*.dmg(N) "$out"/Muvuca-*-mac.zip(N); do
   [[ "$old" == *"-$version-"* ]] || rm -f -- "$old"
 done
 echo "Pronto: $out"
