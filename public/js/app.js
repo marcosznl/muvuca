@@ -409,3 +409,10 @@ if (sessionToken()) start();
 else showAuth({ onLoggedIn: start });
 
 export { toast };
+
+// ---------- App do Mac (Electron): clique na notificação abre o canal; o menu da barra de menus silencia ----------
+if (window.muvucaDesktop) {
+  document.documentElement.classList.add('is-desktop');
+  window.muvucaDesktop.onOpenChannel((channelId) => { if (findChannel(channelId).channel) selectChannel(channelId); });
+  window.muvucaDesktop.onToggleMute(() => $('btn-mic').click());
+}

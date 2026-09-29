@@ -649,6 +649,7 @@ export function renderUserPanel() {
   $('btn-deaf').replaceChildren(icon(state.deafened ? 'headphones-off' : 'headphones'));
   $('btn-deaf').classList.toggle('off', state.deafened);
   $('btn-deaf').title = state.deafened ? 'Parar de ensurdecer' : 'Ensurdecer';
+  window.muvucaDesktop?.setVoiceState({ muted: micOff }); // app do Mac: menu da barra de menus mostra o estado
 }
 
 // Menu do seu status (clique na sua foto lá embaixo)
@@ -665,10 +666,14 @@ function statusMenu(x, y) {
     { label: 'Editar perfil', icon: 'user-plus', onClick: openProfileEditor },
     'sep',
     { label: soundsOn() ? 'Sons: ligados' : 'Sons: desligados', icon: soundsOn() ? 'volume-low' : 'volume-off', onClick: () => { setSounds(!soundsOn()); toast(soundsOn() ? 'Sons ligados.' : 'Sons desligados.'); } },
-    pushEnabled()
+    // No app do Mac as notificações são do próprio sistema (não precisa ativar)
+    !window.muvucaDesktop && (pushEnabled()
       ? { label: 'Desativar notificações aqui', icon: 'bell', onClick: disablePush }
-      : { label: 'Ativar notificações', icon: 'bell', onClick: enablePush },
+      : { label: 'Ativar notificações', icon: 'bell', onClick: enablePush }),
     { label: 'Ir para… (Ctrl+K)', icon: 'search', onClick: openQuickSwitch },
+    // No Mac pelo navegador: link para o app (tem apertar para falar em segundo plano)
+    !window.muvucaDesktop && /Mac/.test(navigator.userAgent) && !/iPhone|iPad/.test(navigator.userAgent)
+      && { label: 'Baixar o app para Mac', icon: 'download', onClick: () => window.open('/baixar', '_blank') },
     'sep',
     ...THEMES.map(([id, label]) => ({ label: `Tema: ${label}${currentTheme() === id ? '  ✓' : ''}`, onClick: () => setTheme(id) })),
   ]);

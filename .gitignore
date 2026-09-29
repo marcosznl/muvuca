@@ -19,3 +19,8 @@ public_antigo/
 public_antes_da_musica/
 
 .DS_Store
+
+# App do Mac: dependências, arquivos gerados e instaladores publicados (dá para gerar de novo)
+desktop/node_modules/
+desktop/dist/
+downloads/

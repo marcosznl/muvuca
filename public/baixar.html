@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Baixar o Muvuca</title>
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/style.css">
+<style>
+  body { background: radial-gradient(circle at 20% 10%, #5865f2 0, #3b45d8 35%, transparent 60%), radial-gradient(circle at 85% 85%, #eb459e 0, transparent 45%), #3b45d8; min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; }
+  .dl { width: min(640px, 100%); background: var(--bg-side); border-radius: 12px; padding: 32px 28px; box-shadow: 0 12px 40px rgba(0,0,0,.35); }
+  .dl-head { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }
+  .dl-head img { width: 64px; height: 64px; border-radius: 16px; }
+  .dl h1 { margin: 0; font-size: 26px; color: var(--text-strong); }
+  .dl .ver { color: var(--muted); font-size: 14px; }
+  .dl p { color: var(--text); line-height: 1.5; }
+  .dl-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 22px 0 8px; }
+  .dl-btn { display: grid; gap: 4px; padding: 14px 16px; border-radius: 8px; background: var(--bg-dark); color: var(--text-strong); text-decoration: none; border: 2px solid transparent; }
+  .dl-btn:hover { border-color: var(--accent); text-decoration: none; }
+  .dl-btn.best { background: var(--accent); color: #fff; }
+  .dl-btn strong { font-size: 16px; }
+  .dl-btn span { font-size: 12px; opacity: .8; }
+  .dl-steps { margin: 18px 0 0; padding-left: 20px; color: var(--text); line-height: 1.6; font-size: 14px; }
+  .dl-steps b { color: var(--text-strong); }
+  .dl h2 { font-size: 15px; color: var(--text-strong); margin: 24px 0 6px; }
+  .dl .muted { font-size: 13px; }
+  .dl-back { display: inline-block; margin-top: 22px; font-size: 14px; }
+  @media (max-width: 560px) { .dl-btns { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+  <main class="dl">
+    <div class="dl-head">
+      <img src="/icons/icon-192.png" alt="">
+      <div><h1>Muvuca para Mac</h1><div class="ver" id="ver">Carregando…</div></div>
+    </div>
+    <p>O app tem tudo que o site tem e mais: <b>apertar para falar funcionando mesmo com o Muvuca em segundo plano</b> (jogando em tela cheia, por exemplo), ícone na barra de menus, contador de mensagens no Dock e notificações do Mac.</p>
+    <div class="dl-btns" id="btns"></div>
+    <p class="muted" id="which"></p>
+
+    <h2>Primeira vez abrindo</h2>
+    <p class="muted">O app ainda não tem a assinatura paga da Apple, então o Mac desconfia na primeira vez. É só liberar uma vez:</p>
+    <ol class="dl-steps">
+      <li>Abra o arquivo baixado e arraste o <b>Muvuca</b> para a pasta <b>Aplicativos</b>.</li>
+      <li>Abra o Muvuca. O Mac vai dizer que não pode verificar o app — clique em <b>OK</b> (ou Concluído).</li>
+      <li>Vá em <b>Ajustes do Sistema → Privacidade e Segurança</b>, role até o fim e clique em <b>Abrir Mesmo Assim</b> ao lado do Muvuca. Confirme com sua senha.</li>
+      <li>Pronto: das próximas vezes ele abre direto.</li>
+    </ol>
+    <h2>Apertar para falar em segundo plano</h2>
+    <p class="muted">Na primeira vez que você usar o apertar para falar numa call, o Mac pede para liberar o Muvuca em <b>Ajustes do Sistema → Privacidade e Segurança → Acessibilidade</b>. Libere, saia e entre na call de novo.</p>
+    <a class="dl-back" href="/">← Voltar para o Muvuca</a>
+  </main>
+<script>
+  // Chip Apple ou Intel: o navegador não diz direto; a placa de vídeo dá a pista (Apple GPU = chip Apple)
+  function guessAppleSilicon() {
+    try {
+      const gl = document.createElement('canvas').getContext('webgl');
+      const info = gl && gl.getExtension('WEBGL_debug_renderer_info');
+      const gpu = info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : '';
+      if (/apple/i.test(gpu) && !/intel|amd|radeon/i.test(gpu)) return true;
+      if (/intel|amd|radeon/i.test(gpu)) return false;
+    } catch {}
+    return null;
+  }
+  const size = (b) => `${Math.round(b / 1024 / 1024)} MB`;
+  fetch('/downloads/latest.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => {
+    document.getElementById('ver').textContent = `Versão ${d.version}${d.date ? ` · ${new Date(d.date).toLocaleDateString('pt-BR')}` : ''}`;
+    const arm = guessAppleSilicon();
+    const btns = document.getElementById('btns');
+    const opts = [
+      ['arm64', 'Mac com chip Apple', 'M1, M2, M3, M4… (a maioria dos Macs de 2021 para cá)'],
+      ['x64', 'Mac com Intel', 'Macs mais antigos'],
+    ];
+    for (const [arch, title, sub] of opts) {
+      const f = d.mac?.[arch];
+      if (!f) continue;
+      const a = document.createElement('a');
+      a.className = `dl-btn${(arch === 'arm64') === (arm ?? true) ? ' best' : ''}`;
+      a.href = `/downloads/${f.file}`;
+      a.innerHTML = '<strong></strong><span></span>';
+      a.querySelector('strong').textContent = `⬇ ${title}`;
+      a.querySelector('span').textContent = `${sub} · ${size(f.size)}`;
+      btns.append(a);
+    }
+    document.getElementById('which').textContent = arm === null
+      ? 'Não sabe qual é o seu? Menu Apple → Sobre Este Mac: se aparecer "Chip Apple M…", é o primeiro.'
+      : `Pelo jeito o seu Mac é ${arm ? 'com chip Apple' : 'Intel'} — o botão em destaque é o certo. (Confira em menu Apple → Sobre Este Mac.)`;
+  }).catch(() => {
+    document.getElementById('ver').textContent = 'Nenhuma versão disponível ainda.';
+  });
+</script>
+</body>
+</html>

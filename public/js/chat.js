@@ -142,6 +142,14 @@ export function onMessage(msg) {
   if (!isMine && !msg.system) {
     if (mentionsMe(msg)) sounds.mention();
     else if (!viewing && !isMuted(msg.channel, msgServer?.id)) sounds.message();
+    // No app do Mac, com a janela fora de foco: notificação nativa para conversas diretas e menções
+    const desktop = window.muvucaDesktop;
+    if (desktop && !document.hasFocus() && (msgServer?.kind === 'dm' || mentionsMe(msg)) && !isMuted(msg.channel, msgServer?.id)) {
+      const author = nameOf(msg.userId) ?? 'Alguém';
+      const where = msgServer?.kind === 'dm' ? (msgServer.members.length > 2 ? ` em ${msgServer.dmName || 'grupo'}` : '')
+        : ` em #${findChannel(msg.channel).channel?.name ?? ''}`;
+      desktop.notify(`${author}${where}`, snippet(msg.text, nameOf), msg.channel);
+    }
   }
   if (!isMine && !msg.system && !viewing) hiddenUnread++;
   if (viewing) markRead(msg.channel);

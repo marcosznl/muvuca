@@ -1,5 +1,6 @@
 // Arquivos do site (pasta public/) e a biblioteca de voz, com cache que confere antes de usar
 import fs from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import { ROOT, PUBLIC_DIR } from './config.js';
 import { json } from './util.js';
@@ -25,7 +26,30 @@ async function sendFile(req, res, file, type) {
   res.end(await fs.readFile(file));
 }
 
+// App do Mac: instaladores em downloads/ (fora do git e do backup; o desktop/publicar.sh coloca lá)
+const DOWNLOAD_DIR = path.join(ROOT, 'downloads');
+const DOWNLOAD_TYPES = { '.dmg': 'application/x-apple-diskimage', '.zip': 'application/zip', '.exe': 'application/vnd.microsoft.portable-executable', '.json': 'application/json; charset=utf-8' };
+async function serveDownload(req, res, name) {
+  const type = DOWNLOAD_TYPES[path.extname(name)];
+  if (!/^[\w.-]+$/.test(name) || !type) return json(res, 404, { error: 'Não encontrado' });
+  const file = path.join(DOWNLOAD_DIR, name);
+  let st;
+  try { st = await fs.stat(file); } catch { return json(res, 404, { error: 'Não encontrado' }); }
+  const isList = name.endsWith('.json');
+  res.writeHead(200, {
+    'Content-Type': type,
+    'Content-Length': st.size,
+    'Cache-Control': isList ? 'no-cache' : 'public, max-age=3600',
+    ...(isList ? {} : { 'Content-Disposition': `attachment; filename="${name}"` }),
+    'X-Content-Type-Options': 'nosniff',
+  });
+  if (req.method === 'HEAD') return res.end();
+  createReadStream(file).pipe(res);
+}
+
 export async function serveStatic(req, res, pathname) {
+  if (pathname === '/baixar') return sendFile(req, res, path.join(PUBLIC_DIR, 'baixar.html'), TYPES['.html']).catch(() => json(res, 404, { error: 'Não encontrado' }));
+  if (pathname.startsWith('/downloads/')) return serveDownload(req, res, pathname.slice('/downloads/'.length));
   // Supressão de ruído (RNNoise): só estes arquivos da biblioteca
   const NOISE = { '/vendor/noise/index.js': 'index.js', '/vendor/noise/rnnoise/workletProcessor.js': 'rnnoise/workletProcessor.js',
     '/vendor/noise/rnnoise.wasm': 'rnnoise.wasm', '/vendor/noise/rnnoise_simd.wasm': 'rnnoise_simd.wasm' };

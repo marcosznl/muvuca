@@ -235,6 +235,7 @@ export async function joinVoice(channelId) {
     await applyAudioState();
     updateMediaButtons();
     updatePing();
+    syncDesktopPtt();
     // Continua no canal de texto aberto (o chat não some); a tela da chamada abre clicando no canal de voz
     renderChannels();
     renderVoicePanel();
@@ -265,6 +266,7 @@ function onVoiceClosed({ keepView = false } = {}) {
   tiles.clear();
   audioSink.replaceChildren();
   renderVoicePanel();
+  syncDesktopPtt(); // saiu da call: o app para de escutar a tecla
   showSelfInChannel(); // some da lista na hora
   poke();
   // Estava olhando o canal de voz: volta para o último canal de texto do servidor
@@ -327,6 +329,23 @@ window.addEventListener('keyup', (e) => {
 });
 window.addEventListener('blur', () => { if (pttHeld) { pttHeld = false; applyPtt(); } });
 
+// App do Mac: a tecla do "apertar para falar" funciona também com o Muvuca em segundo plano (jogando, por exemplo)
+const desktop = window.muvucaDesktop;
+let desktopPttWarned = false;
+export async function syncDesktopPtt() {
+  if (!desktop) return;
+  const r = await desktop.setPushToTalk(!!room && pttOn(), pttKey()).catch(() => null);
+  if (r && !r.ok && r.reason === 'permissao' && !desktopPttWarned) {
+    desktopPttWarned = true;
+    showBanner('Para o "apertar para falar" funcionar com o Muvuca em segundo plano, libere o Muvuca em Ajustes do Sistema → Privacidade e Segurança → Acessibilidade. Depois saia e entre na call de novo.', { kind: 'info', timeout: 12000 });
+  }
+}
+desktop?.onPushToTalk((down) => {
+  if (!room || !pttOn()) return;
+  pttHeld = down;
+  applyPtt();
+});
+
 // O microfone passa por um processador (Web Audio) quando precisa: supressão de ruído por IA e/ou volume de entrada
 let noiseContext = null;
 let liveGain = null; // ganho do processador atual (o volume de entrada muda na hora, sem reiniciar)
@@ -373,14 +392,14 @@ export function openVoiceSettings() {
     keyRow.hidden = !pttOn();
     hint.hidden = !pttOn();
   };
-  vad.onclick = () => { store.set('pttOn', null); paint(); applyPtt(); };
-  ptt.onclick = () => { store.set('pttOn', '1'); paint(); applyPtt(); };
+  vad.onclick = () => { store.set('pttOn', null); paint(); applyPtt(); syncDesktopPtt(); };
+  ptt.onclick = () => { store.set('pttOn', '1'); paint(); applyPtt(); syncDesktopPtt(); };
   keyBtn.onclick = () => {
     keyBtn.textContent = 'Aperte a tecla…';
     const grab = (e) => {
       e.preventDefault();
       e.stopPropagation();
-      if (e.code !== 'Escape') store.set('pttKey', e.code);
+      if (e.code !== 'Escape') { store.set('pttKey', e.code); syncDesktopPtt(); }
       keyBtn.textContent = `Tecla: ${keyLabel(pttKey())}`;
       window.removeEventListener('keydown', grab, true);
     };

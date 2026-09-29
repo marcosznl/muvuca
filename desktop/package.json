@@ -1,0 +1,80 @@
+{
+  "name": "muvuca-desktop",
+  "productName": "Muvuca",
+  "version": "1.0.0",
+  "description": "Muvuca para Mac",
+  "main": "main.js",
+  "private": true,
+  "author": "marcos",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --mac"
+  },
+  "devDependencies": {
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "uiohook-napi": "^1.5.5"
+  },
+  "allowScripts": {
+    "electron@44.4.5": true,
+    "uiohook-napi@1.5.5": true
+  },
+  "build": {
+    "appId": "br.malegna.muvuca",
+    "productName": "Muvuca",
+    "copyright": "Feito pela galera da Malegna",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "picker-preload.js",
+      "picker.html",
+      "offline.html",
+      "build/trayTemplate*.png",
+      "package.json",
+      "node_modules/uiohook-napi/**/*",
+      "node_modules/node-gyp-build/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/uiohook-napi/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.social-networking",
+      "icon": "build/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "identity": "-",
+      "hardenedRuntime": false,
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "O Muvuca usa o microfone para você falar nas chamadas.",
+        "NSCameraUsageDescription": "O Muvuca usa a câmera quando você liga o vídeo numa chamada.",
+        "NSAudioCaptureUsageDescription": "O Muvuca captura o som do computador quando você transmite a tela com áudio.",
+        "LSMinimumSystemVersion": "12.0"
+      },
+      "artifactName": "Muvuca-${version}-${arch}-mac.${ext}"
+    },
+    "dmg": {
+      "title": "Muvuca",
+      "artifactName": "Muvuca-${version}-${arch}.${ext}"
+    }
+  }
+}

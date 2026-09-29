@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Muvuca</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; height: 100vh; display: grid; place-items: center; background: #1e1f22; color: #dbdee1; font: 15px -apple-system, "Noto Sans", sans-serif; text-align: center; -webkit-app-region: drag; }
+  .box { max-width: 420px; padding: 24px; }
+  .emoji { font-size: 56px; }
+  h1 { font-size: 20px; color: #f2f3f5; margin: 12px 0 6px; }
+  p { color: #949ba4; margin: 0 0 18px; line-height: 1.45; }
+  small { display: block; color: #6d6f78; margin-top: 14px; font-size: 12px; overflow-wrap: anywhere; }
+  button { -webkit-app-region: no-drag; background: #5865f2; color: #fff; border: 0; border-radius: 6px; padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+  button:hover { background: #4752c4; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <div class="emoji">📡</div>
+    <h1>Não deu para falar com o Muvuca</h1>
+    <p>O servidor pode estar desligado, ou a internet caiu. Tentando de novo sozinho a cada 10 segundos.</p>
+    <button id="retry">Tentar agora</button>
+    <small id="detail"></small>
+  </div>
+<script>
+  const q = new URLSearchParams(location.search);
+  const url = q.get('url');
+  document.getElementById('detail').textContent = `${url ?? ''} — ${q.get('erro') ?? ''}`;
+  const go = () => { if (url) location.href = url; };
+  document.getElementById('retry').onclick = go;
+  setInterval(go, 10000);
+</script>
+</body>
+</html>
