@@ -641,7 +641,28 @@ async function viewMinecraft() {
   if (!d.servers.some((x) => x.id === mcSel)) mcSel = (d.servers.find((x) => x.phase !== 'stopped') ?? d.servers[0]).id;
   const cards = h('div', { class: 'grid two' }, d.servers.map((x) => mcCard(x, d)));
   const sel = d.servers.find((x) => x.id === mcSel);
-  return h('div', {}, cards, h('div', { class: 'section' }, await mcDetail(sel, d)));
+  return h('div', {}, mcAddressBox(d), h('div', { class: 'section' }, cards), h('div', { class: 'section' }, await mcDetail(sel, d)));
+}
+
+// Endereço para entrar: domínio (+ porta, se não for a padrão 25565)
+const mcJoin = (d, x) => `${d.address.domain}${x.port === 25565 ? '' : `:${x.port}`}`;
+
+function copyButton(text) {
+  const b = h('button', { class: 'btn small ghost', title: `Copiar ${text}` }, 'Copiar');
+  b.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    try { await navigator.clipboard.writeText(text); toast(`Copiado: ${text}`); } catch { toast(text); }
+  });
+  return b;
+}
+
+function mcAddressBox(d) {
+  const a = d.address;
+  const ip = (label, value) => h('span', {}, h('span', { class: 'muted' }, `${label}: `), value ? h('span', { class: 'mono' }, value) : h('span', { class: 'muted' }, '—'));
+  return h('div', { class: 'card' },
+    h('div', { class: 'row' }, h('h2', {}, '🌐 Endereço dos servidores'), h('span', { class: 'spacer' }), h('span', { class: 'muted small' }, 'O mesmo do Muvuca: muda só a porta')),
+    h('div', { class: 'row' }, ip('IP público (IPv4)', a.ipv4), ip('IPv6', a.ipv6)),
+    h('p', { class: 'muted small' }, `Para os amigos: use o endereço de cada servidor abaixo (o nome ${a.domain} acompanha o IP sozinho, mesmo quando ele muda). Só funciona se o roteador encaminhar a porta do servidor para este Mac.`));
 }
 
 function mcCard(x, d) {
@@ -666,6 +687,7 @@ function mcCard(x, d) {
   },
     h('div', { class: 'row' }, h('h2', {}, `⛏️ ${x.id}`), h('span', { class: `pill ${cls}` }, h('span', { class: 'dot' }), label), busy),
     h('div', { class: 'muted small' }, kind, ` · porta ${x.port}`),
+    h('div', { class: 'row', style: 'margin-top:6px' }, h('span', { class: 'small' }, 'Entrar: ', h('b', { class: 'mono' }, mcJoin(d, x))), copyButton(mcJoin(d, x))),
     x.motd ? h('div', { class: 'small' }, `“${x.motd}”`) : null,
     h('div', { class: 'grid cards section' },
       stat('Jogando', x.phase === 'running' ? `${x.players}/${x.max}` : '—', x.names.length ? x.names.join(', ') : x.phase === 'running' ? 'ninguém agora' : ''),

@@ -5,6 +5,7 @@
 // (o arquivo do serviço fica em data/launchd/, fora de ~/Library/LaunchAgents: não liga sozinho ao entrar no Mac).
 // Desligar é sempre pelo comando "stop" do jogo (salva o mundo); só se ele não responder é que o processo é encerrado.
 import net from 'node:net';
+import dns from 'node:dns/promises';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
@@ -557,7 +558,17 @@ function publicServer(s) {
   };
 }
 
-export function mcRoutes({ json, readBody, clientIp }) {
+// Endereço para os amigos entrarem: o mesmo domínio e IP do Muvuca (muda só a porta).
+// O IP público vem do próprio DuckDNS (o que os amigos recebem ao procurar o nome).
+let addrCache = { at: 0, data: null };
+async function addresses(domain) {
+  if (Date.now() - addrCache.at < 5 * 60_000 && addrCache.data) return addrCache.data;
+  const [v4, v6] = await Promise.all([dns.resolve4(domain).catch(() => []), dns.resolve6(domain).catch(() => [])]);
+  addrCache = { at: Date.now(), data: { domain, ipv4: v4[0] ?? null, ipv6: v6[0] ?? null } };
+  return addrCache.data;
+}
+
+export function mcRoutes({ json, readBody, clientIp, domain }) {
   const find = (id) => { const s = byId(String(id ?? '')); if (!s) throw Object.assign(new Error('Servidor não encontrado.'), { status: 404 }); return s; };
   const wrap = (fn) => async (req, res, sess, url) => {
     try { await fn(req, res, sess, url); } catch (err) { json(res, err.status ?? 400, { error: err.message }); }
@@ -567,7 +578,7 @@ export function mcRoutes({ json, readBody, clientIp }) {
       await Promise.all(servers.map((s) => refreshTps(s)));
       const out = [];
       for (const s of servers) out.push({ ...publicServer(s), worldBytes: await Promise.all((await worldDirs(s).catch(() => [])).map((w) => dirSize(path.join(s.dir, w)))).then((a) => a.reduce((n, b) => n + b, 0)) });
-      json(res, 200, { root: MC_ROOT, backupRoot: BACKUP_ROOT, servers: out, editable: EDITABLE, memoryChoices: MEMORY_CHOICES, autoStopChoices: AUTOSTOP_CHOICES, totalMem: os.totalmem() });
+      json(res, 200, { root: MC_ROOT, backupRoot: BACKUP_ROOT, servers: out, address: await addresses(domain), editable: EDITABLE, memoryChoices: MEMORY_CHOICES, autoStopChoices: AUTOSTOP_CHOICES, totalMem: os.totalmem() });
     }),
     'POST /api/mc/action': wrap(async (req, res) => {
       const body = await readBody(req);

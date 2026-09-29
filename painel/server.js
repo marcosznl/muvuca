@@ -611,7 +611,7 @@ const api = {
   },
   'POST /api/backup': async (req, res) => json(res, 200, await doBackup(req)),
   'POST /api/restart': async (req, res) => json(res, 200, await doRestart(req, await readBody(req))),
-  ...mcRoutes({ json, readBody, clientIp }),
+  ...mcRoutes({ json, readBody, clientIp, domain: DOMAIN }),
 };
 
 // Minecraft: as ações vindas do painel (e o desligar sozinho) entram na auditoria
