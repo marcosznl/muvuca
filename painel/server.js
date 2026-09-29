@@ -18,7 +18,7 @@ import { AUDIT_LABELS, AUDIT_GROUPS } from '../src/audit-labels.js';
 import { mcRoutes, startMinecraft, mcSummary } from './minecraft.js';
 import { speedRoutes } from './speedtest.js';
 import { deployRoutes } from './deploy.js';
-import { xpInfo } from '../src/xp-curve.js';
+import { xpInfo, xpToNext, XP_RULES } from '../src/xp-curve.js';
 
 const run = promisify(execFile);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -422,6 +422,42 @@ function heavyFiles(url) {
   };
 }
 
+// XP: ranking de todo mundo e de onde veio o XP nas últimas 24 h e 7 dias
+const XP_REASON = { message: 'mensagens', voice: 'call', game: 'jogos', 'game-won': 'jogos', admin: 'ajuste manual', 'admin-reset': 'ajuste manual' };
+function xpOverview() {
+  const now = Date.now();
+  let users = [];
+  try {
+    users = all('SELECT id, username, display_name name, xp, last_seen, blocked_at FROM users ORDER BY xp DESC, id');
+  } catch { return { ready: false }; }
+  const recent = new Map();
+  try {
+    for (const r of all('SELECT user_id, reason, SUM(amount) n, MAX(at) last FROM xp_events WHERE at > ? GROUP BY user_id, reason', now - 7 * DAY)) {
+      const k = recent.get(r.user_id) ?? { week: 0, weekBy: {} };
+      k.week += r.n;
+      const label = XP_REASON[r.reason] ?? r.reason;
+      k.weekBy[label] = (k.weekBy[label] ?? 0) + r.n;
+      recent.set(r.user_id, k);
+    }
+    for (const r of all('SELECT user_id, SUM(amount) n FROM xp_events WHERE at > ? GROUP BY user_id', now - DAY)) {
+      const k = recent.get(r.user_id) ?? { week: 0, weekBy: {} };
+      k.day = r.n;
+      recent.set(r.user_id, k);
+    }
+  } catch { /* ainda sem histórico */ }
+  const totals = (() => { try { return all('SELECT reason, SUM(amount) n FROM xp_events WHERE at > ? GROUP BY reason', now - 7 * DAY); } catch { return []; } })();
+  const curve = [1, 2, 3, 5, 10, 15, 20, 30, 40, 50, 75, 100].map((level) => {
+    let total = 0;
+    for (let n = 0; n < level; n++) total += xpToNext(n);
+    return { level, total, step: xpToNext(level - 1) };
+  });
+  return {
+    ready: true, rules: XP_RULES, curve,
+    week: totals.reduce((m, r) => { const l = XP_REASON[r.reason] ?? r.reason; m[l] = (m[l] ?? 0) + r.n; return m; }, {}),
+    users: users.map((u, i) => ({ ...u, rank: i + 1, info: xpInfo(u.xp ?? 0), day: recent.get(u.id)?.day ?? 0, week: recent.get(u.id)?.week ?? 0, weekBy: recent.get(u.id)?.weekBy ?? {} })),
+  };
+}
+
 function auditQuery(url) {
   const where = [];
   const args = [];
@@ -654,6 +690,19 @@ const api = {
   'GET /api/overview': (req, res) => json(res, 200, overview()),
   'GET /api/users': (req, res) => json(res, 200, usersList()),
   'GET /api/files': (req, res, s, url) => json(res, 200, heavyFiles(url)),
+  'GET /api/xp': (req, res) => json(res, 200, xpOverview()),
+  'POST /api/xp/adjust': async (req, res) => {
+    const b = await readBody(req);
+    const u = one('SELECT id, username FROM users WHERE id = ?', Number(b.id));
+    if (!u) return json(res, 404, { error: 'Conta não encontrada.' });
+    const reset = b.reset === true;
+    const amount = Math.trunc(Number(b.amount));
+    if (!reset && (!Number.isFinite(amount) || !amount)) return json(res, 400, { error: 'Digite quanto XP dar (ou tirar, com sinal de menos).' });
+    const r = await mainPost('/internal/xp/adjust', { userId: `u${u.id}`, amount, reset });
+    const reason = String(b.reason ?? '').slice(0, 200);
+    audit('painel:xp', { ip: clientIp(req), detail: { conta: u.username, ...(reset ? { zerou: true } : { ajuste: amount }), antes: r.before, depois: r.after, ...(reason ? { motivo: reason } : {}) } });
+    json(res, 200, { ok: true, message: reset ? `XP de @${u.username} zerado (tinha ${r.before.toLocaleString('pt-BR')}).` : `@${u.username}: ${r.before.toLocaleString('pt-BR')} → ${r.after.toLocaleString('pt-BR')} XP (nível ${r.level}).` });
+  },
   'POST /api/users/disconnect': async (req, res) => {
     const b = await readBody(req);
     const u = one('SELECT id, username FROM users WHERE id = ?', Number(b.id));

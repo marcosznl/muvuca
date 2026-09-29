@@ -10,3 +10,11 @@ export function xpInfo(total) {
   while (total >= base + xpToNext(level)) { base += xpToNext(level); level++; }
   return { total, level, into: total - base, need: xpToNext(level) };
 }
+
+// Como se ganha XP (usado pelo Muvuca em src/xp.js e mostrado no painel)
+export const XP_RULES = {
+  message: { min: 15, max: 25, cooldownMs: 60_000, minChars: 5 },
+  voicePerMinute: 3,  // em call com pelo menos mais 1 pessoa, sem estar ensurdecido
+  gamePlayed: 10,     // partida com 2 ou mais pessoas
+  gameWon: 40,
+};

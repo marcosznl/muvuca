@@ -3,25 +3,37 @@
 import { db } from './store.js';
 import { sendToUser, pushUser } from './realtime.js';
 import { voiceAll } from './voice.js';
-import { xpInfo } from './xp-curve.js';
+import { xpInfo, XP_RULES } from './xp-curve.js';
 
-export const XP_RULES = {
-  message: { min: 15, max: 25, cooldownMs: 60_000, minChars: 5 },
-  voicePerMinute: 3,  // em call com pelo menos mais 1 pessoa, sem estar ensurdecido
-  gamePlayed: 10,     // partida com 2 ou mais pessoas
-  gameWon: 40,
-};
+export { XP_RULES };
 
 const lastMessageXp = new Map(); // userId -> quando ganhou XP por mensagem
 
 export function award(userId, amount, reason) {
   amount = Math.floor(amount);
   if (!(amount > 0) || !db.userById(userId)) return;
+  change(userId, amount, reason);
+}
+
+// Soma (ou tira) XP, guarda no histórico e avisa a pessoa; mudou de nível, atualiza para os outros também
+function change(userId, amount, reason) {
   const before = xpInfo(db.xpOf(userId));
   const after = xpInfo(db.addXp(userId, amount));
+  const real = after.total - before.total;
+  if (real) db.logXp(userId, real, reason);
   const levelUp = after.level > before.level ? after.level : null;
-  sendToUser(userId, { t: 'xp', xp: after, gained: amount, reason, levelUp, rank: db.xpRank(userId) });
-  if (levelUp) pushUser(userId); // o nível novo aparece para os outros (perfil e lista de membros)
+  sendToUser(userId, { t: 'xp', xp: after, gained: real, reason, levelUp, rank: db.xpRank(userId) });
+  if (after.level !== before.level) pushUser(userId); // o nível novo aparece para os outros (perfil e lista de membros)
+  return { before, after };
+}
+
+// Painel administrativo: dar/tirar XP (amount negativo tira; nunca fica abaixo de zero) ou zerar
+export function adjustXp(userId, amount, { reset = false } = {}) {
+  if (!db.userById(userId)) throw new Error('Conta não encontrada.');
+  const delta = reset ? -db.xpOf(userId) : Math.trunc(Number(amount));
+  if (!Number.isFinite(delta) || (!reset && (!delta || Math.abs(delta) > 10_000_000))) throw new Error('Quantidade inválida.');
+  const { before, after } = change(userId, delta, reset ? 'admin-reset' : 'admin');
+  return { before: before.total, after: after.total, level: after.level };
 }
 
 // Mensagem mandada: 15 a 25 XP, no máximo uma vez por minuto, e só se tiver conteúdo de verdade

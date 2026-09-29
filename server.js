@@ -17,6 +17,7 @@ import { publicKey } from './src/push.js';
 import { uploadSound, serveSound } from './src/soundboard.js';
 import { HttpError, ActionError, json, bearer, clientIp, readBody } from './src/util.js';
 import { ipBlocked, lockedOut, maintenance, disconnectUser, blockUser, blockIp, setMaintenance } from './src/moderation.js';
+import { adjustXp } from './src/xp.js';
 import { auditAction, audit, purgeAudit } from './src/audit.js';
 import { internalStats, isInternal } from './src/internal.js';
 
@@ -80,6 +81,7 @@ const internalActions = {
   '/internal/user/block': (b) => blockUser(String(b.userId), b.block === true, b.reason),
   '/internal/ip/block': (b) => blockIp(String(b.ip ?? ''), b.block === true, b.reason),
   '/internal/maintenance': (b) => setMaintenance(b),
+  '/internal/xp/adjust': (b) => adjustXp(String(b.userId), b.amount, { reset: b.reset === true }),
 };
 
 const server = http.createServer(async (req, res) => {
@@ -226,7 +228,7 @@ setInterval(() => {
   }
   cleanupAuthFails();
 }, 30_000);
-setInterval(() => { db.purgeExpiredSessions(); purgeAudit(); }, 3_600_000);
+setInterval(() => { db.purgeExpiredSessions(); purgeAudit(); db.purgeXpEvents(Date.now() - 90 * 86_400_000); }, 3_600_000);
 setInterval(cleanupFiles, 30 * 60_000); // anexos abandonados e de mensagens apagadas
 
 server.listen(PORT, HOST, () => {

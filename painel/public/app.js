@@ -104,6 +104,7 @@ const TABS = {
   aovivo: ['Ao vivo', viewAoVivo, 5000],
   usuarios: ['Usuários', viewUsuarios, 30000],
   arquivos: ['Arquivos pesados', viewArquivos, 60000],
+  xp: ['XP e níveis', viewXp, 30000],
   auditoria: ['Auditoria', viewAuditoria, 0],
   acessos: ['Acessos ao site', viewAcessos, 60000],
   logs: ['Logs', viewLogs, 0],
@@ -1057,6 +1058,69 @@ async function viewAtualizar() {
       { label: '', get: (r) => (r.id !== d.live && r.hasFile ? h('button', { class: 'btn small', disabled: running, onclick: () => deployAction('/api/rollback', { id: r.id }, `Voltar o Muvuca para a versão ${r.id}? A versão atual fica guardada, e o Muvuca reinicia (uns 10 segundos).`) }, 'Voltar para esta') : null) },
     ], d.releases, { empty: 'Nenhuma versão guardada ainda: a primeira é guardada na primeira atualização.' }));
   return h('div', {}, top, jobCard, versions);
+}
+
+// ---------- XP e níveis ----------
+let xpFilter = '';
+function xpBar(info) {
+  const bar = h('div', { class: 'bar', title: `${num(info.into)} / ${num(info.need)} XP para o nível ${info.level + 1}` }, h('span', { style: `width:${Math.round((info.into / info.need) * 100)}%` }));
+  return h('div', { style: 'min-width:120px' }, bar, h('div', { class: 'muted small' }, `${num(info.into)} / ${num(info.need)}`));
+}
+
+async function xpAdjust(u) {
+  const raw = prompt(`Dar ou tirar XP de @${u.username} (tem ${num(u.xp)} XP, nível ${u.info.level}).\nDigite um número: 500 dá, -500 tira.`, '');
+  if (raw === null) return;
+  const amount = Math.trunc(Number(String(raw).replace(/\./g, '').replace(',', '.')));
+  if (!amount) return toast('Digite um número diferente de zero.');
+  const reason = prompt('Motivo (opcional, fica na auditoria):', '');
+  if (reason === null) return;
+  await act('/api/xp/adjust', { id: u.id, amount, reason }, { reload: 'xp' });
+}
+
+async function viewXp() {
+  const d = await api('/api/xp');
+  if (!d.ready) return h('p', { class: 'error' }, 'O XP ainda não está ativo no Muvuca (atualize o Muvuca na aba Atualizar).');
+  const r = d.rules;
+  const input = h('input', { type: 'search', placeholder: 'Buscar pessoa…', value: xpFilter });
+  const body = h('div');
+  const render = () => {
+    const q = xpFilter.toLowerCase();
+    const rows = d.users.filter((u) => !q || u.username.toLowerCase().includes(q) || (u.name ?? '').toLowerCase().includes(q));
+    body.replaceChildren(table([
+      { label: '#', num: true, get: (u) => h('b', {}, u.rank) },
+      { label: 'Pessoa', get: (u) => h('span', {}, h('b', {}, u.name), ' ', h('span', { class: 'muted small' }, `@${u.username}`), u.blocked_at ? h('span', { class: 'pill bad', style: 'margin-left:6px' }, 'bloqueada') : null) },
+      { label: 'Nível', num: true, get: (u) => h('b', { style: 'font-size:16px' }, u.info.level) },
+      { label: 'XP total', num: true, get: (u) => num(u.xp) },
+      { label: 'Progresso', get: (u) => xpBar(u.info) },
+      { label: '24 h', num: true, get: (u) => (u.day ? `+${num(u.day)}` : '—') },
+      { label: '7 dias', num: true, get: (u) => (u.week ? h('span', { title: Object.entries(u.weekBy).map(([k, v]) => `${k}: ${num(v)}`).join('\n') }, `+${num(u.week)}`, h('div', { class: 'muted small' }, Object.entries(u.weekBy).map(([k, v]) => `${k} ${num(v)}`).join(' · '))) : '—') },
+      { label: '', get: (u) => h('div', { class: 'row', style: 'flex-wrap:nowrap' },
+        h('button', { class: 'btn small ghost', onclick: () => xpAdjust(u) }, 'Dar/tirar XP'),
+        u.xp ? h('button', { class: 'btn small ghost', onclick: () => act('/api/xp/adjust', { id: u.id, reset: true }, { confirmText: `Zerar o XP de @${u.username}? Ela volta ao nível 0 (tem ${num(u.xp)} XP).`, askReason: 'Motivo (opcional):', reload: 'xp' }) }, 'Zerar') : null) },
+    ], rows, { empty: 'Ninguém encontrado.' }));
+  };
+  input.addEventListener('input', () => { xpFilter = input.value; render(); });
+  render();
+  const weekTotal = Object.values(d.week).reduce((a, b) => a + b, 0);
+  return h('div', {},
+    h('div', { class: 'grid cards' },
+      stat('XP dado em 7 dias', num(weekTotal), 'para todo mundo'),
+      Object.entries(d.week).map(([k, v]) => stat(`Por ${k}`, num(v), weekTotal ? `${Math.round((v / weekTotal) * 100)}% do total` : '')),
+      stat('Maior nível', d.users[0] ? `${d.users[0].info.level}` : '—', d.users[0] ? `@${d.users[0].username}` : ''),
+    ),
+    h('div', { class: 'section card' }, h('div', { class: 'row' }, h('h2', {}, 'Ranking'), h('span', { class: 'spacer' }), input),
+      h('p', { class: 'muted small' }, 'XP é da conta (vale em todos os servidores). "Dar/tirar" e "Zerar" avisam a pessoa na hora e ficam na Auditoria.'), body),
+    h('div', { class: 'section grid two' },
+      h('div', { class: 'card' }, h('h2', {}, 'Como se ganha XP'), table([{ label: '', get: (x) => x[0] }, { label: '', get: (x) => h('b', {}, x[1]) }], [
+        ['Mensagem (com conteúdo)', `${r.message.min} a ${r.message.max} XP, no máximo 1 a cada ${Math.round(r.message.cooldownMs / 60000)} min (mínimo de ${r.message.minChars} caracteres)`],
+        ['Tempo em call', `${r.voicePerMinute} XP por minuto (com mais alguém na call, sem estar ensurdecido)`],
+        ['Partida com 2+ pessoas', `${r.gamePlayed} XP (+${r.gameWon} para quem vence)`],
+      ])),
+      h('div', { class: 'card' }, h('h2', {}, 'Curva de níveis'), table([
+        { label: 'Nível', num: true, get: (c) => c.level },
+        { label: 'XP total', num: true, get: (c) => num(c.total) },
+        { label: 'Só esse nível', num: true, get: (c) => num(c.step) },
+      ], d.curve))));
 }
 
 start();

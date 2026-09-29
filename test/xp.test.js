@@ -52,3 +52,29 @@ test('mensagem dá 15 a 25 XP; a segunda no mesmo minuto não dá; mensagem curt
   // Só a própria pessoa recebe o aviso de XP
   await assert.rejects(dono.waitFor('xp', () => true, 300), /não chegou/);
 });
+
+test('painel: dar, tirar (sem ficar negativo) e zerar XP; a pessoa é avisada e fica no histórico', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const { DatabaseSync } = await import('node:sqlite');
+  const key = fs.readFileSync(path.join(server.dir, 'painel-key'), 'utf8').trim();
+  const adjust = (body) => fetch(`${server.base}/internal/xp/adjust`, { method: 'POST', headers: { 'x-painel-key': key, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => ({ status: r.status, body: await r.json() }));
+  const start = (await adjust({ userId: ana.me.id, amount: 1000 })).body;
+  assert.equal(start.after, start.before + 1000);
+  const ev = await ana.waitFor('xp', (e) => e.reason === 'admin');
+  assert.equal(ev.gained, 1000);
+  assert.equal(ev.xp.level, 2); // ~1.020 XP: nível 2 (o 3 começa em 1.175)
+  const down = (await adjust({ userId: ana.me.id, amount: -999_999 })).body;
+  assert.equal(down.after, 0, 'não fica negativo');
+  await adjust({ userId: ana.me.id, amount: 300 });
+  const reset = (await adjust({ userId: ana.me.id, reset: true })).body;
+  assert.equal(reset.before, 300);
+  assert.equal(reset.after, 0);
+  assert.equal((await adjust({ userId: ana.me.id, amount: 0 })).status, 400);
+  assert.equal((await fetch(`${server.base}/internal/xp/adjust`, { method: 'POST', body: '{}' })).status, 404, 'sem a chave do painel não funciona');
+  const db = new DatabaseSync(path.join(server.dir, 'teste.db'), { readOnly: true });
+  try {
+    const rows = db.prepare("SELECT amount, reason FROM xp_events WHERE reason LIKE 'admin%' ORDER BY id").all();
+    assert.deepEqual(rows.map((r) => r.amount), [1000, -(1000 + start.before), 300, -300]);
+  } finally { db.close(); }
+});

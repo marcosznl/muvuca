@@ -244,6 +244,16 @@ export function openDb(file) {
     CREATE INDEX IF NOT EXISTS audit_by_time ON audit_log(at);
     CREATE INDEX IF NOT EXISTS audit_by_user ON audit_log(user_id, at);
 
+    -- Histórico de XP ganho (painel administrativo: de onde veio o XP de cada um; guardado por 90 dias)
+    CREATE TABLE IF NOT EXISTS xp_events (
+      id      INTEGER PRIMARY KEY,
+      at      INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      amount  INTEGER NOT NULL,
+      reason  TEXT    NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS xp_events_by_time ON xp_events(at);
+
     -- IPs bloqueados pelo painel administrativo (não acessam nada do Muvuca)
     CREATE TABLE IF NOT EXISTS blocked_ips (
       ip         TEXT    PRIMARY KEY,
@@ -497,7 +507,9 @@ class Store {
       gamePlays: p('SELECT game, COUNT(*) AS n FROM game_results WHERE created_at > ? GROUP BY game'),
       purgeSessions: p('DELETE FROM sessions WHERE expires_at <= ?'),
       touchUser: p('UPDATE users SET last_seen = ? WHERE id = ?'),
-      addXp: p('UPDATE users SET xp = xp + ? WHERE id = ? RETURNING xp'),
+      addXp: p('UPDATE users SET xp = MAX(0, xp + ?) WHERE id = ? RETURNING xp'),
+      logXp: p('INSERT INTO xp_events (at, user_id, amount, reason) VALUES (?, ?, ?, ?)'),
+      purgeXp: p('DELETE FROM xp_events WHERE at < ?'),
       xpRank: p('SELECT COUNT(*) + 1 AS n FROM users WHERE blocked_at IS NULL AND xp > (SELECT xp FROM users WHERE id = ?)'),
       setBlocked: p('UPDATE users SET blocked_at = ?, blocked_reason = ? WHERE id = ?'),
       deleteUserSessions: p('DELETE FROM sessions WHERE user_id = ?'),
@@ -775,6 +787,8 @@ class Store {
   xpOf(userId) { return this.q.userById.get(unum(userId))?.xp ?? 0; }
   addXp(userId, amount) { return this.q.addXp.get(Math.floor(amount), unum(userId))?.xp ?? 0; }
   xpRank(userId) { return this.q.xpRank.get(unum(userId)).n; }
+  logXp(userId, amount, reason) { this.q.logXp.run(Date.now(), unum(userId), Math.floor(amount), String(reason).slice(0, 40)); }
+  purgeXpEvents(before) { return this.q.purgeXp.run(before).changes; }
   // Bloqueio pelo painel administrativo
   isBlocked(userId) { return !!this.q.userById.get(unum(userId))?.blocked_at; }
   setBlocked(userId, reason) { this.q.setBlocked.run(reason === null ? null : Date.now(), reason, unum(userId)); }
