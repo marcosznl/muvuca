@@ -4,7 +4,7 @@ cd "$(dirname "$0")"
 set -a; source .env; set +a
 
 if lsof -nP -iTCP:3000 -iTCP:7881 -iTCP:443 -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "O CallDireta (ou outro programa) já está usando as portas 443/3000/7881."
+  echo "O Muvuca (ou outro programa) já está usando as portas 443/3000/7881."
   echo "Feche a outra cópia antes (Ctrl+C na janela onde ela roda)."
   exit 1
 fi

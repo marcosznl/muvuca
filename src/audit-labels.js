@@ -59,6 +59,14 @@ export const AUDIT_LABELS = {
   'painel:logout': 'Saiu do painel',
   'painel:restart': 'Reiniciou o servidor pelo painel',
   'painel:backup': 'Fez backup pelo painel',
+  // Minecraft (pelo painel)
+  'painel:mc:start': 'Ligou servidor de Minecraft',
+  'painel:mc:stop': 'Desligou servidor de Minecraft',
+  'painel:mc:restart': 'Reiniciou servidor de Minecraft',
+  'painel:mc:autostop': 'Minecraft desligou sozinho (vazio)',
+  'painel:mc:backup': 'Backup de mundo do Minecraft',
+  'painel:mc:cmd': 'Comando no console do Minecraft',
+  'painel:mc:settings': 'Mudou configurações do Minecraft',
 };
 
 // Grupos para o filtro do painel
@@ -67,4 +75,5 @@ export const AUDIT_GROUPS = {
   contas: ['auth:login', 'auth:register', 'auth:logout', 'auth:password', 'voice:join'],
   moderacao: ['member:kick', 'member:roles', 'msg:delete:other', 'msg:pin', 'music:kick', 'emoji:delete', 'sound:delete', 'invite:revoke'],
   painel: ['painel:login', 'painel:login:fail', 'painel:logout', 'painel:restart', 'painel:backup'],
+  minecraft: ['painel:mc:start', 'painel:mc:stop', 'painel:mc:restart', 'painel:mc:autostop', 'painel:mc:backup', 'painel:mc:cmd', 'painel:mc:settings'],
 };

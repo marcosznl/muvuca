@@ -107,6 +107,7 @@ const TABS = {
   acessos: ['Acessos ao site', viewAcessos, 60000],
   logs: ['Logs', viewLogs, 0],
   backups: ['Backups', viewBackups, 60000],
+  minecraft: ['Minecraft', viewMinecraft, 5000],
   sistema: ['Sistema', viewSistema, 30000],
 };
 let tab = 'geral';
@@ -427,7 +428,7 @@ async function viewAuditoria() {
   const action = h('select', {}, h('option', { value: '' }, 'Todas as ações'),
     Object.entries(labels).map(([k, v]) => h('option', { value: k, selected: f.action === k }, v)));
   const group = h('select', {},
-    [['', 'Todos os tipos'], ['seguranca', 'Segurança'], ['contas', 'Contas e acesso'], ['moderacao', 'Moderação'], ['painel', 'Painel']]
+    [['', 'Todos os tipos'], ['seguranca', 'Segurança'], ['contas', 'Contas e acesso'], ['moderacao', 'Moderação'], ['painel', 'Painel'], ['minecraft', 'Minecraft']]
       .map(([k, v]) => h('option', { value: k, selected: f.group === k }, v)));
   const period = h('select', {},
     [['', 'Sempre'], ['1', 'Últimas 24 h'], ['7', '7 dias'], ['30', '30 dias']].map(([k, v]) => h('option', { value: k, selected: f.days === k }, v)));
@@ -612,6 +613,175 @@ async function viewSistema() {
       ], sessions)),
     h('div', { class: 'section card row' }, h('div', {}, h('b', {}, 'Reiniciar o Muvuca'), h('div', { class: 'muted small' }, 'Reinicia o site, a voz e o HTTPS (fica registrado na auditoria). O painel continua no ar. Se tiver gente em call, ele avisa antes.')), h('span', { class: 'spacer' }), restart),
   );
+}
+
+// ---------- Minecraft ----------
+let mcSel = null;          // servidor aberto
+let mcSub = 'console';     // seção aberta
+const mcConsole = {};      // id -> linhas do console desta sessão
+const mcDraft = {};        // id -> mudanças ainda não salvas nas configurações
+let mcLogWhich = 'jogo';
+const PHASE = {
+  stopped: ['', 'Desligado'], starting: ['warn', 'Ligando…'], running: ['good', 'Ligado'], stopping: ['warn', 'Desligando…'],
+};
+
+async function mcAction(id, action, confirmText) {
+  if (confirmText && !confirm(confirmText)) return;
+  try {
+    const r = await api('/api/mc/action', { method: 'POST', body: { id, action } });
+    toast(r.message ?? 'Feito.');
+  } catch (err) { toast(err.message, 6000); }
+  setTimeout(() => openTab('minecraft'), 800);
+}
+
+async function viewMinecraft() {
+  const d = await api('/api/mc');
+  if (!d.servers.length) return h('p', { class: 'empty' }, `Nenhum servidor encontrado em ${d.root}.`);
+  // Abre de cara o servidor que está ligado (senão, o primeiro)
+  if (!d.servers.some((x) => x.id === mcSel)) mcSel = (d.servers.find((x) => x.phase !== 'stopped') ?? d.servers[0]).id;
+  const cards = h('div', { class: 'grid two' }, d.servers.map((x) => mcCard(x, d)));
+  const sel = d.servers.find((x) => x.id === mcSel);
+  return h('div', {}, cards, h('div', { class: 'section' }, await mcDetail(sel, d)));
+}
+
+function mcCard(x, d) {
+  const [cls, label] = x.external ? ['good', 'Ligado (fora do painel)'] : PHASE[x.phase] ?? ['', x.phase];
+  const on = x.phase === 'running' || x.phase === 'starting';
+  const kind = `${x.version.kind} · Minecraft ${x.version.minecraft}${x.version.mods ? ` · ${x.version.mods} mods` : ''}`;
+  const busy = x.busy ? h('span', { class: 'pill warn' }, x.busy === 'backup' ? 'fazendo backup…' : x.busy === 'stop' ? 'desligando…' : 'ligando…') : null;
+  const btns = h('div', { class: 'row section' },
+    !on ? h('button', { class: 'btn primary', disabled: !!x.busy, onclick: () => mcAction(x.id, 'start') }, 'Ligar') : null,
+    on ? h('button', { class: 'btn', disabled: !!x.busy || x.external, onclick: () => mcAction(x.id, 'stop', `Desligar o ${x.id}?${x.players ? ` Tem ${x.players} jogando agora.` : ''} O mundo é salvo antes.`) }, 'Desligar') : null,
+    on ? h('button', { class: 'btn', disabled: !!x.busy || x.external, onclick: () => mcAction(x.id, 'restart', `Reiniciar o ${x.id}?${x.players ? ` Tem ${x.players} jogando agora.` : ''}`) }, 'Reiniciar') : null,
+    h('span', { class: 'spacer' }),
+    h('button', { class: `btn ${x.id === mcSel ? 'primary' : 'ghost'} small`, onclick: () => { mcSel = x.id; openTab('minecraft'); } }, x.id === mcSel ? 'Aberto abaixo' : 'Gerenciar'));
+  const memPct = (x.rss / d.totalMem) * 100;
+  return h('div', { class: 'card' },
+    h('div', { class: 'row' }, h('h2', {}, `⛏️ ${x.id}`), h('span', { class: `pill ${cls}` }, h('span', { class: 'dot' }), label), busy),
+    h('div', { class: 'muted small' }, kind, ` · porta ${x.port}`),
+    x.motd ? h('div', { class: 'small' }, `“${x.motd}”`) : null,
+    h('div', { class: 'grid cards section' },
+      stat('Jogando', x.phase === 'running' ? `${x.players}/${x.max}` : '—', x.names.length ? x.names.join(', ') : x.phase === 'running' ? 'ninguém agora' : ''),
+      stat('Memória', on ? bytes(x.rss) : '—', `limite ${x.memory}`, on ? memPct : undefined),
+      stat('Processador', on ? pct(x.cpu) : '—', x.tps ? `TPS ${x.tps} (20 = perfeito)` : x.etime ? `ligado há ${x.etime}` : ''),
+    ),
+    x.phase === 'running' && x.autoStop && x.emptySince ? h('p', { class: 'muted small' }, `Sem ninguém ${ago(x.emptySince)}: desliga sozinho depois de ${x.autoStop} min vazio.`) : null,
+    x.rconError && x.phase === 'running' ? h('p', { class: 'error small' }, `Console: ${x.rconError}`) : null,
+    btns);
+}
+
+async function mcDetail(x, d) {
+  const subs = [['console', 'Console'], ['config', 'Configurações'], ['jogadores', 'Jogadores'], ['backups', 'Backups do mundo'], ['logs', 'Logs']];
+  const nav = h('div', { class: 'row' }, h('h2', {}, `Gerenciar ${x.id}`), h('span', { class: 'spacer' }),
+    subs.map(([k, v]) => h('button', { class: `btn small ${mcSub === k ? 'primary' : ''}`, onclick: () => { mcSub = k; openTab('minecraft'); } }, v)));
+  const body = mcSub === 'console' ? mcConsoleView(x) : mcSub === 'config' ? mcConfigView(x, d) : mcSub === 'jogadores' ? mcPlayersView(x)
+    : mcSub === 'backups' ? await mcBackupsView(x) : await mcLogsView(x);
+  return h('div', { class: 'card' }, nav, h('div', { class: 'section' }, body));
+}
+
+function mcConsoleView(x) {
+  const lines = (mcConsole[x.id] ??= []);
+  const pre = h('pre', { class: 'log' }, lines.length ? lines.join('\n') : 'Os comandos que você mandar e as respostas aparecem aqui.');
+  const input = h('input', { type: 'text', placeholder: x.phase === 'running' ? 'Comando (ex.: say olá, time set day, gamemode creative Nick)' : 'Ligue o servidor para usar o console', disabled: x.phase !== 'running', style: 'flex:1;min-width:200px' });
+  const send = async (cmd) => {
+    cmd = (cmd ?? input.value).trim();
+    if (!cmd) return;
+    lines.push(`> ${cmd}`);
+    input.value = '';
+    try {
+      const r = await api('/api/mc/cmd', { method: 'POST', body: { id: x.id, command: cmd } });
+      lines.push(r.output);
+    } catch (err) { lines.push(`(erro: ${err.message})`); }
+    if (lines.length > 300) lines.splice(0, lines.length - 300);
+    pre.textContent = lines.join('\n');
+    pre.scrollTop = pre.scrollHeight;
+  };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+  const quick = [['Quem está online', 'list'], ['Salvar o mundo', 'save-all'], ['Deixar de dia', 'time set day'], ['Tempo limpo', 'weather clear']];
+  setTimeout(() => { pre.scrollTop = pre.scrollHeight; }, 0);
+  return h('div', {},
+    h('div', { class: 'row' }, quick.map(([label, cmd]) => h('button', { class: 'btn small', disabled: x.phase !== 'running', onclick: () => send(cmd) }, label))),
+    h('div', { class: 'section' }, pre),
+    h('div', { class: 'row section' }, input, h('button', { class: 'btn primary', disabled: x.phase !== 'running', onclick: () => send() }, 'Enviar')),
+    h('p', { class: 'muted small' }, 'Tudo o que é mandado por aqui fica registrado na auditoria. Para desligar, use o botão Desligar (salva o mundo).'));
+}
+
+function mcConfigView(x, d) {
+  const draft = (mcDraft[x.id] ??= {});
+  const val = (k) => (k in draft ? draft[k] : x.props[k]);
+  const field = (k, def) => {
+    let input;
+    if (def.type === 'bool') input = h('input', { type: 'checkbox', checked: val(k) === 'true' || val(k) === true });
+    else if (def.type === 'enum') input = h('select', {}, def.choices.map(([v, l]) => h('option', { value: v, selected: val(k) === v }, l)));
+    else input = h('input', { type: def.type === 'int' ? 'number' : 'text', value: val(k) ?? '', min: def.min, max: def.max, maxlength: def.max, style: def.type === 'text' ? 'width:100%' : 'width:90px' });
+    input.addEventListener('change', () => { draft[k] = def.type === 'bool' ? input.checked : input.value; });
+    return h('tr', {}, h('td', {}, def.label), h('td', {}, input));
+  };
+  const memory = h('select', {}, d.memoryChoices.map((m) => h('option', { value: m, selected: (draft.__memory ?? x.memory) === m }, `${m}${m === '4G' && x.modded ? ' (recomendado para modpack)' : m === '3G' && !x.modded ? ' (recomendado)' : ''}`)));
+  memory.addEventListener('change', () => { draft.__memory = memory.value; });
+  const auto = h('select', {}, d.autoStopChoices.map((m) => h('option', { value: m, selected: Number(draft.__auto ?? x.autoStop) === m }, m ? `depois de ${m} min vazio` : 'nunca')));
+  auto.addEventListener('change', () => { draft.__auto = auto.value; });
+  const save = h('button', { class: 'btn primary' }, 'Salvar');
+  save.addEventListener('click', async () => {
+    const props = Object.fromEntries(Object.entries(draft).filter(([k]) => !k.startsWith('__')));
+    try {
+      const r = await api('/api/mc/settings', { method: 'POST', body: { id: x.id, props, memory: draft.__memory, autoStop: draft.__auto } });
+      mcDraft[x.id] = {};
+      toast(r.message, 6000);
+      openTab('minecraft');
+    } catch (err) { toast(err.message, 6000); }
+  });
+  const gb = Math.round(d.totalMem / 1024 ** 3);
+  return h('div', {},
+    h('table', {}, h('tbody', {},
+      h('tr', {}, h('td', {}, h('b', {}, 'Memória do servidor')), h('td', {}, memory, h('div', { class: 'muted small' }, `O Mac tem ${gb} GB no total e o Muvuca também usa. Com calls e lives, prefira não passar de 4G.`))),
+      h('tr', {}, h('td', {}, h('b', {}, 'Desligar sozinho')), h('td', {}, auto, h('div', { class: 'muted small' }, 'Economiza memória: sem ninguém jogando, salva e desliga.'))),
+      Object.entries(d.editable).map(([k, def]) => field(k, def)))),
+    h('div', { class: 'row section' }, save, h('span', { class: 'muted small' }, x.phase === 'stopped' ? 'Vale na próxima vez que ligar.' : 'Vale na próxima vez que ligar (reinicie para aplicar agora).')));
+}
+
+function mcPlayersView(x) {
+  const listBox = (title, names, list, hint) => {
+    const input = h('input', { type: 'text', placeholder: 'Nick no Minecraft', maxlength: 16 });
+    const call = async (name, add) => {
+      try {
+        const r = await api('/api/mc/whitelist', { method: 'POST', body: { id: x.id, name, add, list } });
+        toast(r.output, 5000);
+        setTimeout(() => openTab('minecraft'), 600);
+      } catch (err) { toast(err.message, 6000); }
+    };
+    return h('div', { class: 'card' }, h('h2', {}, title), h('p', { class: 'muted small' }, hint),
+      names.length ? h('div', { class: 'people' }, names.map((n) => h('span', { class: 'pill' }, n, ' ', h('button', { class: 'btn small ghost', title: 'Remover', disabled: x.phase !== 'running', onclick: () => confirm(`Tirar ${n}?`) && call(n, false) }, '✕')))) : h('p', { class: 'empty' }, 'Ninguém.'),
+      h('div', { class: 'row section' }, input, h('button', { class: 'btn small primary', disabled: x.phase !== 'running', onclick: () => input.value.trim() && call(input.value.trim(), true) }, 'Adicionar')));
+  };
+  const wl = x.props['white-list'] === 'true';
+  return h('div', {},
+    x.phase !== 'running' ? h('p', { class: 'muted small' }, 'Para mudar as listas o servidor precisa estar ligado (o jogo confere o nick na Mojang).') : null,
+    h('div', { class: 'grid two' },
+      listBox('Lista de permitidos', x.whitelist, 'whitelist', wl ? 'Ativada: só quem está aqui entra.' : 'Desativada: qualquer pessoa com o endereço entra. Ative em Configurações.'),
+      listBox('Administradores (op)', x.ops, 'op', 'Podem usar comandos dentro do jogo.')));
+}
+
+async function mcBackupsView(x) {
+  const b = await api(`/api/mc/backups?id=${encodeURIComponent(x.id)}`);
+  const btn = h('button', { class: 'btn primary', disabled: b.busy || !!x.busy }, b.busy ? 'Fazendo backup…' : 'Fazer backup agora');
+  btn.addEventListener('click', () => mcAction(x.id, 'backup'));
+  return h('div', {},
+    h('div', { class: 'row' }, h('div', {}, h('div', {}, `Mundo: ${bytes(x.worldBytes)}`), h('div', { class: 'muted small' }, `Guardados em ${b.dir}. Todo dia às 4h30, se o mundo foi jogado. Mantém os 3 mais recentes, 1 por dia (14 dias) e 1 por mês (6 meses). Com o servidor ligado, o mundo é salvo antes da cópia.`)), h('span', { class: 'spacer' }), btn),
+    h('div', { class: 'section' }, table([
+      { label: 'Arquivo', get: (r) => h('span', { class: 'mono' }, r.name) },
+      { label: 'Tamanho', num: true, get: (r) => bytes(r.size) },
+      { label: 'Quando', get: (r) => `${when(r.at)} (${ago(r.at)})` },
+    ], b.list, { empty: 'Nenhum backup deste mundo ainda.' })));
+}
+
+async function mcLogsView(x) {
+  const lines = await api(`/api/mc/logs?id=${encodeURIComponent(x.id)}&which=${mcLogWhich === 'console' ? 'console' : 'jogo'}`);
+  const sel = h('select', {}, [['jogo', 'Log do jogo (latest.log)'], ['console', 'Saída ao ligar (erros de inicialização)']].map(([k, v]) => h('option', { value: k, selected: k === mcLogWhich }, v)));
+  sel.addEventListener('change', () => { mcLogWhich = sel.value; openTab('minecraft'); });
+  const pre = h('pre', { class: 'log' }, lines.length ? lines.join('\n') : '(vazio)');
+  setTimeout(() => { pre.scrollTop = pre.scrollHeight; }, 0);
+  return h('div', {}, h('div', { class: 'row' }, sel, h('span', { class: 'muted small' }, 'Atualiza sozinho a cada 5 s.')), h('div', { class: 'section' }, pre));
 }
 
 start();

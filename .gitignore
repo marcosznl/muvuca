@@ -25,3 +25,6 @@ desktop/node_modules/
 desktop/dist/
 downloads/
 desktop/build/bin/
+
+# Servidores de Minecraft (mundos, mods, senhas do RCON): gerenciados pelo painel, fora do git
+minecraft/

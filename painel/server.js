@@ -15,6 +15,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { AUDIT_LABELS, AUDIT_GROUPS } from '../src/audit-labels.js';
+import { mcRoutes, startMinecraft, mcSummary } from './minecraft.js';
 
 const run = promisify(execFile);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -583,7 +584,7 @@ function sameOrigin(req) {
 
 const api = {
   'GET /api/me': (req, res, s) => json(res, 200, { ok: true, since: s.created, ip: s.ip, domain: DOMAIN }),
-  'GET /api/status': async (req, res) => json(res, 200, { ...latest, sizes, certs: await certificates(), busy, domain: DOMAIN, publicPort: env.PUBLIC_PORT || null }),
+  'GET /api/status': async (req, res) => json(res, 200, { ...latest, sizes, certs: await certificates(), busy, domain: DOMAIN, publicPort: env.PUBLIC_PORT || null, minecraft: mcSummary() }),
   'GET /api/history': (req, res, s, url) => {
     const hours = Math.min(24, Math.max(1, Number(url.searchParams.get('hours')) || 1));
     const since = Date.now() - hours * 3_600_000;
@@ -610,7 +611,11 @@ const api = {
   },
   'POST /api/backup': async (req, res) => json(res, 200, await doBackup(req)),
   'POST /api/restart': async (req, res) => json(res, 200, await doRestart(req, await readBody(req))),
+  ...mcRoutes({ json, readBody, clientIp }),
 };
+
+// Minecraft: as ações vindas do painel (e o desligar sozinho) entram na auditoria
+startMinecraft({ root: ROOT, auditFn: (action, opts) => audit(action, opts) });
 
 const server = http.createServer(async (req, res) => {
   securityHeaders(req, res);
