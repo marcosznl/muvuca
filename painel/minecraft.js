@@ -20,7 +20,7 @@ const BACKUP_ROOT = path.join(os.homedir(), 'Backups/Minecraft');
 const SAMPLE_MS = 15_000;
 const STOP_WAIT_MS = 90_000;
 export const MEMORY_CHOICES = ['2G', '3G', '4G', '5G', '6G', '8G'];
-export const AUTOSTOP_CHOICES = [0, 10, 20, 30, 60]; // minutos vazio até desligar (0 = nunca)
+export const AUTOSTOP_CHOICES = [0, 10, 15, 20, 30, 60]; // minutos vazio até desligar (0 = nunca)
 
 let ROOT;          // pasta do projeto do Muvuca (para data/ e logs/)
 let audit = () => {};
@@ -220,11 +220,133 @@ export function statusPing(port, timeoutMs = 3000) {
         const data = JSON.parse(buf.subarray(strLen[1], strLen[1] + strLen[0]).toString('utf8'));
         clearTimeout(timer);
         sock.destroy();
+        // Quem respondeu foi um "modo dormindo" (deste ou de outro painel), não o servidor de verdade
+        if (data.version?.name === 'Dormindo') { reject(new Error('dormindo')); return; }
         resolve({ players: data.players?.online ?? 0, max: data.players?.max ?? 0, names: (data.players?.sample ?? []).map((p) => p.name).filter((n) => /^[A-Za-z0-9_]{1,16}$/.test(n)) });
       } catch (err) { clearTimeout(timer); sock.destroy(); reject(err); }
     });
     sock.on('error', (err) => { clearTimeout(timer); reject(err.code === 'ECONNREFUSED' ? new Error('desligado') : err); });
   });
+}
+
+// ---------- Modo dormindo ----------
+// Com o servidor desligado, o painel "segura" a porta dele: na lista de servidores do Minecraft aparece
+// "Dormindo — entre para acordar", e quem tenta entrar liga o servidor (e recebe o aviso para entrar de novo
+// em alguns segundos). Com a lista de permitidos ativa, só quem está nela (ou é op) acorda o servidor.
+const sleepers = new Map(); // id -> net.Server escutando a porta do servidor
+const lastWake = new Map(); // id -> quando foi acordado (no máximo 1 vez a cada 2 min)
+const WAKE_COOLDOWN_MS = 120_000;
+
+const varint = (n) => { const out = []; do { let b = n & 0x7f; n >>>= 7; if (n) b |= 0x80; out.push(b); } while (n); return Buffer.from(out); };
+function readVarint(b, pos) {
+  let n = 0;
+  for (let shift = 0; shift < 35; shift += 7) {
+    if (pos >= b.length) return null;
+    const x = b[pos++];
+    n |= (x & 0x7f) << shift;
+    if (!(x & 0x80)) return [n, pos];
+  }
+  throw new Error('número inválido');
+}
+const need = (r) => { if (!r) throw new Error('pacote incompleto'); return r; };
+const mcString = (str) => { const b = Buffer.from(str, 'utf8'); return Buffer.concat([varint(b.length), b]); };
+const frame = (id, payload) => { const body = Buffer.concat([varint(id), payload]); return Buffer.concat([varint(body.length), body]); };
+function takePacket(buf) {
+  const r = readVarint(buf, 0);
+  if (!r) return null;
+  const [len, pos] = r;
+  if (len > 4096) throw new Error('pacote grande demais');
+  if (buf.length < pos + len) return null;
+  return { body: buf.subarray(pos, pos + len), rest: buf.subarray(pos + len) };
+}
+
+function listNames(s, file) {
+  try { return JSON.parse(fs.readFileSync(path.join(s.dir, file), 'utf8')).map((x) => String(x.name ?? '')); } catch { return []; }
+}
+
+function sleepStatus(s, protocol) {
+  const p = readProps(s.dir);
+  const motd = readText(p.motd || 'Servidor de Minecraft').slice(0, 59);
+  let favicon = null;
+  try { favicon = `data:image/png;base64,${fs.readFileSync(path.join(s.dir, 'server-icon.png')).toString('base64')}`; } catch { /* sem ícone */ }
+  return {
+    version: { name: 'Dormindo', protocol },
+    players: { max: Number(p['max-players'] || 0), online: 0, sample: [] },
+    description: { text: '', extra: [{ text: motd, color: 'white' }, { text: '\nDormindo — entre para acordar', color: 'gold' }] },
+    ...(favicon ? { favicon } : {}),
+  };
+}
+
+// Alguém tentou entrar: liga o servidor (se puder) e devolve a mensagem que aparece na tela da pessoa
+function wakeFor(s, name, ip) {
+  const x = st(s.id);
+  if (!/^[A-Za-z0-9_]{1,16}$/.test(name)) return 'Nome de jogador inválido.';
+  if (readProps(s.dir)['white-list'] === 'true') {
+    const allowed = new Set([...listNames(s, 'whitelist.json'), ...listNames(s, 'ops.json')].map((n) => n.toLowerCase()));
+    if (!allowed.has(name.toLowerCase())) return 'Você não está na lista de permitidos deste servidor.';
+  }
+  const wait = s.modded ? 'de 1 a 3 minutos' : 'uns 30 segundos';
+  if (x.busy === 'start' || x.phase === 'starting') return `O servidor já está acordando. Entre de novo em ${wait}.`;
+  if (Date.now() - (lastWake.get(s.id) ?? 0) < WAKE_COOLDOWN_MS) return 'O servidor foi acordado agora há pouco. Tente de novo em instantes.';
+  lastWake.set(s.id, Date.now());
+  audit('painel:mc:wake', { ip: String(ip ?? '').replace(/^::ffff:/, ''), detail: { servidor: s.id, jogador: name } });
+  start(s).catch((err) => { st(s.id).lastError = err.message; });
+  return `Acordando o servidor! Entre de novo em ${wait}.`;
+}
+
+function handleSleepConn(s, sock) {
+  sock.setTimeout(10_000, () => sock.destroy());
+  sock.on('error', () => {});
+  let buf = Buffer.alloc(0);
+  let state = 0;
+  let protocol = 0;
+  sock.on('data', (chunk) => {
+    buf = Buffer.concat([buf, chunk]);
+    if (buf.length > 8192 || (state === 0 && buf[0] === 0xfe)) { sock.destroy(); return; } // lixo ou ping de versões muito antigas
+    try {
+      for (let pkt = takePacket(buf); pkt; pkt = takePacket(buf)) {
+        buf = pkt.rest;
+        const [id, p1] = need(readVarint(pkt.body, 0));
+        if (state === 0) { // handshake: versão, endereço, porta e o que a pessoa quer (1 = ver status, 2 = entrar)
+          if (id !== 0) throw new Error('esperava handshake');
+          const [proto, p2] = need(readVarint(pkt.body, p1));
+          const [alen, p3] = need(readVarint(pkt.body, p2));
+          const [next] = need(readVarint(pkt.body, p3 + alen + 2));
+          protocol = proto;
+          state = next;
+        } else if (state === 1) { // lista de servidores: status e ping
+          if (id === 0) sock.write(frame(0, mcString(JSON.stringify(sleepStatus(s, protocol)))));
+          else if (id === 1) { sock.end(frame(1, pkt.body.subarray(p1, p1 + 8))); return; }
+        } else { // tentando entrar: o primeiro pacote traz o nome
+          const [nlen, p2] = need(readVarint(pkt.body, p1));
+          const name = pkt.body.subarray(p2, p2 + nlen).toString('utf8');
+          sock.end(frame(0, mcString(JSON.stringify({ text: wakeFor(s, name, sock.remoteAddress) }))));
+          return;
+        }
+      }
+    } catch {
+      sock.destroy();
+    }
+  });
+}
+
+function openSleeper(s) {
+  if (sleepers.has(s.id)) return Promise.resolve();
+  const port = Number(readProps(s.dir)['server-port'] || 25565);
+  return new Promise((resolve) => {
+    const srv = net.createServer((sock) => handleSleepConn(s, sock));
+    srv.maxConnections = 30;
+    srv.once('error', (err) => { st(s.id).sleepError = err.code === 'EADDRINUSE' ? `a porta ${port} está ocupada por outro programa` : err.message; resolve(); });
+    srv.listen({ port, host: '::', ipv6Only: false }, () => { sleepers.set(s.id, srv); st(s.id).sleepError = null; resolve(); });
+  });
+}
+
+// Solta a porta (antes de ligar o servidor de verdade)
+function closeSleeper(s) {
+  const srv = sleepers.get(s.id);
+  if (!srv) return Promise.resolve();
+  sleepers.delete(s.id);
+  return new Promise((resolve) => { srv.close(() => resolve()); setTimeout(resolve, 1000); });
 }
 
 const rconOf = (s, commands, timeoutMs) => {
@@ -332,13 +454,16 @@ async function refreshTps(s) {
 
 async function refresh(s) {
   const x = st(s.id);
+  const gen = x.gen ?? 0; // muda a cada "ligar": evita reabrir o modo dormindo em cima de um servidor que acabou de ligar
   const pid = await launchdPid(s);
   let online = null;
   const port = Number(readProps(s.dir)['server-port'] || 25565);
-  try {
-    online = await statusPing(port);
-  } catch (err) {
-    x.pingError = err.message;
+  if (!sleepers.has(s.id)) { // dormindo, quem responde na porta é o próprio painel
+    try {
+      online = await statusPing(port);
+    } catch (err) {
+      x.pingError = err.message;
+    }
   }
   x.external = !pid && !!online; // ligado fora do painel (ex.: no Terminal)
   if (online) {
@@ -355,6 +480,10 @@ async function refresh(s) {
     x.tps = null;
   }
   x.pid = pid || null;
+  // Modo dormindo: desligado (e sem ação em andamento) = o painel segura a porta; ligando = solta
+  const sleepOn = !!loadConfig()[s.id]?.sleep;
+  if (sleepOn && x.phase === 'stopped' && !x.busy && !pid && (x.gen ?? 0) === gen) await openSleeper(s);
+  else if (!sleepOn || x.phase !== 'stopped') await closeSleeper(s);
   if (pid) Object.assign(x, await usage(pid).catch(() => ({})));
   else { x.rss = 0; x.cpu = 0; x.etime = ''; }
   // Desligar sozinho depois de X minutos vazio (só servidores ligados pelo painel)
@@ -387,7 +516,9 @@ async function start(s) {
   if (clash) throw new Error(`O servidor ${clash.id} já está usando a porta ${port}.`);
   const memory = loadConfig()[s.id]?.memory ?? (s.modded ? '4G' : '3G');
   x.busy = 'start';
+  x.gen = (x.gen ?? 0) + 1;
   try {
+    await closeSleeper(s); // o modo dormindo solta a porta para o servidor de verdade
     await bootout(s); // sobra de uma vez anterior
     await fsp.mkdir(LOG_DIR, { recursive: true });
     await fsp.writeFile(consoleLog(s), `[${new Date().toLocaleString('pt-BR')}] ligando pelo painel (memória ${memory})\n`);
@@ -549,7 +680,8 @@ function publicServer(s) {
     id: s.id, version: s.version, modded: s.modded,
     port: Number(p['server-port'] || 25565), motd: readText(p.motd),
     props: Object.fromEntries(Object.keys(EDITABLE).map((k) => [k, k === 'motd' ? readText(p[k]) : p[k] ?? ''])),
-    phase: x.phase, busy: x.busy ?? null, external: !!x.external,
+    phase: x.phase === 'stopped' && sleepers.has(s.id) ? 'sleeping' : x.phase, busy: x.busy ?? null, external: !!x.external,
+    sleep: !!cfg.sleep, sleepError: cfg.sleep && x.phase === 'stopped' ? x.sleepError ?? null : null,
     players: x.players ?? 0, max: x.max || Number(p['max-players'] || 0), names: x.names ?? [], tps: x.tps ?? null,
     rss: x.rss ?? 0, cpu: x.cpu ?? 0, etime: x.etime ?? '', startedAt: x.startedAt ?? null, emptySince: x.emptySince ?? null,
     rconOk: p['enable-rcon'] === 'true' && !!p['rcon.password'], rconError: x.phase === 'stopped' ? null : x.rconError ?? null,
@@ -619,10 +751,17 @@ export function mcRoutes({ json, readBody, clientIp, domain }) {
         if (!AUTOSTOP_CHOICES.includes(Number(body.autoStop))) throw new Error('Opção inválida.');
         cfg[s.id].autoStop = Number(body.autoStop);
       }
+      let note = '';
+      if (body.sleep !== undefined) {
+        cfg[s.id].sleep = body.sleep === true;
+        // Dormindo sem "desligar sozinho" nunca voltaria a dormir depois de acordar: liga em 15 min
+        if (cfg[s.id].sleep && !cfg[s.id].autoStop) { cfg[s.id].autoStop = 15; note = ' O "desligar sozinho" foi ligado em 15 min para ele voltar a dormir.'; }
+      }
       saveConfig(cfg);
-      audit('painel:mc:settings', { ip: clientIp(req), detail: { servidor: s.id, ...Object.fromEntries(Object.entries(changes).map(([k, v]) => [k, readText(v)])), ...(body.memory ? { memoria: body.memory } : {}), ...(body.autoStop !== undefined ? { desligarVazioMin: Number(body.autoStop) } : {}) } });
+      audit('painel:mc:settings', { ip: clientIp(req), detail: { servidor: s.id, ...Object.fromEntries(Object.entries(changes).map(([k, v]) => [k, readText(v)])), ...(body.memory ? { memoria: body.memory } : {}), ...(body.autoStop !== undefined ? { desligarVazioMin: Number(body.autoStop) } : {}), ...(body.sleep !== undefined ? { modoDormindo: body.sleep === true } : {}) } });
       const needsRestart = st(s.id).phase !== 'stopped' && (Object.keys(changes).length || body.memory !== undefined);
-      json(res, 200, { ok: true, message: needsRestart ? 'Salvo. Vale na próxima vez que o servidor ligar (reinicie para aplicar agora).' : 'Salvo.' });
+      json(res, 200, { ok: true, message: (needsRestart ? 'Salvo. Vale na próxima vez que o servidor ligar (reinicie para aplicar agora).' : 'Salvo.') + note });
+      sampleAll().catch(() => {}); // abre ou fecha o modo dormindo na hora
     }),
     'POST /api/mc/whitelist': wrap(async (req, res) => {
       const body = await readBody(req);
@@ -660,4 +799,4 @@ export function startMinecraft({ root, auditFn }) {
 }
 
 // Para o status geral do painel (alertas e processos)
-export const mcSummary = () => servers.map((s) => ({ id: s.id, phase: st(s.id).phase, players: st(s.id).players ?? 0, rss: st(s.id).rss ?? 0, cpu: st(s.id).cpu ?? 0 }));
+export const mcSummary = () => servers.map((s) => ({ id: s.id, phase: st(s.id).phase === 'stopped' && sleepers.has(s.id) ? 'sleeping' : st(s.id).phase, players: st(s.id).players ?? 0, rss: st(s.id).rss ?? 0, cpu: st(s.id).cpu ?? 0 }));

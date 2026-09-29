@@ -622,7 +622,7 @@ const mcConsole = {};      // id -> linhas do console desta sessão
 const mcDraft = {};        // id -> mudanças ainda não salvas nas configurações
 let mcLogWhich = 'jogo';
 const PHASE = {
-  stopped: ['', 'Desligado'], starting: ['warn', 'Ligando…'], running: ['good', 'Ligado'], stopping: ['warn', 'Desligando…'],
+  stopped: ['', 'Desligado'], sleeping: ['', '💤 Dormindo'], starting: ['warn', 'Ligando…'], running: ['good', 'Ligado'], stopping: ['warn', 'Desligando…'],
 };
 
 async function mcAction(id, action, confirmText) {
@@ -694,6 +694,8 @@ function mcCard(x, d) {
       stat('Memória', on ? bytes(x.rss) : '—', `limite ${x.memory}`, on ? memPct : undefined),
       stat('Processador', on ? pct(x.cpu) : '—', x.tps ? `TPS ${x.tps} (20 = perfeito)` : x.etime ? `ligado há ${x.etime}` : ''),
     ),
+    x.phase === 'sleeping' ? h('p', { class: 'muted small' }, 'Aparece na lista do Minecraft como “Dormindo — entre para acordar” e liga sozinho quando alguém tenta entrar.') : null,
+    x.sleepError ? h('p', { class: 'error small' }, `Modo dormindo sem funcionar: ${x.sleepError}.`) : null,
     x.phase === 'running' && x.autoStop && x.emptySince ? h('p', { class: 'muted small' }, `Sem ninguém ${ago(x.emptySince)}: desliga sozinho depois de ${x.autoStop} min vazio.`) : null,
     x.rconError && x.phase === 'running' ? h('p', { class: 'error small' }, `Console: ${x.rconError}`) : null,
     btns);
@@ -750,11 +752,13 @@ function mcConfigView(x, d) {
   memory.addEventListener('change', () => { draft.__memory = memory.value; });
   const auto = h('select', {}, d.autoStopChoices.map((m) => h('option', { value: m, selected: Number(draft.__auto ?? x.autoStop) === m }, m ? `depois de ${m} min vazio` : 'nunca')));
   auto.addEventListener('change', () => { draft.__auto = auto.value; });
+  const sleep = h('input', { type: 'checkbox', checked: draft.__sleep ?? x.sleep });
+  sleep.addEventListener('change', () => { draft.__sleep = sleep.checked; });
   const save = h('button', { class: 'btn primary' }, 'Salvar');
   save.addEventListener('click', async () => {
     const props = Object.fromEntries(Object.entries(draft).filter(([k]) => !k.startsWith('__')));
     try {
-      const r = await api('/api/mc/settings', { method: 'POST', body: { id: x.id, props, memory: draft.__memory, autoStop: draft.__auto } });
+      const r = await api('/api/mc/settings', { method: 'POST', body: { id: x.id, props, memory: draft.__memory, autoStop: draft.__auto, sleep: draft.__sleep } });
       mcDraft[x.id] = {};
       toast(r.message, 6000);
       openTab('minecraft');
@@ -764,7 +768,8 @@ function mcConfigView(x, d) {
   return h('div', {},
     h('table', {}, h('tbody', {},
       h('tr', {}, h('td', {}, h('b', {}, 'Memória do servidor')), h('td', {}, memory, h('div', { class: 'muted small' }, `O Mac tem ${gb} GB no total e o Muvuca também usa. Com calls e lives, prefira não passar de 4G.`))),
-      h('tr', {}, h('td', {}, h('b', {}, 'Desligar sozinho')), h('td', {}, auto, h('div', { class: 'muted small' }, 'Economiza memória: sem ninguém jogando, salva e desliga.'))),
+      h('tr', {}, h('td', {}, h('b', {}, 'Modo dormindo')), h('td', {}, h('label', { class: 'row small' }, sleep, 'Desligado, fica “dormindo”: liga sozinho quando alguém tenta entrar'), h('div', { class: 'muted small' }, 'Quem entra vê “Acordando o servidor” e entra de novo em alguns segundos. Com a lista de permitidos ativa, só quem está nela acorda o servidor.'))),
+      h('tr', {}, h('td', {}, h('b', {}, 'Desligar sozinho')), h('td', {}, auto, h('div', { class: 'muted small' }, 'Economiza memória: sem ninguém jogando, salva e desliga (no modo dormindo, volta a dormir).'))),
       Object.entries(d.editable).map(([k, def]) => field(k, def)))),
     h('div', { class: 'row section' }, save, h('span', { class: 'muted small' }, x.phase === 'stopped' ? 'Vale na próxima vez que ligar.' : 'Vale na próxima vez que ligar (reinicie para aplicar agora).')));
 }
