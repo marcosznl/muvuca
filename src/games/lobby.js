@@ -23,7 +23,10 @@ export const GAMES = {
   },
   tron: { name: 'Tron', maxPlayers: tron.MAX_PLAYERS, create: (players) => new tron.Tron(players) },
   tanks: { name: 'Tanquinhos', maxPlayers: tanks.MAX_PLAYERS, create: (players) => new tanks.Tanks(players) },
-  agar: { name: 'Agar', maxPlayers: agar.MAX_PLAYERS, create: (players) => new agar.Agar(players) },
+  agar: {
+    name: 'Agar', maxPlayers: agar.MAX_PLAYERS, options: agar.OPTIONS,
+    create: (players, { options }) => new agar.Agar(players, { options }),
+  },
   velha: { name: 'Jogo da velha', maxPlayers: velha.MAX_PLAYERS, create: (players, opts) => new velha.Velha(players, opts) },
   cartas: {
     name: 'Última!', maxPlayers: cartas.MAX_PLAYERS, options: cartas.RULES,
