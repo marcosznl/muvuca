@@ -1969,3 +1969,10 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 }
 .is-desktop .app { height: calc(100dvh - 30px); margin-top: 30px; }
 .is-desktop #auth { padding-top: 30px; }
+
+/* Modo manutenção (painel administrativo): faixa no topo e tela de acesso travado */
+.maint-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 900; padding: 6px 16px; text-align: center; font-weight: 600; font-size: 14px; background: #f0b232; color: #1e1f22; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+.maint-lock { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 16px; background: var(--bg-dark, #1e1f22); }
+.maint-lock-box { max-width: 420px; text-align: center; color: var(--text, #dbdee1); }
+.maint-lock-box h2 { margin: 8px 0; color: var(--text-strong, #fff); }
+.maint-lock-icon { font-size: 48px; }

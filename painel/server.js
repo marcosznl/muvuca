@@ -17,6 +17,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { AUDIT_LABELS, AUDIT_GROUPS } from '../src/audit-labels.js';
 import { mcRoutes, startMinecraft, mcSummary } from './minecraft.js';
 import { speedRoutes } from './speedtest.js';
+import { deployRoutes } from './deploy.js';
 
 const run = promisify(execFile);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -244,6 +245,24 @@ async function network() {
   return { iface: netIface, rx: 0, tx: 0 };
 }
 
+// Ordens para o Muvuca (desconectar, bloquear, manutenção): só de dentro do Mac, com a chave do painel
+async function mainPost(pathname, body) {
+  const key = fs.readFileSync(KEY_FILE, 'utf8').trim();
+  let r;
+  try {
+    r = await fetch(`${MAIN_URL}${pathname}`, { method: 'POST', headers: { 'x-painel-key': key, 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(8000) });
+  } catch {
+    throw new Error('O Muvuca não respondeu (está fora do ar?).');
+  }
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || `O Muvuca respondeu ${r.status} (reinicie o Muvuca para ativar esta função).`);
+  return data;
+}
+
+function maintenanceState() {
+  try { return JSON.parse(one("SELECT value FROM meta WHERE key = 'maintenance'")?.value ?? 'null') ?? { on: false }; } catch { return { on: false }; }
+}
+
 async function mainStats() {
   let key = '';
   try { key = fs.readFileSync(KEY_FILE, 'utf8').trim(); } catch { return { up: false, error: 'sem chave do painel (o Muvuca ainda não criou data/painel-key)' }; }
@@ -353,7 +372,9 @@ function overview() {
 function usersList() {
   const now = Date.now();
   const online = new Set((latest.main?.users ?? []).map((u) => u.id));
-  const rows = all(`SELECT u.id, u.username, u.display_name name, u.created_at, u.last_seen,
+  let blockCols = '';
+  try { one('SELECT blocked_at FROM users LIMIT 1'); blockCols = 'u.blocked_at, u.blocked_reason,'; } catch { /* Muvuca ainda sem a coluna */ }
+  const rows = all(`SELECT u.id, u.username, u.display_name name, u.created_at, u.last_seen, ${blockCols}
       (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.expires_at > ?) sessions,
       (SELECT COUNT(*) FROM messages m WHERE m.user_id = u.id) messages,
       (SELECT COALESCE(SUM(size), 0) FROM files f WHERE f.owner_id = u.id) bytes,
@@ -370,6 +391,33 @@ function usersList() {
     lastLogin: lastLogin.get(r.id)?.at ?? null, lastIp: lastLogin.get(r.id)?.ip ?? null,
     fails7: fails.get(r.username.toLowerCase()) ?? 0,
   }));
+}
+
+// Arquivos pesados: os maiores anexos, quem mandou e onde. Em conversa privada, sem nome do arquivo nem canal.
+function heavyFiles(url) {
+  const kind = url.searchParams.get('kind');
+  const kinds = ['image', 'video', 'audio', 'document'];
+  const where = kinds.includes(kind) ? 'WHERE f.kind = ?' : '';
+  const rows = all(`SELECT f.id, f.kind, f.mime, f.size, f.name, f.created_at, f.message_id, u.username, u.display_name,
+      c.name channel, s.name server, s.kind skind
+    FROM files f LEFT JOIN users u ON u.id = f.owner_id LEFT JOIN channels c ON c.id = f.channel_id LEFT JOIN servers s ON s.id = c.server_id
+    ${where} ORDER BY f.size DESC LIMIT 200`, ...(where ? [kind] : []));
+  const byUser = all(`SELECT u.username, u.display_name name, COUNT(*) n, SUM(f.size) bytes FROM files f LEFT JOIN users u ON u.id = f.owner_id
+    GROUP BY f.owner_id ORDER BY bytes DESC LIMIT 20`);
+  const byKind = all('SELECT kind, COUNT(*) n, SUM(size) bytes FROM files GROUP BY kind ORDER BY bytes DESC');
+  const byPlace = all(`SELECT CASE WHEN s.kind = 'dm' THEN 'Conversas privadas' ELSE s.name END place, COUNT(*) n, SUM(f.size) bytes
+    FROM files f LEFT JOIN channels c ON c.id = f.channel_id LEFT JOIN servers s ON s.id = c.server_id GROUP BY place ORDER BY bytes DESC LIMIT 20`);
+  return {
+    total: one('SELECT COUNT(*) n, COALESCE(SUM(size), 0) bytes FROM files'),
+    byKind, byUser, byPlace,
+    files: rows.map((r) => {
+      const dm = r.skind === 'dm';
+      return {
+        kind: r.kind, mime: r.mime, size: r.size, at: r.created_at, user: r.username ?? '(conta apagada)', userName: r.display_name,
+        name: dm ? null : r.name, where: dm ? 'Conversa privada' : `${r.server ?? '?'} · #${r.channel ?? '?'}`, dm, orphan: r.message_id === null,
+      };
+    }),
+  };
 }
 
 function auditQuery(url) {
@@ -515,6 +563,7 @@ async function doBackup(req) {
   busy = 'backup';
   try {
     const r = await runScript(['./backup.sh'], 10 * 60_000);
+    await fsp.appendFile(path.join(LOGS, 'backup.log'), `${r.output}\n`).catch(() => {}); // aparece em "Últimos resultados"
     audit('painel:backup', { ip: clientIp(req), ok: r.ok, detail: { resultado: r.output.split('\n').pop()?.slice(0, 200) } });
     return r;
   } finally { busy = null; }
@@ -583,6 +632,13 @@ function sameOrigin(req) {
   try { return new URL(origin).host === req.headers.host; } catch { return false; }
 }
 
+// Quem está usando agora (teste de velocidade e atualização avisam antes de atrapalhar)
+const activityNow = () => ({
+  voice: (latest.main?.voice ?? []).reduce((n, v) => n + v.count, 0),
+  lives: (latest.main?.voice ?? []).reduce((n, v) => n + (v.people ?? []).filter((p) => p.streaming).length, 0),
+  minecraft: mcSummary().reduce((n, s) => n + (s.phase === 'running' ? s.players : 0), 0),
+});
+
 const api = {
   'GET /api/me': (req, res, s) => json(res, 200, { ok: true, since: s.created, ip: s.ip, domain: DOMAIN }),
   'GET /api/status': async (req, res) => json(res, 200, { ...latest, sizes, certs: await certificates(), busy, domain: DOMAIN, publicPort: env.PUBLIC_PORT || null, minecraft: mcSummary() }),
@@ -595,6 +651,46 @@ const api = {
   },
   'GET /api/overview': (req, res) => json(res, 200, overview()),
   'GET /api/users': (req, res) => json(res, 200, usersList()),
+  'GET /api/files': (req, res, s, url) => json(res, 200, heavyFiles(url)),
+  'POST /api/users/disconnect': async (req, res) => {
+    const b = await readBody(req);
+    const u = one('SELECT id, username FROM users WHERE id = ?', Number(b.id));
+    if (!u) return json(res, 404, { error: 'Conta não encontrada.' });
+    const r = await mainPost('/internal/user/disconnect', { userId: `u${u.id}` });
+    audit('painel:user:disconnect', { ip: clientIp(req), detail: { conta: u.username, sessoes: r.sessions } });
+    json(res, 200, { ok: true, message: `@${u.username} saiu de todos os aparelhos (${r.sessions} ${r.sessions === 1 ? 'sessão' : 'sessões'}).` });
+  },
+  'POST /api/users/block': async (req, res) => {
+    const b = await readBody(req);
+    const u = one('SELECT id, username FROM users WHERE id = ?', Number(b.id));
+    if (!u) return json(res, 404, { error: 'Conta não encontrada.' });
+    const block = b.block === true;
+    const reason = String(b.reason ?? '').slice(0, 200);
+    await mainPost('/internal/user/block', { userId: `u${u.id}`, block, reason });
+    audit(block ? 'painel:user:block' : 'painel:user:unblock', { ip: clientIp(req), detail: { conta: u.username, ...(reason ? { motivo: reason } : {}) } });
+    json(res, 200, { ok: true, message: block ? `@${u.username} bloqueada e desconectada.` : `@${u.username} desbloqueada.` });
+  },
+  'GET /api/ips': (req, res) => {
+    let rows = [];
+    try { rows = all('SELECT ip, reason, created_at FROM blocked_ips ORDER BY created_at DESC'); } catch { /* ainda sem a tabela */ }
+    json(res, 200, { blocked: rows, you: clientIp(req) });
+  },
+  'POST /api/ips/block': async (req, res) => {
+    const b = await readBody(req);
+    const ip = String(b.ip ?? '').trim();
+    const block = b.block === true;
+    if (block && ip.replace(/^::ffff:/, '') === clientIp(req).replace(/^::ffff:/, '')) return json(res, 400, { error: 'Esse é o IP de onde você está usando o painel: bloquear tiraria você do Muvuca.' });
+    const r = await mainPost('/internal/ip/block', { ip, block, reason: String(b.reason ?? '') });
+    audit(block ? 'painel:ip:block' : 'painel:ip:unblock', { ip: clientIp(req), detail: { ipAlvo: ip, ...(b.reason ? { motivo: String(b.reason).slice(0, 200) } : {}), ...(r.closed ? { conexoesFechadas: r.closed } : {}) } });
+    json(res, 200, { ok: true, message: block ? `IP ${ip} bloqueado${r.closed ? ` (${r.closed} ${r.closed === 1 ? 'conexão fechada' : 'conexões fechadas'})` : ''}.` : `IP ${ip} desbloqueado.` });
+  },
+  'GET /api/maintenance': (req, res) => json(res, 200, maintenanceState()),
+  'POST /api/maintenance': async (req, res) => {
+    const b = await readBody(req);
+    const r = await mainPost('/internal/maintenance', { on: b.on === true, message: b.message, lock: b.lock === true, minutes: Number(b.minutes) || 0 });
+    audit('painel:maintenance', { ip: clientIp(req), detail: r.on ? { ligado: true, mensagem: r.message, acessoTravado: r.lock, ...(b.minutes ? { minutos: Number(b.minutes) } : {}) } : { ligado: false } });
+    json(res, 200, { ok: true, state: r, message: r.on ? (r.lock ? `Manutenção ligada com acesso travado (${r.closed} ${r.closed === 1 ? 'pessoa saiu' : 'pessoas saíram'}).` : 'Aviso de manutenção ligado para todo mundo.') : 'Manutenção desligada.' });
+  },
   'GET /api/audit': (req, res, s, url) => json(res, 200, { rows: auditQuery(url), labels: AUDIT_LABELS, groups: Object.keys(AUDIT_GROUPS) }),
   'GET /api/audit.csv': (req, res, s, url) => {
     url.searchParams.set('limit', '1000');
@@ -613,14 +709,10 @@ const api = {
   'POST /api/backup': async (req, res) => json(res, 200, await doBackup(req)),
   'POST /api/restart': async (req, res) => json(res, 200, await doRestart(req, await readBody(req))),
   ...mcRoutes({ json, readBody, clientIp, domain: DOMAIN }),
-  ...speedRoutes({
-    json, readBody, clientIp, audit, dataDir: path.dirname(DB_FILE),
-    // Quem está usando a internet agora (o teste de velocidade avisa antes de atrapalhar)
-    activity: () => ({
-      voice: (latest.main?.voice ?? []).reduce((n, v) => n + v.count, 0),
-      lives: (latest.main?.voice ?? []).reduce((n, v) => n + (v.people ?? []).filter((p) => p.streaming).length, 0),
-      minecraft: mcSummary().reduce((n, s) => n + (s.phase === 'running' ? s.players : 0), 0),
-    }),
+  ...speedRoutes({ json, readBody, clientIp, audit, dataDir: path.dirname(DB_FILE), activity: activityNow }),
+  ...deployRoutes({
+    json, readBody, clientIp, root: ROOT, mainUrl: MAIN_URL, auditFn: audit, activityFn: activityNow,
+    noticeFn: (b) => mainPost('/internal/maintenance', b),
   }),
 };
 
@@ -647,7 +739,8 @@ const server = http.createServer(async (req, res) => {
     return await serveStatic(res, url.pathname);
   } catch (err) {
     console.error(err);
-    if (!res.headersSent) json(res, 500, { error: 'Erro interno' });
+    // Painel só do administrador: a mensagem ajuda mais do que um "erro interno"
+    if (!res.headersSent) json(res, 500, { error: err.message || 'Erro interno' });
   }
 });
 

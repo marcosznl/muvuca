@@ -1244,6 +1244,54 @@ const LIMIT_LABEL = { bandwidth: 'banda', cpu: 'CPU', other: 'outro' };
 let showStats = false;
 const prevBytes = new WeakMap(); // track -> { bytes, time }
 
+// Painel do dono: a cada 10 s, quem está em call manda um resumo da própria conexão
+// (qualidade, o que envia — câmera/live — e como está recebendo). Só números, nada de conteúdo.
+const reportPrev = new Map(); // chave -> { v, time }
+function reportDelta(key, value, perSecond = false) {
+  const now = performance.now();
+  const prev = reportPrev.get(key);
+  reportPrev.set(key, { v: value, time: now });
+  if (!prev || value < prev.v) return null;
+  return perSecond ? ((value - prev.v) * 1000) / (now - prev.time) : value - prev.v;
+}
+async function reportStats() {
+  if (!room) return;
+  const lp = room.localParticipant;
+  const pub = [];
+  for (const p of lp.videoTrackPublications.values()) {
+    const track = p.track;
+    if (!track) continue;
+    const layers = (await track.getSenderStats?.().catch(() => null)) ?? [];
+    const top = layers[0];
+    const bps = reportDelta(`tx:${p.trackSid}`, layers.reduce((n, l) => n + (l.bytesSent ?? 0), 0), true);
+    pub.push({
+      src: p.source === Track.Source.ScreenShare ? 'screen' : 'camera',
+      w: top?.frameWidth ?? null, h: top?.frameHeight ?? null, fps: Math.round(top?.framesPerSecond ?? 0),
+      kbps: bps === null ? null : Math.round((bps * 8) / 1000),
+      limit: layers.find((l) => l.qualityLimitationReason && l.qualityLimitationReason !== 'none')?.qualityLimitationReason ?? null,
+      rtt: top?.roundTripTime ? Math.round(top.roundTripTime * 1000) : null,
+    });
+  }
+  let rx = 0; let lost = 0; let got = 0; let jitter = 0; let n = 0;
+  for (const rp of room.remoteParticipants.values()) {
+    for (const p of rp.trackPublications.values()) {
+      if (!p.track || !p.isSubscribed) continue;
+      const st = await p.track.getReceiverStats?.().catch(() => null);
+      if (!st) continue;
+      const bps = reportDelta(`rx:${p.trackSid}`, st.bytesReceived ?? 0, true);
+      if (bps) rx += bps;
+      lost += reportDelta(`lost:${p.trackSid}`, st.packetsLost ?? 0) ?? 0;
+      got += reportDelta(`got:${p.trackSid}`, st.packetsReceived ?? 0) ?? 0;
+      if (st.jitter) { jitter += st.jitter; n++; }
+    }
+  }
+  send({
+    t: 'voice:stats', q: lp.connectionQuality ?? 'unknown', pub,
+    rx: { kbps: Math.round((rx * 8) / 1000), loss: lost + got > 0 ? Math.round((lost * 1000) / (lost + got)) / 10 : 0, jitter: n ? Math.round((jitter * 1000) / n) : null },
+  });
+}
+setInterval(() => { if (room) reportStats().catch(() => {}); }, 10_000);
+
 $('btn-stats').onclick = () => {
   showStats = !showStats;
   $('btn-stats').classList.toggle('on', showStats);

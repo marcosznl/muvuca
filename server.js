@@ -15,7 +15,8 @@ import { actions, RATE_FREE } from './src/actions/index.js';
 import { leaveRoom } from './src/games/lobby.js';
 import { publicKey } from './src/push.js';
 import { uploadSound, serveSound } from './src/soundboard.js';
-import { HttpError, ActionError, json, bearer, clientIp } from './src/util.js';
+import { HttpError, ActionError, json, bearer, clientIp, readBody } from './src/util.js';
+import { ipBlocked, lockedOut, maintenance, disconnectUser, blockUser, blockIp, setMaintenance } from './src/moderation.js';
 import { auditAction, audit, purgeAudit } from './src/audit.js';
 import { internalStats, isInternal } from './src/internal.js';
 
@@ -73,10 +74,27 @@ function securityHeaders(req, res) {
   if (req.headers['x-forwarded-proto'] === 'https') res.setHeader('Strict-Transport-Security', 'max-age=31536000');
 }
 
+// Ordens do painel administrativo (só de dentro do Mac, com a chave do painel)
+const internalActions = {
+  '/internal/user/disconnect': (b) => disconnectUser(String(b.userId)),
+  '/internal/user/block': (b) => blockUser(String(b.userId), b.block === true, b.reason),
+  '/internal/ip/block': (b) => blockIp(String(b.ip ?? ''), b.block === true, b.reason),
+  '/internal/maintenance': (b) => setMaintenance(b),
+};
+
 const server = http.createServer(async (req, res) => {
   securityHeaders(req, res);
   const url = new URL(req.url, 'http://x');
+  // IP bloqueado pelo painel: não acessa nada
+  if (ipBlocked(clientIp(req))) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    return res.end('Acesso bloqueado.');
+  }
   try {
+    if (req.method === 'POST' && internalActions[url.pathname]) {
+      if (!isInternal(req)) return json(res, 404, { error: 'Não encontrado' });
+      try { return json(res, 200, await internalActions[url.pathname](await readBody(req))); } catch (err) { return json(res, 400, { error: err.message }); }
+    }
     const route = routes[`${req.method} ${url.pathname}`];
     if (route) return json(res, 200, await route(req, url));
     if (req.method !== 'GET') return json(res, 404, { error: 'Não encontrado' });
@@ -107,6 +125,12 @@ function welcome(ws, token) {
     ws.close();
     return null;
   }
+  // Manutenção com acesso travado: só o dono entra
+  if (lockedOut(user.id)) {
+    send(ws, { t: 'error', code: 'maintenance', message: maintenance().message });
+    ws.close();
+    return null;
+  }
   const firstSocket = !sockets.has(user.id);
   if (firstSocket) sockets.set(user.id, new Set());
   sockets.get(user.id).add(ws);
@@ -126,6 +150,7 @@ function welcome(ws, token) {
     mutes: db.mutes(user.id),
     friends: db.friendsOf(user.id),
     readState: db.readState(user.id),
+    maintenance: maintenance(),
   });
   music.cancelLeave(user.id); // voltou a tempo depois de uma queda: continua na sala de música
   if (firstSocket) broadcastPresence();
@@ -157,6 +182,7 @@ async function runAction(ws, user, m, actionTimes) {
 
 wss.on('connection', (ws, req) => {
   ws.ip = clientIp(req);
+  if (ipBlocked(ws.ip)) { ws.close(); return; }
   let user = null;
   const actionTimes = [];
   ws.isAlive = true;

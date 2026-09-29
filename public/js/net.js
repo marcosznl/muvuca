@@ -1,11 +1,13 @@
 // Conexão com o servidor: HTTP (conta) e WebSocket (tempo real)
 import { store, showBanner, hideBanner } from './util.js';
+import { showLock, hideLock } from './maintenance.js';
 
 let ws = null;
 let handler = () => {};
 let onAuthError = () => {};
 let stopped = false;
 let reconnectDelay = 1000;
+let locked = false; // manutenção com acesso travado: tenta de novo a cada 15 s, sem aviso de "conexão perdida"
 let everConnected = false;
 let reqSeq = 0;
 const pending = new Map(); // req -> { resolve, reject }
@@ -56,7 +58,9 @@ function open() {
   socket.onmessage = (e) => {
     let m;
     try { m = JSON.parse(e.data); } catch { return; }
-    if (m.t === 'welcome') { everConnected = true; reconnectDelay = 1000; hideBanner(); }
+    if (m.t === 'welcome') { everConnected = true; reconnectDelay = 1000; hideBanner(); if (locked) { locked = false; hideLock(); } }
+    if (m.t === 'error' && m.code === 'maintenance') { locked = true; showLock(m.message); return; }
+    if (m.t === 'error' && m.code === 'blocked') { stopped = true; showLock('Acesso bloqueado.', { retrying: false }); return; }
     if (m.t === 'error' && m.code === 'auth') { stopped = true; return onAuthError(m.message); }
     // Resposta a um pedido feito com request()
     if (m.req && pending.has(m.req)) {
@@ -71,6 +75,7 @@ function open() {
     if (ws !== socket || stopped) return;
     for (const p of pending.values()) p.reject(new Error('Conexão perdida'));
     pending.clear();
+    if (locked) { setTimeout(open, 15_000); return; }
     if (everConnected) showBanner('Conexão perdida. Reconectando…');
     setTimeout(open, reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 2, 10_000);

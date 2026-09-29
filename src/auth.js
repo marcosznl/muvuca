@@ -124,6 +124,10 @@ export async function login(req) {
     audit('auth:login:fail', { userName: username, ip, ok: false, detail: { contaExiste: db.usernameTaken(username) } });
     await authFailed(ip, 'Usuário ou senha incorretos.');
   }
+  if (db.isBlocked(user.id)) {
+    audit('auth:login:blocked', { user, ip, ok: false });
+    throw new HttpError(403, 'Esta conta está bloqueada. Fale com o dono do servidor.');
+  }
   audit('auth:login', { user, ip, detail: { aparelho: String(req.headers['user-agent'] ?? '').slice(0, 160) } });
   authFails.delete(ip);
   accountFails.delete(username);

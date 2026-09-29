@@ -10,6 +10,7 @@ export const AUDIT_LABELS = {
   'auth:password': 'Trocou a senha',
   'auth:password:fail': 'Errou a senha atual ao trocar',
   'auth:logout': 'Saiu da conta',
+  'auth:login:blocked': 'Tentou entrar com conta bloqueada',
   'voice:join': 'Entrou em canal de voz',
   // Servidores
   'server:create': 'Criou servidor',
@@ -60,6 +61,14 @@ export const AUDIT_LABELS = {
   'painel:restart': 'Reiniciou o servidor pelo painel',
   'painel:backup': 'Fez backup pelo painel',
   'painel:speedtest': 'Teste de velocidade da internet',
+  'painel:user:disconnect': 'Desconectou conta de todos os aparelhos',
+  'painel:user:block': 'Bloqueou conta',
+  'painel:user:unblock': 'Desbloqueou conta',
+  'painel:ip:block': 'Bloqueou IP',
+  'painel:ip:unblock': 'Desbloqueou IP',
+  'painel:maintenance': 'Modo manutenção',
+  'painel:deploy': 'Atualizou o Muvuca',
+  'painel:rollback': 'Voltou o Muvuca para uma versão anterior',
   // Minecraft (pelo painel)
   'painel:mc:start': 'Ligou servidor de Minecraft',
   'painel:mc:stop': 'Desligou servidor de Minecraft',
@@ -73,9 +82,9 @@ export const AUDIT_LABELS = {
 
 // Grupos para o filtro do painel
 export const AUDIT_GROUPS = {
-  seguranca: ['auth:login:fail', 'auth:register:fail', 'auth:password', 'auth:password:fail', 'painel:login', 'painel:login:fail', 'painel:logout'],
+  seguranca: ['auth:login:fail', 'auth:login:blocked', 'painel:user:block', 'painel:user:unblock', 'painel:ip:block', 'painel:ip:unblock', 'painel:user:disconnect', 'auth:register:fail', 'auth:password', 'auth:password:fail', 'painel:login', 'painel:login:fail', 'painel:logout'],
   contas: ['auth:login', 'auth:register', 'auth:logout', 'auth:password', 'voice:join'],
   moderacao: ['member:kick', 'member:roles', 'msg:delete:other', 'msg:pin', 'music:kick', 'emoji:delete', 'sound:delete', 'invite:revoke'],
-  painel: ['painel:login', 'painel:login:fail', 'painel:logout', 'painel:restart', 'painel:backup', 'painel:speedtest'],
+  painel: ['painel:login', 'painel:login:fail', 'painel:logout', 'painel:restart', 'painel:backup', 'painel:speedtest', 'painel:user:disconnect', 'painel:user:block', 'painel:user:unblock', 'painel:ip:block', 'painel:ip:unblock', 'painel:maintenance', 'painel:deploy', 'painel:rollback'],
   minecraft: ['painel:mc:start', 'painel:mc:stop', 'painel:mc:restart', 'painel:mc:autostop', 'painel:mc:wake', 'painel:mc:backup', 'painel:mc:cmd', 'painel:mc:settings'],
 };

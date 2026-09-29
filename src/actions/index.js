@@ -12,9 +12,10 @@ import { emojiActions } from '../emojis.js';
 import { imageActions } from '../images.js';
 import { pushActions } from '../push.js';
 import { soundActions } from '../soundboard.js';
+import { voiceStatsActions } from '../voice-stats.js';
 
 export const actions = {
-  ...messages, ...servers, ...channels, ...roles, ...media, ...profile, ...games, ...friends, ...calls, ...emojiActions, ...imageActions, ...pushActions, ...soundActions,
+  ...messages, ...servers, ...channels, ...roles, ...media, ...profile, ...games, ...friends, ...calls, ...emojiActions, ...imageActions, ...pushActions, ...soundActions, ...voiceStatsActions,
 };
 
 // Ações frequentes e baratas que não contam no limite de ações por minuto
@@ -22,5 +23,5 @@ export const RATE_FREE = new Set([
   'gif:search', 'gif:home', 'msg', 'history', 'pins', 'voice:poke', 'time',
   'music:ended', 'music:error', 'music:duration', 'music:react',
   'game:input', 'games:list', // o jogo tem limite próprio
-  'typing', 'read', 'visibility', 'presence:idle', 'games:leaderboard', 'link:preview', 'game:sync', 'games:stats', // leves e com limite próprio
+  'typing', 'read', 'visibility', 'voice:stats', 'presence:idle', 'games:leaderboard', 'link:preview', 'game:sync', 'games:stats', // leves e com limite próprio
 ]);

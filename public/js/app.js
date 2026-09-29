@@ -25,6 +25,7 @@ import { refreshSettings, closeServerSettings } from './settings.js';
 import { dmTitle, unhideDm, selectDmHome, renameGroup } from './dms.js';
 import { renderFriendsView } from './friends.js';
 import { onCallEvent, onVoiceChanged, renderCallBar } from './calls.js';
+import { renderMaintBar } from './maintenance.js';
 import {
   inGames, openGames, renderGamesSidebar, renderGamesView, onGamesRooms, onGameRoom, onGameState, onGameLeft, onLeaderboard,
   onGameChat, onGameChatlog, onGameEvents,
@@ -163,7 +164,11 @@ function handle(m) {
       if (findChannel(state.view.channelId).channel?.type !== 'voice') openTextChannel(state.view.channelId); // nome/foto nas mensagens
       break;
     }
+    case 'maintenance':
+      renderMaintBar(m.maintenance);
+      break;
     case 'welcome': {
+      renderMaintBar(m.maintenance);
       state.me = m.you;
       state.servers = m.servers;
       state.online = new Set(m.online);

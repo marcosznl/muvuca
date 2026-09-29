@@ -103,10 +103,12 @@ const TABS = {
   geral: ['Visão geral', viewGeral, 5000],
   aovivo: ['Ao vivo', viewAoVivo, 5000],
   usuarios: ['Usuários', viewUsuarios, 30000],
+  arquivos: ['Arquivos pesados', viewArquivos, 60000],
   auditoria: ['Auditoria', viewAuditoria, 0],
   acessos: ['Acessos ao site', viewAcessos, 60000],
   logs: ['Logs', viewLogs, 0],
   backups: ['Backups', viewBackups, 60000],
+  atualizar: ['Atualizar o Muvuca', viewAtualizar, 4000],
   minecraft: ['Minecraft', viewMinecraft, 5000],
   internet: ['Internet', viewInternet, 4000],
   sistema: ['Sistema', viewSistema, 30000],
@@ -227,6 +229,11 @@ function alerts(s, ov, bk) {
   if (s.cpu > 85) out.push(['warn', `Processador em ${pct(s.cpu)}.`]);
   if (s.disk && s.disk.free < 5 * 1024 ** 3) out.push(['bad', `Disco quase cheio: só ${bytes(s.disk.free)} livres.`]);
   else if (s.disk && s.disk.free < 15 * 1024 ** 3) out.push(['warn', `Pouco espaço em disco: ${bytes(s.disk.free)} livres.`]);
+  const inCall = (m.voice ?? []).flatMap((v) => v.people ?? []);
+  const bad = inCall.filter((p) => p.net && (p.net.q === 'poor' || p.net.q === 'lost'));
+  if (bad.length) out.push(['warn', `Conexão ruim na call: ${bad.map((p) => p.name).join(', ')} (veja em Ao vivo).`]);
+  const limited = inCall.filter((p) => p.net?.pub?.some((x) => x.limit === 'bandwidth' || x.limit === 'cpu'));
+  if (limited.length) out.push(['warn', `Live/câmera com qualidade reduzida: ${limited.map((p) => `${p.name} (${p.net.pub.find((x) => x.limit).limit === 'cpu' ? 'processador' : 'internet'} de quem transmite)`).join(', ')}.`]);
   if (m.loopDelayMs > 100) out.push(['warn', `O Muvuca está respondendo devagar (atraso médio de ${m.loopDelayMs} ms).`]);
   for (const c of s.certs ?? []) {
     if (!c.name.endsWith('duckdns.org')) continue;
@@ -243,6 +250,22 @@ function alerts(s, ov, bk) {
   }
   return out;
 }
+
+// Ação com confirmação (e motivo opcional) que chama o painel e mostra o resultado
+async function act(path, body, { confirmText, askReason, reload } = {}) {
+  if (confirmText && !confirm(confirmText)) return;
+  if (askReason) {
+    const reason = prompt(askReason, '');
+    if (reason === null) return;
+    body = { ...body, reason };
+  }
+  try {
+    const r = await api(path, { method: 'POST', body });
+    toast(r.message ?? 'Feito.', 5000);
+  } catch (err) { toast(err.message, 6000); }
+  if (reload) openTab(reload);
+}
+const ipBlockButton = (ip, reload) => (ip ? h('button', { class: 'btn small ghost', title: `Bloquear ${ip}`, onclick: (e) => { e.stopPropagation(); act('/api/ips/block', { ip, block: true }, { confirmText: `Bloquear o IP ${ip}? Ele não vai conseguir abrir o Muvuca nem entrar nas calls.`, askReason: 'Motivo (opcional):', reload }); } }, 'Bloquear IP') : null);
 
 // ---------- Visão geral ----------
 let range = 1;
@@ -333,6 +356,22 @@ function processTable(s) {
   ], rows);
 }
 
+// Qualidade de cada pessoa em call (relatório que o próprio site dela manda a cada 10 s)
+const NET_Q = { excellent: ['good', 'excelente'], good: ['good', 'boa'], poor: ['warn', 'ruim'], lost: ['bad', 'caindo'], unknown: ['', '?'] };
+const LIMIT = { bandwidth: 'internet de quem transmite', cpu: 'processador de quem transmite', other: 'outro motivo' };
+function voicePeopleTable(people) {
+  return h('div', { class: 'section' }, table([
+    { label: 'Pessoa', get: (p) => h('span', {}, h('b', {}, p.name), h('span', { class: 'muted small' }, p.deafened ? ' · 🔇 sem som' : p.muted ? ' · 🎙️ mudo' : '')) },
+    { label: 'Conexão', get: (p) => { const [k, t] = NET_Q[p.net?.q ?? 'unknown'] ?? NET_Q.unknown; return p.net ? h('span', { class: `pill ${k}` }, t) : h('span', { class: 'muted small', title: 'Sem relatório: site antigo aberto (recarregar) ou acabou de entrar' }, '—'); } },
+    { label: 'Enviando', get: (p) => (p.net?.pub?.length ? h('div', {}, p.net.pub.map((x) => h('div', { class: 'small' },
+      x.src === 'screen' ? '🔴 live ' : '📷 câmera ', h('b', {}, x.w ? `${x.w}×${x.h}` : '?'), ` · ${x.fps} fps${x.kbps != null ? ` · ${mbpsText(x.kbps)}` : ''}${x.rtt != null ? ` · ${x.rtt} ms` : ''}`,
+      x.limit ? h('div', { class: 'error small' }, `limitado pelo ${LIMIT[x.limit]}`) : null))) : h('span', { class: 'muted small' }, p.streaming || p.camera ? 'sem dados ainda' : 'só voz')) },
+    { label: 'Recebendo', get: (p) => (p.net?.rx ? h('span', { class: `small ${p.net.rx.loss >= 5 ? 'error' : ''}` },
+      `${mbpsText(p.net.rx.kbps)} · perda ${String(p.net.rx.loss ?? 0).replace('.', ',')}%${p.net.rx.jitter != null ? ` · oscilação ${p.net.rx.jitter} ms` : ''}`) : '—') },
+  ], people));
+}
+const mbpsText = (kbps) => (kbps == null ? '?' : kbps >= 1000 ? `${(kbps / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} Mbps` : `${kbps} kbps`);
+
 // ---------- Ao vivo ----------
 async function viewAoVivo() {
   const s = await api('/api/status');
@@ -347,13 +386,13 @@ async function viewAoVivo() {
           { label: 'Status', get: (u) => { const [k, t] = statusLabel[u.status] ?? ['', u.status]; return h('span', { class: `pill ${k}` }, t); } },
           { label: 'Abas', num: true, get: (u) => `${u.tabs}${u.hidden ? ' (em segundo plano)' : ''}` },
           { label: 'IP', get: (u) => h('span', { class: 'mono' }, u.ip ?? '—') },
+          { label: '', get: (u) => ipBlockButton(u.ip, 'aovivo') },
         ], m.users, { empty: 'Ninguém online agora.' })),
       h('div', { class: 'card' }, h('h2', {}, 'Canais de voz'),
         m.voice.length ? m.voice.map((v) => h('div', { class: 'section' },
           v.private ? h('div', {}, h('b', {}, 'Ligação privada'), h('span', { class: 'muted' }, ` · ${v.count} ${v.count === 1 ? 'pessoa' : 'pessoas'}`))
             : h('div', {}, h('b', {}, `🔊 ${v.name}`), h('span', { class: 'muted' }, ` · ${v.server} · ${v.count} ${v.count === 1 ? 'pessoa' : 'pessoas'}`)),
-          v.people ? h('div', { class: 'people' }, v.people.map((p) => h('span', { class: `pill ${p.streaming ? 'bad' : ''}` },
-            p.name, p.streaming ? ' · 🔴 live' : '', p.camera ? ' · 📷' : '', p.deafened ? ' · 🔇 som' : p.muted ? ' · 🎙️ mudo' : ''))) : null,
+          v.people ? voicePeopleTable(v.people) : null,
         )) : h('p', { class: 'empty' }, 'Ninguém em call.')),
     ),
     h('div', { class: 'section grid two' },
@@ -376,6 +415,22 @@ async function viewAoVivo() {
 
 // ---------- Usuários ----------
 let userFilter = '';
+async function ipsCard() {
+  const d = await api('/api/ips');
+  const ip = h('input', { type: 'text', placeholder: 'IP (ex.: 187.10.20.30 ou 2804:…)', size: 28 });
+  const add = h('button', { class: 'btn small primary' }, 'Bloquear');
+  add.addEventListener('click', () => ip.value.trim() && act('/api/ips/block', { ip: ip.value.trim(), block: true }, { confirmText: `Bloquear o IP ${ip.value.trim()}?`, askReason: 'Motivo (opcional):', reload: tab }));
+  return h('div', { class: 'card' }, h('h2', {}, 'IPs bloqueados'),
+    h('p', { class: 'muted small' }, `IP bloqueado não abre nada do Muvuca (site, app, calls). Seu IP agora: ${d.you}. Dá para bloquear também pelas abas Ao vivo e Acessos.`),
+    table([
+      { label: 'IP', get: (r) => h('span', { class: 'mono' }, r.ip) },
+      { label: 'Motivo', get: (r) => r.reason ?? '—' },
+      { label: 'Desde', get: (r) => when(r.created_at) },
+      { label: '', get: (r) => h('button', { class: 'btn small', onclick: () => act('/api/ips/block', { ip: r.ip, block: false }, { confirmText: `Desbloquear ${r.ip}?`, reload: tab }) }, 'Desbloquear') },
+    ], d.blocked, { empty: 'Nenhum IP bloqueado.' }),
+    h('div', { class: 'row section' }, ip, add));
+}
+
 async function viewUsuarios() {
   const users = await api('/api/users');
   const box = h('div', { class: 'card' });
@@ -394,13 +449,19 @@ async function viewUsuarios() {
       { label: 'Anexos', num: true, get: (u) => bytes(u.bytes) },
       { label: 'Servidores', num: true, get: (u) => u.servers },
       { label: 'Senha errada (7 d)', num: true, get: (u) => (u.fails7 ? h('span', { class: `pill ${u.fails7 >= 5 ? 'bad' : 'warn'}` }, u.fails7) : '0') },
-      { label: '', get: (u) => h('button', { class: 'btn small ghost', onclick: () => { auditFilters = { user: u.username }; openTab('auditoria'); } }, 'Auditoria') },
-    ], rows, { empty: 'Nenhuma conta encontrada.' }));
+      { label: '', get: (u) => h('div', { class: 'row', style: 'flex-wrap:nowrap' },
+        u.blocked_at ? h('span', { class: 'pill bad', title: u.blocked_reason ?? '' }, 'bloqueada') : null,
+        h('button', { class: 'btn small ghost', onclick: () => { auditFilters = { user: u.username }; openTab('auditoria'); } }, 'Auditoria'),
+        !u.blocked_at && (u.sessions || u.online) ? h('button', { class: 'btn small ghost', onclick: () => act('/api/users/disconnect', { id: u.id }, { confirmText: `Desconectar @${u.username} de todos os aparelhos? Ela precisa entrar de novo com a senha.`, reload: 'usuarios' }) }, 'Desconectar') : null,
+        u.blocked_at
+          ? h('button', { class: 'btn small', onclick: () => act('/api/users/block', { id: u.id, block: false }, { confirmText: `Desbloquear @${u.username}?`, reload: 'usuarios' }) }, 'Desbloquear')
+          : h('button', { class: 'btn small ghost', onclick: () => act('/api/users/block', { id: u.id, block: true }, { confirmText: `Bloquear @${u.username}? A conta sai de todos os aparelhos e não consegue mais entrar até ser desbloqueada.`, askReason: 'Motivo (opcional, fica na auditoria):', reload: 'usuarios' }) }, 'Bloquear')) },
+    ], rows, { empty: 'Nenhuma conta encontrada.', rowClass: (u) => (u.blocked_at ? 'fail' : null) }));
   };
   input.addEventListener('input', () => { userFilter = input.value; render(); });
   render();
   box.append(h('div', { class: 'row' }, h('h2', {}, `${users.length} contas`), h('span', { class: 'spacer' }), input), body);
-  return box;
+  return h('div', {}, box, h('div', { class: 'section' }, await ipsCard()));
 }
 
 // ---------- Auditoria ----------
@@ -480,10 +541,11 @@ async function viewAuditoria() {
 // ---------- Acessos ----------
 async function viewAcessos() {
   const [sum, recent] = await Promise.all([api('/api/access'), api('/api/logs?which=caddy&lines=200')]);
-  const pairs = (list, a, b) => table([{ label: a, get: (r) => h('span', { class: 'mono' }, r[0]) }, { label: b, num: true, get: (r) => num(r[1]) }], list);
+  const pairs = (list, a, b, withBlock) => table([{ label: a, get: (r) => h('span', { class: 'mono' }, r[0]) }, { label: b, num: true, get: (r) => num(r[1]) },
+    ...(withBlock ? [{ label: '', get: (r) => ipBlockButton(r[0], 'acessos') }] : [])], list);
   const reqCols = [
     { label: 'Quando', get: (r) => when(r.at) },
-    { label: 'IP', get: (r) => h('span', { class: 'mono' }, r.ip) },
+    { label: 'IP', get: (r) => h('span', { class: 'row' }, h('span', { class: 'mono' }, r.ip), ipBlockButton(r.ip, 'acessos')) },
     { label: 'Pedido', get: (r) => h('span', { class: 'mono' }, `${r.method} ${r.path}`) },
     { label: 'Status', num: true, get: (r) => h('span', { class: `pill ${r.status >= 500 ? 'bad' : r.status >= 400 ? 'warn' : 'good'}` }, r.status) },
     { label: 'Tempo', num: true, get: (r) => `${r.ms} ms` },
@@ -496,7 +558,7 @@ async function viewAcessos() {
       stat('Erros (5xx)', num(sum.status['5xx'] ?? 0)),
     ),
     h('div', { class: 'section grid two' },
-      h('div', { class: 'card' }, h('h2', {}, 'IPs que mais acessaram (24 h)'), pairs(sum.ips, 'IP', 'Pedidos')),
+      h('div', { class: 'card' }, h('h2', {}, 'IPs que mais acessaram (24 h)'), pairs(sum.ips, 'IP', 'Pedidos', true)),
       h('div', { class: 'card' }, h('h2', {}, 'Endereços mais pedidos (24 h)'), pairs(sum.paths, 'Caminho', 'Pedidos')),
     ),
     h('div', { class: 'section card' }, h('h2', {}, 'Recusados: sem permissão ou tentativas demais'), table(reqCols, sum.denied, { empty: 'Nenhum nas últimas 24 h.' })),
@@ -558,8 +620,24 @@ async function viewBackups() {
 }
 
 // ---------- Sistema ----------
+function maintenanceCard(mt) {
+  const msg = h('input', { type: 'text', maxlength: 200, style: 'flex:1;min-width:240px', value: mt.on ? mt.message : 'O Muvuca vai reiniciar para uma atualização. Volta em instantes!' });
+  const minutes = h('select', {}, [[0, 'sem horário'], [2, 'em 2 min'], [5, 'em 5 min'], [10, 'em 10 min'], [30, 'em 30 min'], [60, 'em 1 hora']].map(([v, l]) => h('option', { value: v }, l)));
+  const lock = h('input', { type: 'checkbox', checked: !!mt.lock });
+  const on = h('button', { class: 'btn primary' }, mt.on ? 'Atualizar aviso' : 'Ligar manutenção');
+  on.addEventListener('click', () => act('/api/maintenance', { on: true, message: msg.value, minutes: minutes.value, lock: lock.checked },
+    { confirmText: lock.checked ? 'Travar o acesso? Todo mundo (menos você) sai e vê a tela de manutenção até você desligar.' : null, reload: 'sistema' }));
+  const off = h('button', { class: 'btn' }, 'Desligar');
+  off.addEventListener('click', () => act('/api/maintenance', { on: false }, { reload: 'sistema' }));
+  return h('div', { class: 'card' },
+    h('div', { class: 'row' }, h('h2', {}, '🛠️ Modo manutenção'), mt.on ? h('span', { class: `pill ${mt.lock ? 'bad' : 'warn'}` }, mt.lock ? 'ligado · acesso travado' : 'ligado · só aviso') : h('span', { class: 'pill' }, 'desligado')),
+    h('p', { class: 'muted small' }, 'Mostra uma faixa de aviso no topo do Muvuca para todo mundo. Travando o acesso, todos (menos você) veem a tela "Em manutenção" até você desligar, e o Muvuca volta sozinho para eles.'),
+    h('div', { class: 'row' }, msg, minutes),
+    h('div', { class: 'row section' }, h('label', { class: 'row small' }, lock, 'Travar o acesso (só o dono entra)'), h('span', { class: 'spacer' }), mt.on ? off : null, on));
+}
+
 async function viewSistema() {
-  const [s, sessions] = await Promise.all([api('/api/status'), api('/api/sessions')]);
+  const [s, sessions, mt] = await Promise.all([api('/api/status'), api('/api/sessions'), api('/api/maintenance')]);
   const m = s.main ?? {};
   const sz = s.sizes ?? {};
   const restart = h('button', { class: 'btn danger' }, 'Reiniciar o Muvuca');
@@ -575,7 +653,8 @@ async function viewSistema() {
   const logoutAll = h('button', { class: 'btn small', onclick: async () => { await api('/api/logout-all', { method: 'POST' }); toast('Os outros aparelhos saíram do painel.'); openTab('sistema'); } }, 'Tirar os outros aparelhos');
   const site = `https://${s.domain}${s.publicPort && s.publicPort !== '443' ? ` (IPv4: porta ${s.publicPort})` : ''}`;
   return h('div', {},
-    h('div', { class: 'grid two' },
+    maintenanceCard(mt),
+    h('div', { class: 'section grid two' },
       h('div', { class: 'card' }, h('h2', {}, 'Muvuca'), table([{ label: '', get: (r) => h('span', { class: 'muted' }, r[0]) }, { label: '', get: (r) => r[1] }], [
         ['Endereço', site],
         ['Estado', m.up && !m.error ? 'no ar' : m.error ?? 'fora do ar'],
@@ -890,6 +969,93 @@ async function viewInternet() {
   ], [...d.history].reverse(), { empty: 'Nenhum teste ainda.', rowClass: (r) => (r.ok ? null : 'fail') }));
 
   return h('div', {}, top, stats, capCard, chart, list);
+}
+
+// ---------- Arquivos pesados ----------
+const KIND_LABEL = { image: '🖼️ Imagem', video: '🎬 Vídeo', audio: '🎵 Áudio', document: '📄 Documento' };
+let filesKind = '';
+async function viewArquivos() {
+  const d = await api(`/api/files${filesKind ? `?kind=${filesKind}` : ''}`);
+  const sel = h('select', {}, [['', 'Todos os tipos'], ['image', 'Imagens'], ['video', 'Vídeos'], ['audio', 'Áudios'], ['document', 'Documentos']]
+    .map(([k, v]) => h('option', { value: k, selected: k === filesKind }, v)));
+  sel.addEventListener('change', () => { filesKind = sel.value; openTab('arquivos'); });
+  const small = (cols, rows) => table(cols, rows, { empty: 'Nenhum anexo.' });
+  return h('div', {},
+    h('div', { class: 'grid cards' },
+      stat('Anexos no total', num(d.total.n), bytes(d.total.bytes)),
+      d.byKind.map((k) => stat(KIND_LABEL[k.kind] ?? k.kind, bytes(k.bytes), `${num(k.n)} arquivos`))),
+    h('div', { class: 'section grid two' },
+      h('div', { class: 'card' }, h('h2', {}, 'Quem mais ocupa'), small([
+        { label: 'Pessoa', get: (r) => h('span', {}, h('b', {}, r.name ?? '—'), ' ', h('span', { class: 'muted small' }, r.username ? `@${r.username}` : '')) },
+        { label: 'Arquivos', num: true, get: (r) => num(r.n) },
+        { label: 'Espaço', num: true, get: (r) => bytes(r.bytes) },
+      ], d.byUser)),
+      h('div', { class: 'card' }, h('h2', {}, 'Onde'), small([
+        { label: 'Servidor', get: (r) => r.place ?? '?' },
+        { label: 'Arquivos', num: true, get: (r) => num(r.n) },
+        { label: 'Espaço', num: true, get: (r) => bytes(r.bytes) },
+      ], d.byPlace))),
+    h('div', { class: 'section card' },
+      h('div', { class: 'row' }, h('h2', {}, 'Maiores anexos'), h('span', { class: 'spacer' }), sel),
+      h('p', { class: 'muted small' }, 'Os 200 maiores. Em conversas privadas não aparecem o nome do arquivo nem o canal.'),
+      small([
+        { label: 'Arquivo', get: (r) => (r.name ? h('span', {}, r.name) : h('span', { class: 'muted' }, '(conversa privada)')) },
+        { label: 'Tipo', get: (r) => KIND_LABEL[r.kind] ?? r.kind },
+        { label: 'Tamanho', num: true, get: (r) => h('b', {}, bytes(r.size)) },
+        { label: 'Quem mandou', get: (r) => `@${r.user}` },
+        { label: 'Onde', get: (r) => h('span', { class: 'small' }, r.where, r.orphan ? h('span', { class: 'muted' }, ' (mensagem apagada)') : null) },
+        { label: 'Quando', get: (r) => when(r.at) },
+      ], d.files)));
+}
+
+// ---------- Atualizar o Muvuca (com volta atrás) ----------
+const KIND_REL = { base: 'versão inicial', publicada: 'publicada', 'antes de voltar': 'guardada antes de voltar' };
+async function deployAction(path, body, confirmText) {
+  if (!confirm(confirmText)) return;
+  try {
+    let r = await api(path, { method: 'POST', body });
+    if (r.needsForce && confirm(`${r.message}\nContinuar mesmo assim?`)) r = await api(path, { method: 'POST', body: { ...body, force: true } });
+    if (r.message) toast(r.message, 5000);
+  } catch (err) { toast(err.message, 6000); }
+  openTab('atualizar');
+}
+
+async function viewAtualizar() {
+  const d = await api('/api/deploy');
+  const running = d.job && !d.job.done;
+  const p = d.pending;
+  const nothing = p.hasBaseline && !p.site.length && !p.server.length;
+  const notify = h('input', { type: 'checkbox' });
+  const publish = h('button', { class: 'btn primary', disabled: running || nothing }, 'Publicar atualização');
+  publish.addEventListener('click', () => deployAction('/api/deploy', { notify: notify.checked },
+    'Publicar agora? O painel roda os testes, faz backup, guarda a versão atual e reinicia o Muvuca (quem estiver conectado cai por uns 10 segundos e volta sozinho). Se não subir, volta sozinho para a versão anterior.'));
+  const fileList = (items, empty) => (items.length ? h('div', { class: 'mono small' }, items.slice(0, 40).map((x) => h('div', {}, `${x.kind === 'novo' ? '+' : x.kind === 'removido' ? '−' : '~'} ${x.file}`)),
+    items.length > 40 ? h('div', { class: 'muted' }, `… e mais ${items.length - 40}`) : null) : h('p', { class: 'empty' }, empty));
+  const top = h('div', { class: 'card' },
+    h('div', { class: 'row' }, h('h2', {}, 'O que vai ao ar'), h('span', { class: 'spacer' }), h('label', { class: 'row small' }, notify, 'Avisar o pessoal 1 minuto antes'), publish),
+    d.inUse.length ? h('div', { class: 'alert warn' }, `Agora tem gente usando: ${d.inUse.join(', ')}. A atualização derruba a call por uns 10 segundos.`) : null,
+    !p.hasBaseline ? h('p', { class: 'muted small' }, 'Primeira atualização pelo painel: a versão que está no ar hoje será guardada a partir do último commit do git, e tudo que mudou depois dele entra como novidade.') : null,
+    h('div', { class: 'grid two section' },
+      h('div', {}, h('b', {}, `Site (${p.site.length})`), h('p', { class: 'muted small' }, 'Diferenças entre public_next (preparado) e public (no ar)'), fileList(p.site, 'Nada novo no site.')),
+      h('div', {}, h('b', {}, `Servidor (${p.server.length})`), h('p', { class: 'muted small' }, p.hasBaseline ? 'Arquivos do servidor alterados desde a versão no ar' : 'Será calculado na primeira atualização'), fileList(p.server, p.hasBaseline ? 'Nada novo no servidor.' : '—'))),
+    h('p', { class: 'muted small' }, 'Sempre: testes automáticos → backup do banco → guarda a versão atual → publica → reinicia → confere. Se o Muvuca não voltar em 60 s, volta sozinho para a versão anterior. O banco de dados não volta junto com a versão (o backup fica guardado).'));
+
+  const jobCard = d.job ? h('div', { class: 'card section' },
+    h('div', { class: 'row' }, h('h2', {}, d.job.kind === 'voltar' ? 'Voltando de versão' : 'Atualização'),
+      h('span', { class: `pill ${running ? 'warn' : d.job.ok ? 'good' : 'bad'}` }, running ? 'em andamento…' : d.job.ok ? 'concluída' : 'não concluída'),
+      h('span', { class: 'muted small' }, when(d.job.startedAt))),
+    h('pre', { class: 'log' }, d.job.log.join('\n') || 'Começando…')) : null;
+
+  const versions = h('div', { class: 'card section' }, h('h2', {}, 'Versões guardadas'),
+    h('p', { class: 'muted small' }, 'As 15 mais recentes. "Voltar" guarda antes a versão atual, então sempre dá para desfazer.'),
+    table([
+      { label: 'Versão', get: (r) => h('span', {}, h('span', { class: 'mono' }, r.id), r.id === d.live ? h('span', { class: 'pill good', style: 'margin-left:6px' }, 'no ar') : null) },
+      { label: 'Tipo', get: (r) => KIND_REL[r.kind] ?? r.kind },
+      { label: 'Commit', get: (r) => (r.commit ? h('span', { class: 'small', title: r.commit.subject }, h('span', { class: 'mono' }, r.commit.hash), ` ${r.commit.subject.slice(0, 60)}${r.commit.subject.length > 60 ? '…' : ''}`) : '—') },
+      { label: 'Detalhe', get: (r) => h('span', { class: 'muted small' }, r.note ?? '') },
+      { label: '', get: (r) => (r.id !== d.live && r.hasFile ? h('button', { class: 'btn small', disabled: running, onclick: () => deployAction('/api/rollback', { id: r.id }, `Voltar o Muvuca para a versão ${r.id}? A versão atual fica guardada, e o Muvuca reinicia (uns 10 segundos).`) }, 'Voltar para esta') : null) },
+    ], d.releases, { empty: 'Nenhuma versão guardada ainda: a primeira é guardada na primeira atualização.' }));
+  return h('div', {}, top, jobCard, versions);
 }
 
 start();

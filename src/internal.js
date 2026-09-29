@@ -11,6 +11,7 @@ import { sockets, statusOf } from './realtime.js';
 import { voiceAll } from './voice.js';
 import { music } from './music-rooms.js';
 import { listRooms } from './games/lobby.js';
+import { statsOf } from './voice-stats.js';
 
 const KEY_FILE = path.join(DATA_DIR, 'painel-key');
 let key = '';
@@ -51,7 +52,7 @@ export function internalStats(startedAt) {
     if (server?.kind === 'dm') { voice.push({ id: channelId, private: true, count: people.length }); continue; }
     voice.push({
       id: channelId, server: server?.name ?? '?', name: c?.name ?? '?', count: people.length,
-      people: people.map((p) => ({ name: p.name, muted: !!p.muted, deafened: !!p.deafened, camera: !!p.camera, streaming: !!p.streaming })),
+      people: people.map((p) => ({ name: p.name, muted: !!p.muted, deafened: !!p.deafened, camera: !!p.camera, streaming: !!p.streaming, net: statsOf(p.id) })),
     });
   }
   const musicRooms = [];

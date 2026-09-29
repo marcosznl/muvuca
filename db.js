@@ -243,6 +243,13 @@ export function openDb(file) {
     CREATE INDEX IF NOT EXISTS audit_by_time ON audit_log(at);
     CREATE INDEX IF NOT EXISTS audit_by_user ON audit_log(user_id, at);
 
+    -- IPs bloqueados pelo painel administrativo (não acessam nada do Muvuca)
+    CREATE TABLE IF NOT EXISTS blocked_ips (
+      ip         TEXT    PRIMARY KEY,
+      reason     TEXT,
+      created_at INTEGER NOT NULL
+    );
+
     -- Notificações no celular (Web Push): um registro por aparelho
     CREATE TABLE IF NOT EXISTS push_subs (
       endpoint   TEXT    PRIMARY KEY,
@@ -367,6 +374,8 @@ function migrate(db) {
   if (!uCols.includes('status_text')) db.exec('ALTER TABLE users ADD COLUMN status_text TEXT');
   // Última vez que a pessoa esteve conectada (painel administrativo)
   if (!uCols.includes('last_seen')) db.exec('ALTER TABLE users ADD COLUMN last_seen INTEGER');
+  // Conta bloqueada pelo painel administrativo: não entra e todas as sessões deixam de valer
+  if (!uCols.includes('blocked_at')) db.exec('ALTER TABLE users ADD COLUMN blocked_at INTEGER; ALTER TABLE users ADD COLUMN blocked_reason TEXT;');
   // Não lidas: quem já existia começa com tudo lido (senão o histórico inteiro viraria "novo")
   if (!db.prepare("SELECT value FROM meta WHERE key = 'read_state_v1'").get()) {
     db.exec(`INSERT OR IGNORE INTO read_state (user_id, channel_id, last_read)
@@ -477,13 +486,18 @@ class Store {
       insertUser: p('INSERT INTO users (username, display_name, password_hash, created_at) VALUES (?, ?, ?, ?)'),
       insertSession: p('INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)'),
       sessionUser: p(`SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
-                      WHERE s.token_hash = ? AND s.expires_at > ?`),
+                      WHERE s.token_hash = ? AND s.expires_at > ? AND u.blocked_at IS NULL`),
       deleteSession: p('DELETE FROM sessions WHERE token_hash = ?'),
       deleteOtherSessions: p('DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?'),
       setPassword: p('UPDATE users SET password_hash = ? WHERE id = ?'),
       gamePlays: p('SELECT game, COUNT(*) AS n FROM game_results WHERE created_at > ? GROUP BY game'),
       purgeSessions: p('DELETE FROM sessions WHERE expires_at <= ?'),
       touchUser: p('UPDATE users SET last_seen = ? WHERE id = ?'),
+      setBlocked: p('UPDATE users SET blocked_at = ?, blocked_reason = ? WHERE id = ?'),
+      deleteUserSessions: p('DELETE FROM sessions WHERE user_id = ?'),
+      blockIp: p('INSERT OR REPLACE INTO blocked_ips (ip, reason, created_at) VALUES (?, ?, ?)'),
+      unblockIp: p('DELETE FROM blocked_ips WHERE ip = ?'),
+      blockedIps: p('SELECT ip, reason, created_at FROM blocked_ips ORDER BY created_at DESC'),
       insertAudit: p('INSERT INTO audit_log (at, user_id, user_name, action, server_id, detail, ip, ok) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
       purgeAudit: p('DELETE FROM audit_log WHERE at < ?'),
       // servidores e membros
@@ -750,6 +764,13 @@ class Store {
   deleteOtherSessions(userId, keepToken) { return this.q.deleteOtherSessions.run(unum(userId), hashToken(String(keepToken))).changes; }
   purgeExpiredSessions() { this.q.purgeSessions.run(Date.now()); }
   touchUser(userId) { this.q.touchUser.run(Date.now(), unum(userId)); }
+  // Bloqueio pelo painel administrativo
+  isBlocked(userId) { return !!this.q.userById.get(unum(userId))?.blocked_at; }
+  setBlocked(userId, reason) { this.q.setBlocked.run(reason === null ? null : Date.now(), reason, unum(userId)); }
+  deleteUserSessions(userId) { return this.q.deleteUserSessions.run(unum(userId)).changes; }
+  blockIp(ip, reason) { this.q.blockIp.run(ip, reason, Date.now()); }
+  unblockIp(ip) { this.q.unblockIp.run(ip); }
+  blockedIps() { return this.q.blockedIps.all(); }
 
   // Auditoria (painel administrativo): userId pode ser null (ex.: login errado de conta que não existe)
   audit({ userId = null, userName = null, action, serverId = null, detail = null, ip = null, ok = true }) {
