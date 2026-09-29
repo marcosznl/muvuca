@@ -237,7 +237,7 @@ function alerts(s, ov, bk) {
     const last = bk.local?.[0]?.at;
     if (!last || Date.now() - last > 26 * 3600000) out.push(['warn', `O último backup é de ${last ? ago(last) : 'nunca'}.`]);
     const lastWarn = (bk.warnings ?? []).find((w) => w.startsWith('[backup'));
-    if (lastWarn) out.push(['warn', `Último backup com aviso: ${lastWarn.replace(/^\[backup [^\]]+\]\s*/, '')}${bk.warnings.some((w) => /Operation not permitted/.test(w)) ? ' — o macOS bloqueou o acesso à pasta do iCloud (veja a aba Backups).' : ''}`]);
+    if (lastWarn) out.push(['warn', `Último backup com aviso: ${lastWarn.replace(/^\[backup [^\]]+\]\s*/, '')}`]);
   }
   return out;
 }
@@ -544,11 +544,12 @@ async function viewBackups() {
     } catch (err) { toast(err.message); } finally { btn.disabled = false; }
   });
   return h('div', {},
-    h('div', { class: 'card row' }, h('div', {}, h('b', {}, 'Backup automático todo dia às 4h'), h('div', { class: 'muted small' }, 'Banco de dados, emojis, fotos e chave das notificações. Fica 1 cópia no Mac e as 7 mais recentes no iCloud Drive.')), h('span', { class: 'spacer' }), btn),
+    h('div', { class: 'card row' }, h('div', {}, h('b', {}, 'Backup automático todo dia às 4h'), h('div', { class: 'muted small' }, `Banco de dados (todos os servidores e conversas), emojis, fotos, sons e chave das notificações, em ${b.dir}. Guarda os 3 mais recentes, 1 por dia nos últimos 14 dias e 1 por mês nos últimos 6 meses. Os anexos do chat vão para a subpasta anexos (só os novos a cada vez).`)), h('span', { class: 'spacer' }), btn),
     b.warnings.length ? h('div', { class: 'alerts section' }, b.warnings.map((w) => h('div', { class: 'alert warn mono' }, w))) : null,
     h('div', { class: 'section grid two' },
-      h('div', { class: 'card' }, h('h2', {}, 'No Mac (data/backups)'), b.local ? table(cols, b.local, { empty: 'Nenhum backup ainda.' }) : h('p', { class: 'empty' }, 'Pasta não encontrada.')),
-      h('div', { class: 'card' }, h('h2', {}, 'No iCloud Drive'), b.cloud ? table(cols, b.cloud, { empty: 'Nenhum backup no iCloud.' }) : h('p', { class: 'empty' }, `O painel não conseguiu ler a pasta do iCloud${b.cloudError ? ` (${b.cloudError})` : ''}. O backup continua indo para lá normalmente — veja em “Últimos resultados”.`)),
+      h('div', { class: 'card' }, h('h2', {}, `Histórico (${b.local?.length ?? 0})`), b.local ? table(cols, b.local, { empty: 'Nenhum backup ainda.' }) : h('p', { class: 'empty' }, 'Pasta não encontrada.')),
+      h('div', { class: 'card' }, h('h2', {}, 'Anexos do chat'), h('p', {}, `Cópia dos anexos: ${bytes(b.anexos)}`),
+        h('p', { class: 'muted small' }, 'Por enquanto os backups ficam só neste Mac: se o disco dele morrer, eles vão junto. Uma cópia fora do Mac (HD externo ou nuvem) fica para depois.')),
     ),
     h('div', { class: 'section card' }, h('h2', {}, 'Últimos resultados'), h('pre', { class: 'log' }, b.results.join('\n') || '(nenhum)')),
   );

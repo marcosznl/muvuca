@@ -29,7 +29,7 @@ const HISTORY_FILE = path.join(path.dirname(DB_FILE), 'painel-historico.json');
 const MAIN_URL = process.env.MAIN_URL || 'http://127.0.0.1:3000';
 const PUBLIC = path.join(HERE, 'public');
 const LOGS = path.join(ROOT, 'logs');
-const CLOUD = path.join(os.homedir(), 'Library/Mobile Documents/com~apple~CloudDocs/Muvuca Backups');
+const BACKUP_DIR = path.join(os.homedir(), 'Backups/Muvuca'); // onde o backup.sh guarda (fora do projeto)
 const CADDY_CERTS = path.join(os.homedir(), 'Library/Application Support/Caddy/certificates');
 const env = readEnvPublic();
 const DOMAIN = (env.DUCKDNS_SUBDOMAIN ? `${env.DUCKDNS_SUBDOMAIN.split(',')[0].trim()}.duckdns.org` : env.DOMAIN) || 'localhost';
@@ -289,8 +289,9 @@ sample();
 let sizes = { at: 0 };
 async function measureSizes() {
   const out = { at: Date.now() };
-  for (const [name, dir] of [['anexos', 'files'], ['fotos', 'images'], ['emojis', 'emojis'], ['sons', 'sounds'], ['backups', 'backups']]) {
-    try { out[name] = Number((await run('du', ['-sk', path.join(DATA, dir)])).stdout.split('\t')[0]) * 1024; } catch { out[name] = 0; }
+  const dirs = [['anexos', path.join(DATA, 'files')], ['fotos', path.join(DATA, 'images')], ['emojis', path.join(DATA, 'emojis')], ['sons', path.join(DATA, 'sounds')], ['backups', BACKUP_DIR]];
+  for (const [name, dir] of dirs) {
+    try { out[name] = Number((await run('du', ['-sk', dir])).stdout.split('\t')[0]) * 1024; } catch { out[name] = 0; }
   }
   for (const f of ['malegna.db', 'malegna.db-wal']) {
     try { out[f] = (await fsp.stat(path.join(DATA, f))).size; } catch { out[f] = 0; }
@@ -480,36 +481,6 @@ async function listDir(dir, re) {
     return out.sort((a, b) => b.at - a.at);
   } catch { return null; }
 }
-// Pasta do iCloud: o macOS pode travar a leitura para um serviço em segundo plano (sem permissão, ou
-// arquivo ainda baixando). Lida por um processo à parte com prazo de 5 s e guardada por 5 min: se
-// travar, só aquele processo é encerrado (ler direto daqui prendia as threads do Node e congelava o painel)
-let cloudCache = { at: 0, list: null, error: null };
-let cloudPending = null;
-function listCloud() {
-  if (Date.now() - cloudCache.at < 5 * 60_000) return Promise.resolve(cloudCache);
-  // Já tem uma leitura anterior: devolve ela na hora e atualiza por trás
-  if (cloudCache.at && !cloudPending) { refreshCloud(); return Promise.resolve(cloudCache); }
-  return refreshCloud();
-}
-setTimeout(() => listCloud(), 2000); // já lê ao ligar: a primeira visita não espera o prazo
-
-function refreshCloud() {
-  cloudPending ??= new Promise((resolve) => {
-    execFile('/usr/bin/find', [CLOUD, '-maxdepth', '1', '-name', 'malegna-*.tar.gz', '-exec', '/usr/bin/stat', '-f', '%N|%z|%m', '{}', '+'],
-      { timeout: 5000, killSignal: 'SIGKILL' }, (err, stdout) => {
-        const list = stdout.split('\n').filter(Boolean).map((l) => {
-          const [file, size, mtime] = l.split('|');
-          return { name: path.basename(file), size: Number(size), at: Number(mtime) * 1000 };
-        }).sort((x, y) => y.at - x.at);
-        const error = err ? (err.killed ? 'o macOS não liberou a leitura da pasta do iCloud a tempo' : 'sem acesso à pasta do iCloud') : null;
-        cloudCache = { at: Date.now(), list: err && !list.length ? null : list, error };
-        cloudPending = null;
-        resolve(cloudCache);
-      });
-  });
-  return cloudPending;
-}
-
 async function backups() {
   const log = (await tail(path.join(LOGS, 'backup.log'), 50_000)).filter(Boolean);
   const results = log.filter((l) => l.startsWith('[backup')).slice(-15).reverse();
@@ -519,9 +490,9 @@ async function backups() {
   const lastRun = lastIdx >= 0 ? log.slice(prevIdx + 1, lastIdx + 1) : [];
   const warnings = /AVISO|FALHOU/.test(log[lastIdx] ?? '') ? lastRun.filter((l) => /AVISO|FALHOU|error/i.test(l)).slice(-3) : [];
   return {
-    local: await listDir(path.join(DATA, 'backups'), /^malegna-.*\.tar\.gz$/),
-    cloud: (await listCloud()).list,
-    cloudError: cloudCache.error,
+    dir: BACKUP_DIR,
+    local: await listDir(BACKUP_DIR, /^malegna-.*\.tar\.gz$/),
+    anexos: await run('du', ['-sk', path.join(BACKUP_DIR, 'anexos')]).then((r) => Number(r.stdout.split('\t')[0]) * 1024).catch(() => 0),
     results,
     warnings,
   };

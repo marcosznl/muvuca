@@ -1,18 +1,19 @@
 #!/bin/zsh
-# Backup do Muvuca: banco de dados (cópia consistente, mesmo com o site no ar), emojis e fotos.
-# Além da cópia local, manda uma para o iCloud Drive (pasta "Muvuca Backups", as 7 mais recentes).
-# Fica só o backup mais recente em data/backups/; os anteriores são apagados
-# depois que o novo é conferido (se o novo sair com defeito, os antigos ficam).
+# Backup do Muvuca: banco de dados (cópia consistente, mesmo com o site no ar), emojis, fotos, sons do
+# soundboard e a chave das notificações, num .tar.gz em ~/Backups/Muvuca (fora da pasta do projeto).
+# Os anexos do chat (fotos, vídeos, documentos) vão para ~/Backups/Muvuca/anexos, só os novos a cada vez.
+# Histórico: os 3 mais recentes, 1 por dia nos últimos 14 dias e 1 por mês nos últimos 6 meses
+# (os anteriores só são apagados depois que o novo é conferido; se o novo sair com defeito, nada é apagado).
 # Roda sozinho todo dia às 4h (serviço com.marcos.malegna.backup) ou à mão: ./backup.sh
 umask 077 # backups (banco, chaves) só legíveis pelo seu usuário
 cd "$(dirname "$0")"
 export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
-DEST=data/backups
+DEST="$HOME/Backups/Muvuca"
 name="malegna-$(date +%F_%H%M).tar.gz"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-mkdir -p "$DEST"
+mkdir -p "$DEST" || { echo "[backup $(date '+%F %T')] FALHOU: não deu para criar $DEST"; exit 1; }
 
 # Cópia do banco + conferência de integridade (VACUUM INTO não trava quem está usando o site)
 if ! node --input-type=module -e "
@@ -28,8 +29,9 @@ if ! node --input-type=module -e "
   exit 1
 fi
 
-# Emojis e fotos de perfil/ícones, e a chave das notificações (sem ela, os celulares teriam que ativar de novo)
-for dir in emojis images; do
+# Emojis, fotos de perfil/ícones, sons do soundboard e a chave das notificações
+# (sem ela, os celulares teriam que ativar as notificações de novo)
+for dir in emojis images sounds; do
   [[ -d "data/$dir" ]] && cp -R "data/$dir" "$work/"
 done
 [[ -f data/vapid.json ]] && cp data/vapid.json "$work/"
@@ -41,9 +43,38 @@ tar -czf "$DEST/$name.tmp" -C "$work" . && tar -tzf "$DEST/$name.tmp" >/dev/null
 }
 mv "$DEST/$name.tmp" "$DEST/$name"
 
-# O novo está bom: apaga os anteriores (e as cópias manuais antigas da pasta data/)
-find "$DEST" -name 'malegna-*.tar.gz' ! -name "$name" -delete
-rm -f data/malegna-antes-*.db(N) data/backup-antes-*.db(N)
+# Histórico: mantém os 3 mais recentes, o último de cada um dos 14 dias mais recentes e o último de cada
+# um dos 6 meses mais recentes; apaga o resto. Só mexe em arquivos malegna-AAAA-MM-DD_HHMM.tar.gz dentro
+# da pasta pedida, a partir de uma lista explícita (nunca de "ls"), conferindo o caminho de cada um.
+prune_history() {
+  local dir=$1 f b day month i=0 keep
+  local -A days months
+  local -a files del
+  files=("$dir"/malegna-<->-<->-<->_<->.tar.gz(N.On)) # do mais novo para o mais antigo (pelo nome)
+  for f in $files; do
+    b=${f:t}
+    day=${b[9,18]}
+    month=${b[9,15]}
+    keep=0
+    (( i < 3 )) && keep=1
+    if [[ -z ${days[$day]} ]]; then days[$day]=1; (( ${#days} <= 14 )) && keep=1; fi
+    if [[ -z ${months[$month]} ]]; then months[$month]=1; (( ${#months} <= 6 )) && keep=1; fi
+    (( keep )) || del+=("$f")
+    (( i++ ))
+  done
+  for f in $del; do
+    [[ $f == "$dir"/malegna-<->-<->-<->_<->.tar.gz && -f $f ]] && rm -f -- "$f"
+  done
+}
+prune_history "$DEST"
+rm -f data/malegna-antes-*.db(N) data/backup-antes-*.db(N) # cópias manuais antigas da pasta data/
+
+# Anexos do chat: espelho que só acrescenta (copia os novos; nunca apaga nada lá, mesmo se sumirem daqui)
+note=""
+if [[ -d data/files ]]; then
+  mkdir -p "$DEST/anexos" && rsync -a --ignore-existing data/files/ "$DEST/anexos/" \
+    && note=" + anexos" || note=" (AVISO: anexos não copiados)"
+fi
 
 # Logs do serviço: acima de 20 MB, guarda só o último pedaço
 for log in logs/*.log(N); do
@@ -53,24 +84,5 @@ for log in logs/*.log(N); do
   fi
 done
 
-# Cópia fora do Mac: iCloud Drive (se o disco do Mac morrer, o backup sobrevive). Guarda os 7 mais recentes.
-CLOUD="$HOME/Library/Mobile Documents/com~apple~CloudDocs/Muvuca Backups"
-cloud_note=""
-if [[ -d "$HOME/Library/Mobile Documents/com~apple~CloudDocs" ]]; then
-  if mkdir -p "$CLOUD" && cp "$DEST/$name" "$CLOUD/$name.tmp" && mv "$CLOUD/$name.tmp" "$CLOUD/$name"; then
-    # Só apaga dentro da pasta do iCloud, e só arquivos malegna-*.tar.gz (os mais antigos além dos 7)
-    old_ones=("$CLOUD"/malegna-*.tar.gz(N.Om))
-    (( ${#old_ones} > 7 )) && rm -f -- "${old_ones[@]:0:${#old_ones}-7}"
-    cloud_note=" + cópia no iCloud"
-    # Anexos do chat (fotos e vídeos): espelho que só acrescenta — nunca apaga nada lá (mesmo se sumirem daqui)
-    if [[ -d data/files ]]; then
-      mkdir -p "$CLOUD/anexos" && rsync -a --ignore-existing data/files/ "$CLOUD/anexos/" \
-        && cloud_note="$cloud_note (com anexos)" || cloud_note="$cloud_note (AVISO: anexos não copiados)"
-    fi
-  else
-    rm -f "$CLOUD/$name.tmp"
-    cloud_note=" (AVISO: não deu para copiar para o iCloud)"
-  fi
-fi
-
-echo "[backup $(date '+%F %T')] ok: $DEST/$name ($(du -h "$DEST/$name" | cut -f1))$cloud_note"
+kept=("$DEST"/malegna-<->-<->-<->_<->.tar.gz(N))
+echo "[backup $(date '+%F %T')] ok: $DEST/$name ($(du -h "$DEST/$name" | cut -f1))$note · ${#kept} no histórico"
