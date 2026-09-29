@@ -3,7 +3,8 @@ import { ACCESS_PASSWORD, OWNER_USERNAME } from './config.js';
 import { db, HOME_SERVER } from './store.js';
 import { announceJoin } from './welcome.js';
 import { pushServer } from './realtime.js';
-import { HttpError, readBody, sameSecret, clean, clientIp, sleep } from './util.js';
+import { HttpError, readBody, sameSecret, clean, clientIp, sleep, bearer } from './util.js';
+import { sockets } from './realtime.js';
 
 // Limite de tentativas de login/cadastro por IP (evita adivinhar senhas)
 const authFails = new Map(); // ip -> { count, until }
@@ -77,6 +78,30 @@ export async function register(req) {
 }
 
 // POST /api/login
+// POST /api/password (logado): { current, password } — confere a senha atual (com o mesmo limite de tentativas
+// do login), grava a nova e desconecta todos os outros aparelhos da conta. Este aparelho continua conectado.
+export async function changePassword(req) {
+  const token = bearer(req);
+  const user = db.userBySession(token);
+  if (!user) throw new HttpError(401, 'Sessão expirada, entre de novo.');
+  const ip = clientIp(req);
+  checkAuthRate(ip);
+  checkAccountRate(user.username);
+  const body = await readBody(req);
+  const current = String(body.current ?? '');
+  const password = String(body.password ?? '');
+  if (password.length < 6 || password.length > 200) throw new HttpError(400, 'A senha nova deve ter pelo menos 6 caracteres.');
+  if (password === current) throw new HttpError(400, 'A senha nova precisa ser diferente da atual.');
+  if (!(await db.checkPassword(user.id, current))) { accountFailed(user.username); await authFailed(ip, 'A senha atual está incorreta.'); }
+  await db.setPassword(user.id, password);
+  const others = db.deleteOtherSessions(user.id, token);
+  // Abas e aparelhos que estavam conectados com outra sessão: saem agora (voltam para a tela de login)
+  for (const ws of sockets.get(user.id) ?? []) {
+    if (ws.sessionToken !== token) { try { ws.send(JSON.stringify({ t: 'error', code: 'auth', message: 'A senha foi trocada. Entre de novo.' })); } catch {} ws.close(); }
+  }
+  return { ok: true, others };
+}
+
 export async function login(req) {
   const ip = clientIp(req);
   checkAuthRate(ip);

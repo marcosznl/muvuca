@@ -454,6 +454,8 @@ class Store {
       sessionUser: p(`SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
                       WHERE s.token_hash = ? AND s.expires_at > ?`),
       deleteSession: p('DELETE FROM sessions WHERE token_hash = ?'),
+      deleteOtherSessions: p('DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?'),
+      setPassword: p('UPDATE users SET password_hash = ? WHERE id = ?'),
       purgeSessions: p('DELETE FROM sessions WHERE expires_at <= ?'),
       // servidores e membros
       server: p('SELECT * FROM servers WHERE id = ?'),
@@ -701,6 +703,13 @@ class Store {
   }
 
   deleteSession(token) { if (token) this.q.deleteSession.run(hashToken(String(token))); }
+  // Troca de senha: confere a atual, grava a nova e derruba as outras sessões (fica só a de quem trocou)
+  async checkPassword(userId, password) {
+    const row = this.q.userById.get(unum(userId));
+    return !!row && verifyPassword(password, row.password_hash);
+  }
+  async setPassword(userId, password) { this.q.setPassword.run(await hashPassword(password), unum(userId)); }
+  deleteOtherSessions(userId, keepToken) { return this.q.deleteOtherSessions.run(unum(userId), hashToken(String(keepToken))).changes; }
   purgeExpiredSessions() { this.q.purgeSessions.run(Date.now()); }
 
   // ---------- Servidores ----------

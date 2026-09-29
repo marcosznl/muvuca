@@ -369,6 +369,30 @@ test('segurança: 10 senhas erradas na mesma conta bloqueiam a conta por um temp
   assert.equal(tries[10], 429); // IPs diferentes, mesma conta: bloqueou
 });
 
+test('trocar senha: confere a atual, derruba os outros aparelhos e mantém este conectado', async () => {
+  const pc = await new Person(server, 'dudu').register();
+  // O mesmo usuário num segundo aparelho
+  const phone = new Person(server, 'dudu');
+  phone.token = (await phone.post('/api/login', { username: 'dudu', password: 'senha-123' })).body.token;
+  await phone.connect();
+  assert.equal((await pc.post('/api/password', { current: 'errada', password: 'nova-senha-1' })).status, 401);
+  assert.equal((await pc.post('/api/password', { current: 'senha-123', password: 'curta' })).status, 400);
+  const ok = await pc.post('/api/password', { current: 'senha-123', password: 'nova-senha-1' });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.others, 1);
+  // O outro aparelho recebe o aviso e sai; o token dele não vale mais
+  const kicked = await phone.waitFor('error', (e) => e.code === 'auth');
+  assert.match(kicked.message, /senha foi trocada/);
+  assert.equal((await phone.post('/api/password', { current: 'nova-senha-1', password: 'outra-senha-2' })).status, 401);
+  // Este aparelho continua funcionando
+  assert.equal((await pc.request({ t: 'status:text', text: 'ainda aqui' })).t, 'ok');
+  // Senha antiga não entra mais; a nova sim
+  assert.equal((await pc.post('/api/login', { username: 'dudu', password: 'senha-123' })).status, 401);
+  assert.equal((await pc.post('/api/login', { username: 'dudu', password: 'nova-senha-1' })).status, 200);
+  pc.close();
+  phone.close();
+});
+
 // ---------- Site e voz ----------
 
 test('arquivos do site: 304 quando não mudou, e nada fora da pasta public', async () => {

@@ -4,7 +4,7 @@ import { WebSocketServer } from 'ws';
 import { PORT, HOST, ACTION_RATE } from './src/config.js';
 import { db } from './src/store.js';
 import { sockets, send, broadcastPresence, presenceMessage, presencePref, autoIdle } from './src/realtime.js';
-import { register, login, cleanupAuthFails } from './src/auth.js';
+import { register, login, cleanupAuthFails, changePassword } from './src/auth.js';
 import { voiceToken, voiceFor, pollVoice } from './src/voice.js';
 import { music, musicFor } from './src/music-rooms.js';
 import { uploadEmoji, serveEmoji } from './src/emojis.js';
@@ -23,6 +23,7 @@ import { HttpError, ActionError, json, bearer } from './src/util.js';
 const routes = {
   'POST /api/register': (req) => register(req),
   'POST /api/login': (req) => login(req),
+  'POST /api/password': (req) => changePassword(req),
   'POST /api/logout': (req) => { db.deleteSession(bearer(req)); return { ok: true }; },
   'POST /token': (req) => voiceToken(req),
   'POST /api/emojis': (req, url) => uploadEmoji(req, url),
@@ -91,6 +92,7 @@ const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 16 * 1024 });
 // Primeira mensagem: { t: 'hello', token }. Responde com tudo o que o site precisa para abrir.
 function welcome(ws, token) {
   const user = db.userBySession(token);
+  ws.sessionToken = String(token ?? ''); // para a troca de senha saber qual aba manter conectada
   if (!user) {
     send(ws, { t: 'error', code: 'auth', message: 'Sua sessão expirou. Entre de novo.' });
     ws.close();
