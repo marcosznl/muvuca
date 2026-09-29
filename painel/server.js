@@ -77,8 +77,12 @@ const ipFails = new Map();               // ip -> { count, until }
 let globalFails = [];                    // horários dos erros (qualquer IP)
 let globalLockUntil = 0;
 
+// Login temporário (expiresAt): depois do prazo deixa de valer e é preciso criar outro (./painel.sh senha)
 function loadAuth() {
-  try { return JSON.parse(fs.readFileSync(AUTH_FILE, 'utf8')); } catch { return null; }
+  try {
+    const a = JSON.parse(fs.readFileSync(AUTH_FILE, 'utf8'));
+    return a.expiresAt && Date.parse(a.expiresAt) < Date.now() ? null : a;
+  } catch { return null; }
 }
 const authStamp = (a) => (a ? crypto.createHash('sha256').update(a.hash).digest('hex').slice(0, 16) : '');
 const hashToken = (t) => crypto.createHash('sha256').update(t).digest('hex');
@@ -127,7 +131,7 @@ async function login(req, res) {
   const f = ipFails.get(ip);
   if (f?.until > now) return json(res, 429, { error: 'Muitas tentativas. Espere 15 minutos.' });
   const body = await readBody(req);
-  if (!loadAuth()) return json(res, 503, { error: 'O painel ainda não tem senha. No Mac, rode: ./painel.sh senha' });
+  if (!loadAuth()) return json(res, 503, { error: 'O painel está sem senha (ou o login temporário venceu). No Mac, rode: ./painel.sh senha' });
   const ok = await checkCredentials(body.user ?? '', body.password ?? '');
   if (!ok) {
     const rec = ipFails.get(ip) ?? { count: 0, until: 0 };
