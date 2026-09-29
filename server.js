@@ -15,7 +15,9 @@ import { actions, RATE_FREE } from './src/actions/index.js';
 import { leaveRoom } from './src/games/lobby.js';
 import { publicKey } from './src/push.js';
 import { uploadSound, serveSound } from './src/soundboard.js';
-import { HttpError, ActionError, json, bearer } from './src/util.js';
+import { HttpError, ActionError, json, bearer, clientIp } from './src/util.js';
+import { auditAction, audit, purgeAudit } from './src/audit.js';
+import { internalStats, isInternal } from './src/internal.js';
 
 // ---------- HTTP ----------
 
@@ -24,7 +26,12 @@ const routes = {
   'POST /api/register': (req) => register(req),
   'POST /api/login': (req) => login(req),
   'POST /api/password': (req) => changePassword(req),
-  'POST /api/logout': (req) => { db.deleteSession(bearer(req)); return { ok: true }; },
+  'POST /api/logout': (req) => {
+    const user = db.userBySession(bearer(req));
+    if (user) audit('auth:logout', { user, ip: clientIp(req) });
+    db.deleteSession(bearer(req));
+    return { ok: true };
+  },
   'POST /token': (req) => voiceToken(req),
   'POST /api/emojis': (req, url) => uploadEmoji(req, url),
   'POST /api/image': (req, url) => uploadImage(req, url),
@@ -74,6 +81,8 @@ const server = http.createServer(async (req, res) => {
     if (route) return json(res, 200, await route(req, url));
     if (req.method !== 'GET') return json(res, 404, { error: 'Não encontrado' });
     if (getRoutes[url.pathname]) return json(res, 200, getRoutes[url.pathname]());
+    // Números para o painel administrativo (só de dentro do Mac, com a chave do painel)
+    if (url.pathname === '/internal/stats' && isInternal(req)) return json(res, 200, internalStats(startedAt));
     if (url.pathname.startsWith('/api/invite/')) return json(res, 200, inviteInfo(url));
     const prefix = Object.keys(files).find((p) => url.pathname.startsWith(p));
     if (prefix) return await files[prefix](req, res, url.pathname.slice(prefix.length));
@@ -102,6 +111,7 @@ function welcome(ws, token) {
   if (firstSocket) sockets.set(user.id, new Set());
   sockets.get(user.id).add(ws);
   presencePref.set(user.id, user.presence);
+  db.touchUser(user.id);
   const presence = presenceMessage();
   send(ws, {
     t: 'welcome',
@@ -132,8 +142,11 @@ async function runAction(ws, user, m, actionTimes) {
     if (actionTimes.length >= ACTION_RATE.count) return send(ws, { t: 'error', message: 'Muitas ações seguidas, espere um pouco.', req: m.req });
     actionTimes.push(now);
   }
+  let record = null;
+  try { record = auditAction(user, m, ws.ip); } catch (err) { console.error('auditoria:', err.message); }
   try {
     const reply = await handler(user, m, ws);
+    try { record?.(); } catch (err) { console.error('auditoria:', err.message); }
     if (reply) send(ws, { ...reply, req: m.req });
     else if (m.req) send(ws, { t: 'ok', req: m.req }); // confirma ações sem resposta própria
   } catch (err) {
@@ -142,7 +155,8 @@ async function runAction(ws, user, m, actionTimes) {
   }
 }
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  ws.ip = clientIp(req);
   let user = null;
   const actionTimes = [];
   ws.isAlive = true;
@@ -165,6 +179,7 @@ wss.on('connection', (ws) => {
     set?.delete(ws);
     if (set && set.size === 0) {
       sockets.delete(user.id);
+      db.touchUser(user.id);
       autoIdle.delete(user.id);
       broadcastPresence();
       music.disconnected(user.id);
@@ -184,7 +199,7 @@ setInterval(() => {
   }
   cleanupAuthFails();
 }, 30_000);
-setInterval(() => db.purgeExpiredSessions(), 3_600_000);
+setInterval(() => { db.purgeExpiredSessions(); purgeAudit(); }, 3_600_000);
 setInterval(cleanupFiles, 30 * 60_000); // anexos abandonados e de mensagens apagadas
 
 server.listen(PORT, HOST, () => {

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Painel do Muvuca</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+  <main id="login" class="login" hidden>
+    <form id="login-form" class="login-box">
+      <img src="icon.svg" alt="" width="48" height="48">
+      <h1>Painel do Muvuca</h1>
+      <p class="muted">Acesso restrito ao administrador.</p>
+      <label>Usuário <input id="login-user" name="user" autocomplete="username" required></label>
+      <label>Senha <input id="login-pass" name="password" type="password" autocomplete="current-password" required></label>
+      <p id="login-error" class="error" role="alert"></p>
+      <button type="submit" class="btn primary">Entrar</button>
+    </form>
+  </main>
+
+  <div id="app" class="app" hidden>
+    <nav class="side">
+      <div class="brand"><img src="icon.svg" alt="" width="28" height="28"><span>Painel</span></div>
+      <button data-tab="geral" class="on">Visão geral</button>
+      <button data-tab="aovivo">Ao vivo</button>
+      <button data-tab="usuarios">Usuários</button>
+      <button data-tab="auditoria">Auditoria</button>
+      <button data-tab="acessos">Acessos</button>
+      <button data-tab="logs">Logs</button>
+      <button data-tab="backups">Backups</button>
+      <button data-tab="sistema">Sistema</button>
+      <div class="side-foot">
+        <span id="updated" class="muted small"></span>
+        <button id="logout" class="btn ghost small">Sair</button>
+      </div>
+    </nav>
+    <section class="content">
+      <header class="top"><h1 id="title">Visão geral</h1><div id="top-status"></div></header>
+      <div id="view"></div>
+    </section>
+  </div>
+</body>
+</html>

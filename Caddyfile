@@ -28,3 +28,16 @@
 		}
 	}
 }
+
+# Painel administrativo (processo separado, ver painel.sh): endereço próprio, então o login do
+# painel não se mistura com o do Muvuca
+{$PAINEL_ADDRESSES} {
+	encode gzip
+	reverse_proxy 127.0.0.1:3002
+	log {
+		output file ./logs/caddy-painel.log {
+			roll_size 5MiB
+			roll_keep 2
+		}
+	}
+}

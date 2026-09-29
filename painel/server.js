@@ -1,0 +1,638 @@
+// Painel administrativo do Muvuca: um site separado (painel.<domínio>) só para o dono do servidor.
+// Roda num processo à parte (serviço próprio): continua no ar mesmo quando o Muvuca cai, e mostra isso.
+//
+//   Login único: usuário e senha criados com ./painel.sh senha (só o hash fica salvo, em data/painel-auth.json)
+//   Mostra: saúde dos serviços, CPU/RAM/rede (com histórico de 24 h), quem está online, em voz, em live
+//   e jogando, contas, auditoria, acessos ao site, logs e backups. Ações: backup agora e reiniciar.
+import http from 'node:http';
+import fs from 'node:fs';
+import fsp from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { execFile, spawn } from 'node:child_process';
+import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
+import { AUDIT_LABELS, AUDIT_GROUPS } from '../src/audit-labels.js';
+
+const run = promisify(execFile);
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(HERE, '..');
+const PORT = Number(process.env.PAINEL_PORT || 3002);
+const HOST = process.env.PAINEL_HOST || '127.0.0.1';
+const DATA = path.join(ROOT, 'data');
+const DB_FILE = process.env.DB_FILE || path.join(DATA, 'malegna.db');
+const AUTH_FILE = process.env.PAINEL_AUTH || path.join(DATA, 'painel-auth.json');
+const KEY_FILE = path.join(path.dirname(DB_FILE), 'painel-key');
+const HISTORY_FILE = path.join(path.dirname(DB_FILE), 'painel-historico.json');
+const MAIN_URL = process.env.MAIN_URL || 'http://127.0.0.1:3000';
+const PUBLIC = path.join(HERE, 'public');
+const LOGS = path.join(ROOT, 'logs');
+const CLOUD = path.join(os.homedir(), 'Library/Mobile Documents/com~apple~CloudDocs/Muvuca Backups');
+const CADDY_CERTS = path.join(os.homedir(), 'Library/Application Support/Caddy/certificates');
+const env = readEnvPublic();
+const DOMAIN = (env.DUCKDNS_SUBDOMAIN ? `${env.DUCKDNS_SUBDOMAIN.split(',')[0].trim()}.duckdns.org` : env.DOMAIN) || 'localhost';
+
+// Só as chaves que não são segredo (o painel nunca lê senhas, tokens nem chaves do .env)
+function readEnvPublic() {
+  const out = {};
+  try {
+    for (const line of fs.readFileSync(path.join(ROOT, '.env'), 'utf8').split('\n')) {
+      const m = line.match(/^(DOMAIN|DUCKDNS_SUBDOMAIN|PUBLIC_PORT|OWNER_USERNAME)=(.*)$/);
+      if (m) out[m[1]] = m[2].trim().replace(/^["']|["']$/g, '');
+    }
+  } catch { /* sem .env: fica com os padrões */ }
+  return out;
+}
+
+// ---------- Banco (o mesmo do Muvuca; o painel só lê, e grava apenas na auditoria) ----------
+
+let db = null;
+function database() {
+  if (!db) {
+    db = new DatabaseSync(DB_FILE);
+    db.exec('PRAGMA busy_timeout = 3000');
+  }
+  return db;
+}
+const all = (sql, ...args) => database().prepare(sql).all(...args);
+const one = (sql, ...args) => database().prepare(sql).get(...args);
+
+function audit(action, { ip = null, detail = null, ok = true } = {}) {
+  try {
+    database().prepare('INSERT INTO audit_log (at, user_id, user_name, action, server_id, detail, ip, ok) VALUES (?, NULL, ?, ?, NULL, ?, ?, ?)')
+      .run(Date.now(), 'painel', action, detail ? JSON.stringify(detail) : null, ip, ok ? 1 : 0);
+  } catch (err) {
+    console.error('auditoria:', err.message);
+  }
+}
+
+// ---------- Login (usuário e senha únicos) ----------
+
+const SESSION_IDLE_MS = 2 * 3_600_000;   // 2 h sem usar: sai
+const SESSION_MAX_MS = 12 * 3_600_000;   // no máximo 12 h, mesmo usando
+const sessions = new Map();              // hash do token -> { created, last, ip, ua, stamp }
+const ipFails = new Map();               // ip -> { count, until }
+let globalFails = [];                    // horários dos erros (qualquer IP)
+let globalLockUntil = 0;
+
+function loadAuth() {
+  try { return JSON.parse(fs.readFileSync(AUTH_FILE, 'utf8')); } catch { return null; }
+}
+const authStamp = (a) => (a ? crypto.createHash('sha256').update(a.hash).digest('hex').slice(0, 16) : '');
+const hashToken = (t) => crypto.createHash('sha256').update(t).digest('hex');
+
+function scrypt(password, salt, params) {
+  return new Promise((resolve, reject) => crypto.scrypt(password, Buffer.from(salt, 'hex'), 64,
+    { N: params.N, r: params.r, p: params.p, maxmem: 256 * 1024 * 1024 }, (err, key) => (err ? reject(err) : resolve(key))));
+}
+const sameText = (a, b) => {
+  const x = crypto.createHash('sha256').update(String(a)).digest();
+  const y = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(x, y);
+};
+
+async function checkCredentials(user, password) {
+  const a = loadAuth();
+  if (!a) return false;
+  const key = await scrypt(String(password), a.salt, a);
+  const okPass = crypto.timingSafeEqual(key, Buffer.from(a.hash, 'hex'));
+  const okUser = sameText(String(user).trim().toLowerCase(), a.user.toLowerCase());
+  return okPass && okUser;
+}
+
+const cookieName = '__Host-painel';
+function sessionOf(req) {
+  const m = String(req.headers.cookie ?? '').match(/(?:^|;\s*)__Host-painel=([a-f0-9]{64})/);
+  if (!m) return null;
+  const id = hashToken(m[1]);
+  const s = sessions.get(id);
+  const now = Date.now();
+  if (!s) return null;
+  if (now - s.last > SESSION_IDLE_MS || now - s.created > SESSION_MAX_MS || s.stamp !== authStamp(loadAuth())) {
+    sessions.delete(id); // expirou ou a senha foi trocada
+    return null;
+  }
+  s.last = now;
+  return { id, ...s };
+}
+
+const clientIp = (req) => String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+
+async function login(req, res) {
+  const ip = clientIp(req);
+  const now = Date.now();
+  if (globalLockUntil > now) return json(res, 429, { error: 'Login travado por excesso de tentativas. Tente de novo mais tarde.' });
+  const f = ipFails.get(ip);
+  if (f?.until > now) return json(res, 429, { error: 'Muitas tentativas. Espere 15 minutos.' });
+  const body = await readBody(req);
+  if (!loadAuth()) return json(res, 503, { error: 'O painel ainda não tem senha. No Mac, rode: ./painel.sh senha' });
+  const ok = await checkCredentials(body.user ?? '', body.password ?? '');
+  if (!ok) {
+    const rec = ipFails.get(ip) ?? { count: 0, until: 0 };
+    rec.count++;
+    if (rec.count >= 5) { rec.until = now + 15 * 60_000; rec.count = 0; }
+    ipFails.set(ip, rec);
+    globalFails = globalFails.filter((t) => now - t < 3_600_000);
+    globalFails.push(now);
+    // Muitos erros de vários lugares: trava para todo mundo por 30 min (alguém tentando adivinhar)
+    if (globalFails.length >= 20) { globalLockUntil = now + 30 * 60_000; globalFails = []; }
+    audit('painel:login:fail', { ip, ok: false, detail: { usuario: String(body.user ?? '').slice(0, 40), aparelho: ua(req) } });
+    await new Promise((r) => setTimeout(r, 1000));
+    return json(res, 401, { error: 'Usuário ou senha incorretos.' });
+  }
+  ipFails.delete(ip);
+  const token = crypto.randomBytes(32).toString('hex');
+  sessions.set(hashToken(token), { created: now, last: now, ip, ua: ua(req), stamp: authStamp(loadAuth()) });
+  audit('painel:login', { ip, detail: { aparelho: ua(req) } });
+  res.setHeader('Set-Cookie', `${cookieName}=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${SESSION_MAX_MS / 1000}`);
+  return json(res, 200, { ok: true });
+}
+const ua = (req) => String(req.headers['user-agent'] ?? '').slice(0, 160);
+
+function logout(req, res, s) {
+  sessions.delete(s.id);
+  audit('painel:logout', { ip: clientIp(req) });
+  res.setHeader('Set-Cookie', `${cookieName}=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0`);
+  return json(res, 200, { ok: true });
+}
+
+// ---------- Coleta periódica (a cada 10 s): máquina, processos, rede e o Muvuca ----------
+
+const SAMPLE_MS = 10_000;
+const HISTORY_MAX = 24 * 360; // 24 h de amostras de 10 s
+let history = [];
+try { history = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8')).filter((h) => Date.now() - h.t < 86_400_000); } catch { /* começa vazio */ }
+let latest = { at: 0 };
+let prevCpu = os.cpus();
+let prevNet = null;
+let netIface = null;
+
+function cpuPercent() {
+  const now = os.cpus();
+  let idle = 0; let total = 0;
+  now.forEach((c, i) => {
+    const p = prevCpu[i]?.times ?? c.times;
+    const d = Object.fromEntries(Object.keys(c.times).map((k) => [k, c.times[k] - p[k]]));
+    idle += d.idle;
+    total += d.user + d.nice + d.sys + d.idle + d.irq;
+  });
+  prevCpu = now;
+  return total > 0 ? Math.round((1 - idle / total) * 1000) / 10 : 0;
+}
+
+async function memory() {
+  const { stdout } = await run('vm_stat');
+  const size = Number(stdout.match(/page size of (\d+)/)?.[1] ?? 16384);
+  const pages = (label) => Number(stdout.match(new RegExp(`${label}:\\s+(\\d+)`))?.[1] ?? 0) * size;
+  const used = pages('Pages active') + pages('Pages wired down') + pages('Pages occupied by compressor');
+  return { total: os.totalmem(), used, wired: pages('Pages wired down'), compressed: pages('Pages occupied by compressor') };
+}
+
+const WATCH = [
+  ['muvuca', / server\.js$/, (c) => !c.includes('painel/')],
+  ['livekit', /livekit-server/],
+  ['caddy', /caddy run/],
+  ['ddns', /ddns-update\.sh/],
+  ['start', /start\.sh$/],
+];
+async function processes() {
+  const { stdout } = await run('ps', ['-axo', 'pid=,ppid=,rss=,%cpu=,etime=,command=']);
+  const out = {};
+  for (const line of stdout.split('\n')) {
+    const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+(\S+)\s+(.*)$/);
+    if (!m) continue;
+    const [, pid, , rss, cpu, etime, command] = m;
+    if (Number(pid) === process.pid) { out.painel = { pid: Number(pid), rss: Number(rss) * 1024, cpu: Number(cpu), etime }; continue; }
+    for (const [name, re, extra] of WATCH) {
+      if (out[name] || !re.test(command) || (extra && !extra(command))) continue;
+      if (name === 'muvuca' && !/node/.test(command)) continue;
+      out[name] = { pid: Number(pid), rss: Number(rss) * 1024, cpu: Number(cpu), etime };
+    }
+  }
+  return out;
+}
+
+async function network() {
+  if (!netIface) {
+    try { netIface = (await run('route', ['-n', 'get', 'default'])).stdout.match(/interface:\s*(\S+)/)?.[1] ?? 'en0'; } catch { netIface = 'en0'; }
+  }
+  const { stdout } = await run('netstat', ['-ibn']);
+  for (const line of stdout.split('\n')) {
+    const cols = line.trim().split(/\s+/);
+    if (cols[0] !== netIface || !cols[2]?.startsWith('<Link')) continue;
+    // Name Mtu Network Address Ipkts Ierrs Ibytes Opkts Oerrs Obytes Coll
+    const n = cols.length;
+    const rx = Number(cols[n - 5]);
+    const tx = Number(cols[n - 2]);
+    const now = Date.now();
+    let rate = { rx: 0, tx: 0 };
+    if (prevNet && rx >= prevNet.rx && tx >= prevNet.tx) {
+      const s = (now - prevNet.at) / 1000;
+      rate = { rx: Math.round(((rx - prevNet.rx) * 8) / s), tx: Math.round(((tx - prevNet.tx) * 8) / s) }; // bits/s
+    }
+    prevNet = { rx, tx, at: now };
+    return { iface: netIface, ...rate, totalRx: rx, totalTx: tx };
+  }
+  return { iface: netIface, rx: 0, tx: 0 };
+}
+
+async function mainStats() {
+  let key = '';
+  try { key = fs.readFileSync(KEY_FILE, 'utf8').trim(); } catch { return { up: false, error: 'sem chave do painel (o Muvuca ainda não criou data/painel-key)' }; }
+  try {
+    const r = await fetch(`${MAIN_URL}/internal/stats`, { headers: { 'x-painel-key': key }, signal: AbortSignal.timeout(3000) });
+    if (!r.ok) return { up: true, error: `o Muvuca respondeu ${r.status} (reinicie o Muvuca para ativar o painel)` };
+    return { up: true, ...(await r.json()) };
+  } catch (err) {
+    return { up: false, error: err.name === 'TimeoutError' ? 'não respondeu em 3 s' : 'fora do ar' };
+  }
+}
+
+async function sample() {
+  try {
+    const [mem, procs, net, main] = await Promise.all([memory(), processes(), network(), mainStats()]);
+    const disk = await fsp.statfs(ROOT);
+    latest = {
+      at: Date.now(),
+      cpu: cpuPercent(),
+      cores: os.cpus().length,
+      load: os.loadavg().map((v) => Math.round(v * 100) / 100),
+      mem, procs, net, main,
+      disk: { total: disk.blocks * disk.bsize, free: disk.bavail * disk.bsize },
+      uptime: os.uptime(),
+    };
+    const lives = (main.voice ?? []).reduce((n, v) => n + (v.people ?? []).filter((p) => p.streaming).length, 0);
+    history.push({
+      t: latest.at, cpu: latest.cpu, mem: mem.used, rx: net.rx, tx: net.tx,
+      mcpu: Math.round(((procs.muvuca?.cpu ?? 0) + (procs.livekit?.cpu ?? 0) + (procs.caddy?.cpu ?? 0)) * 10) / 10,
+      mrss: (procs.muvuca?.rss ?? 0) + (procs.livekit?.rss ?? 0) + (procs.caddy?.rss ?? 0),
+      online: main.users?.length ?? 0,
+      voice: (main.voice ?? []).reduce((n, v) => n + v.count, 0),
+      lives, up: main.up && !main.error ? 1 : 0,
+    });
+    if (history.length > HISTORY_MAX) history.splice(0, history.length - HISTORY_MAX);
+  } catch (err) {
+    console.error('coleta:', err.message);
+  }
+}
+setInterval(sample, SAMPLE_MS);
+setInterval(() => fsp.writeFile(HISTORY_FILE, JSON.stringify(history), { mode: 0o600 }).catch(() => {}), 5 * 60_000);
+sample();
+
+// Tamanho das pastas de dados (du é lento com muitos arquivos: a cada 10 min)
+let sizes = { at: 0 };
+async function measureSizes() {
+  const out = { at: Date.now() };
+  for (const [name, dir] of [['anexos', 'files'], ['fotos', 'images'], ['emojis', 'emojis'], ['sons', 'sounds'], ['backups', 'backups']]) {
+    try { out[name] = Number((await run('du', ['-sk', path.join(DATA, dir)])).stdout.split('\t')[0]) * 1024; } catch { out[name] = 0; }
+  }
+  for (const f of ['malegna.db', 'malegna.db-wal']) {
+    try { out[f] = (await fsp.stat(path.join(DATA, f))).size; } catch { out[f] = 0; }
+  }
+  sizes = out;
+}
+measureSizes();
+setInterval(measureSizes, 10 * 60_000);
+
+// ---------- Certificado HTTPS (validade, lido dos arquivos do Caddy) ----------
+
+async function certificates() {
+  const out = [];
+  let dirs = [];
+  try { dirs = await fsp.readdir(CADDY_CERTS); } catch { return out; }
+  for (const ca of dirs) {
+    let names = [];
+    try { names = await fsp.readdir(path.join(CADDY_CERTS, ca)); } catch { continue; }
+    for (const name of names) {
+      try {
+        const pem = await fsp.readFile(path.join(CADDY_CERTS, ca, name, `${name}.crt`), 'utf8');
+        const cert = new crypto.X509Certificate(pem);
+        out.push({ name, validTo: Date.parse(cert.validTo), issuer: cert.issuer.split('\n').find((l) => l.startsWith('O='))?.slice(2) ?? '' });
+      } catch { /* pasta sem certificado */ }
+    }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// ---------- Leituras do banco ----------
+
+const DAY = 86_400_000;
+function overview() {
+  const now = Date.now();
+  const count = (sql, ...a) => one(sql, ...a)?.n ?? 0;
+  const safe = (fn, fallback) => { try { return fn(); } catch { return fallback; } };
+  return {
+    users: count('SELECT COUNT(*) n FROM users'),
+    usersNew7: count('SELECT COUNT(*) n FROM users WHERE created_at > ?', now - 7 * DAY),
+    active24: safe(() => count('SELECT COUNT(*) n FROM users WHERE last_seen > ?', now - DAY), null),
+    active7: safe(() => count('SELECT COUNT(*) n FROM users WHERE last_seen > ?', now - 7 * DAY), null),
+    servers: count("SELECT COUNT(*) n FROM servers WHERE kind = 'server'"),
+    dms: count("SELECT COUNT(*) n FROM servers WHERE kind = 'dm'"),
+    channels: count('SELECT COUNT(*) n FROM channels'),
+    messages: count('SELECT COUNT(*) n FROM messages'),
+    messages24: count('SELECT COUNT(*) n FROM messages WHERE created_at > ?', now - DAY),
+    files: count('SELECT COUNT(*) n FROM files'),
+    filesBytes: one('SELECT COALESCE(SUM(size), 0) n FROM files')?.n ?? 0,
+    sessions: count('SELECT COUNT(*) n FROM sessions WHERE expires_at > ?', now),
+    games7: all('SELECT game, COUNT(*) n FROM game_results WHERE created_at > ? GROUP BY game ORDER BY n DESC', now - 7 * DAY),
+    perDay: all(`SELECT CAST((created_at - ?) / ${DAY} AS INTEGER) d, COUNT(*) n FROM messages WHERE created_at > ? GROUP BY d`, now - 14 * DAY, now - 14 * DAY),
+    failed24: safe(() => count("SELECT COUNT(*) n FROM audit_log WHERE ok = 0 AND at > ?", now - DAY), null),
+    auditReady: safe(() => { one('SELECT 1 FROM audit_log LIMIT 1'); return true; }, false),
+  };
+}
+
+function usersList() {
+  const now = Date.now();
+  const online = new Set((latest.main?.users ?? []).map((u) => u.id));
+  const rows = all(`SELECT u.id, u.username, u.display_name name, u.created_at, u.last_seen,
+      (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.expires_at > ?) sessions,
+      (SELECT COUNT(*) FROM messages m WHERE m.user_id = u.id) messages,
+      (SELECT COALESCE(SUM(size), 0) FROM files f WHERE f.owner_id = u.id) bytes,
+      (SELECT COUNT(*) FROM members mb JOIN servers sv ON sv.id = mb.server_id WHERE mb.user_id = u.id AND sv.kind = 'server') servers
+    FROM users u ORDER BY COALESCE(u.last_seen, u.created_at) DESC`, now);
+  const lastLogin = new Map();
+  const fails = new Map();
+  try {
+    for (const r of all("SELECT user_id, MAX(at) at, ip FROM audit_log WHERE action = 'auth:login' GROUP BY user_id")) lastLogin.set(r.user_id, r);
+    for (const r of all("SELECT LOWER(user_name) name, COUNT(*) n FROM audit_log WHERE action = 'auth:login:fail' AND at > ? GROUP BY LOWER(user_name)", now - 7 * DAY)) fails.set(r.name, r.n);
+  } catch { /* auditoria ainda não existe */ }
+  return rows.map((r) => ({
+    ...r, online: online.has(`u${r.id}`),
+    lastLogin: lastLogin.get(r.id)?.at ?? null, lastIp: lastLogin.get(r.id)?.ip ?? null,
+    fails7: fails.get(r.username.toLowerCase()) ?? 0,
+  }));
+}
+
+function auditQuery(url) {
+  const where = [];
+  const args = [];
+  const q = url.searchParams;
+  if (q.get('user')) { where.push('LOWER(user_name) = ?'); args.push(q.get('user').toLowerCase()); }
+  if (q.get('action')) { where.push('action = ?'); args.push(q.get('action')); }
+  const group = AUDIT_GROUPS[q.get('group')];
+  if (group) { where.push(`action IN (${group.map(() => '?').join(',')})`); args.push(...group); }
+  if (q.get('ok') === '0') where.push('ok = 0');
+  if (q.get('ip')) { where.push('ip = ?'); args.push(q.get('ip')); }
+  if (q.get('text')) { where.push('(detail LIKE ? OR user_name LIKE ?)'); args.push(`%${q.get('text')}%`, `%${q.get('text')}%`); }
+  if (q.get('from')) { where.push('at >= ?'); args.push(Number(q.get('from'))); }
+  if (q.get('to')) { where.push('at <= ?'); args.push(Number(q.get('to'))); }
+  if (q.get('before')) { where.push('id < ?'); args.push(Number(q.get('before'))); }
+  const limit = Math.min(1000, Math.max(1, Number(q.get('limit')) || 100));
+  const sql = `SELECT id, at, user_id, user_name, action, server_id, detail, ip, ok FROM audit_log
+    ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT ${limit}`;
+  return all(sql, ...args).map((r) => ({ ...r, label: AUDIT_LABELS[r.action] ?? r.action, detail: r.detail ? JSON.parse(r.detail) : null }));
+}
+
+function auditCsv(rows) {
+  const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = [['quando', 'quem', 'acao', 'descricao', 'detalhes', 'ip', 'resultado'].join(';')];
+  for (const r of rows) {
+    lines.push([new Date(r.at).toLocaleString('pt-BR'), r.user_name, r.action, r.label,
+      r.detail ? Object.entries(r.detail).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`).join(' | ') : '', r.ip, r.ok ? 'ok' : 'falhou'].map(esc).join(';'));
+  }
+  return `﻿${lines.join('\n')}`;
+}
+
+// ---------- Logs ----------
+
+async function tail(file, maxBytes = 200_000) {
+  let fh;
+  try {
+    fh = await fsp.open(file, 'r');
+    const { size } = await fh.stat();
+    const start = Math.max(0, size - maxBytes);
+    const buf = Buffer.alloc(size - start);
+    await fh.read(buf, 0, buf.length, start);
+    const lines = buf.toString('utf8').split('\n');
+    if (start > 0) lines.shift(); // primeira linha cortada no meio
+    return lines;
+  } catch {
+    return [];
+  } finally {
+    await fh?.close();
+  }
+}
+
+// Nunca mostra nada que pareça segredo (token na URL, senha, chave)
+const scrub = (s) => String(s)
+  .replace(/(access_token|token|key|senha|password|secret)=([^&\s"]+)/gi, '$1=•••')
+  .replace(/Bearer\s+[A-Za-z0-9._-]+/g, 'Bearer •••');
+
+const LOG_FILES = { muvuca: 'malegna.log', backup: 'backup.log', painel: 'painel.log' };
+async function logs(which, lines = 400) {
+  if (which === 'caddy') return accessLog(lines);
+  const file = LOG_FILES[which];
+  if (!file) return [];
+  return (await tail(path.join(LOGS, file))).filter(Boolean).slice(-lines).map(scrub);
+}
+
+// Acessos ao site (log do Caddy, em JSON): sem a parte "?..." da URL, onde podem ir tokens
+async function readAccess(maxBytes = 3_000_000) {
+  const out = [];
+  for (const line of await tail(path.join(ROOT, 'caddy.log'), maxBytes)) {
+    if (!line.startsWith('{')) continue;
+    try {
+      const e = JSON.parse(line);
+      if (!e.request) continue;
+      out.push({
+        at: Math.round(e.ts * 1000), ip: e.request.client_ip || e.request.remote_ip, method: e.request.method,
+        host: e.request.host, path: String(e.request.uri ?? '').split('?')[0].slice(0, 120), status: e.status,
+        ms: Math.round((e.duration ?? 0) * 1000), bytes: e.size ?? 0,
+        ua: String(e.request.headers?.['User-Agent']?.[0] ?? '').slice(0, 120),
+      });
+    } catch { /* linha incompleta */ }
+  }
+  return out;
+}
+async function accessLog(lines) {
+  return (await readAccess()).slice(-lines).reverse();
+}
+async function accessSummary() {
+  const since = Date.now() - DAY;
+  const rows = (await readAccess(8_000_000)).filter((r) => r.at > since);
+  const by = (key) => Object.entries(rows.reduce((m, r) => { m[r[key]] = (m[r[key]] ?? 0) + 1; return m; }, {}))
+    .sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const status = rows.reduce((m, r) => { const k = `${String(r.status)[0]}xx`; m[k] = (m[k] ?? 0) + 1; return m; }, {});
+  return { total: rows.length, since, status, ips: by('ip'), paths: by('path'), errors: rows.filter((r) => r.status >= 500).slice(-20).reverse(),
+    denied: rows.filter((r) => r.status === 401 || r.status === 403 || r.status === 429).slice(-30).reverse() };
+}
+
+// ---------- Backups ----------
+
+async function listDir(dir, re) {
+  try {
+    const names = (await fsp.readdir(dir)).filter((n) => re.test(n));
+    const out = [];
+    for (const n of names) { const st = await fsp.stat(path.join(dir, n)); out.push({ name: n, size: st.size, at: st.mtimeMs }); }
+    return out.sort((a, b) => b.at - a.at);
+  } catch { return null; }
+}
+async function backups() {
+  const log = (await tail(path.join(LOGS, 'backup.log'), 50_000)).filter(Boolean);
+  const results = log.filter((l) => l.startsWith('[backup')).slice(-15).reverse();
+  // Avisos só do último backup (e as linhas de erro que vieram junto com ele)
+  const lastIdx = log.findLastIndex((l) => l.startsWith('[backup'));
+  const prevIdx = log.slice(0, Math.max(0, lastIdx)).findLastIndex((l) => l.startsWith('[backup'));
+  const lastRun = lastIdx >= 0 ? log.slice(prevIdx + 1, lastIdx + 1) : [];
+  const warnings = /AVISO|FALHOU/.test(log[lastIdx] ?? '') ? lastRun.filter((l) => /AVISO|FALHOU|error/i.test(l)).slice(-3) : [];
+  return {
+    local: await listDir(path.join(DATA, 'backups'), /^malegna-.*\.tar\.gz$/),
+    cloud: await listDir(CLOUD, /^malegna-.*\.tar\.gz$/),
+    results,
+    warnings,
+  };
+}
+
+// ---------- Ações ----------
+
+let busy = null;
+function runScript(args, timeoutMs) {
+  return new Promise((resolve) => {
+    execFile('/bin/zsh', args, { cwd: ROOT, timeout: timeoutMs, env: { ...process.env, PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin' } },
+      (err, stdout, stderr) => resolve({ ok: !err, output: scrub(`${stdout}${stderr}`).trim().split('\n').slice(-10).join('\n') }));
+  });
+}
+
+async function doBackup(req) {
+  if (busy) return { ok: false, output: `Aguarde: ${busy} em andamento.` };
+  busy = 'backup';
+  try {
+    const r = await runScript(['./backup.sh'], 10 * 60_000);
+    audit('painel:backup', { ip: clientIp(req), ok: r.ok, detail: { resultado: r.output.split('\n').pop()?.slice(0, 200) } });
+    return r;
+  } finally { busy = null; }
+}
+
+async function doRestart(req, body) {
+  if (busy) return { ok: false, output: `Aguarde: ${busy} em andamento.` };
+  const inVoice = (latest.main?.voice ?? []).reduce((n, v) => n + v.count, 0);
+  if (inVoice > 0 && !body.force) return { ok: false, needsForce: true, output: `Tem ${inVoice} ${inVoice === 1 ? 'pessoa' : 'pessoas'} em call agora: a call cai por alguns segundos.` };
+  busy = 'reinício';
+  audit('painel:restart', { ip: clientIp(req), detail: { pessoasEmCall: inVoice } });
+  // Fora deste processo (o painel continua no ar enquanto o Muvuca reinicia)
+  const child = spawn('/bin/zsh', ['./malegna-service.sh', 'reiniciar'], { cwd: ROOT, detached: true, stdio: 'ignore' });
+  child.unref();
+  setTimeout(() => { busy = null; }, 20_000);
+  return { ok: true, output: 'Reiniciando… o Muvuca volta em uns 10 segundos.' };
+}
+
+// ---------- HTTP ----------
+
+function json(res, status, data) {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify(data));
+}
+
+function readBody(req, limit = 10_000) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (c) => { size += c.length; if (size > limit) { reject(new Error('grande demais')); req.destroy(); } else chunks.push(c); });
+    req.on('end', () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')); } catch { resolve({}); } });
+    req.on('error', reject);
+  });
+}
+
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png' };
+async function serveStatic(res, pathname) {
+  const name = pathname === '/' ? 'index.html' : pathname.slice(1);
+  if (!/^[a-z0-9-]+\.(html|js|css|svg|png)$/.test(name)) return json(res, 404, { error: 'Não encontrado' });
+  try {
+    const data = await fsp.readFile(path.join(PUBLIC, name));
+    res.writeHead(200, { 'Content-Type': TYPES[path.extname(name)], 'Cache-Control': 'no-cache' });
+    res.end(data);
+  } catch {
+    json(res, 404, { error: 'Não encontrado' });
+  }
+}
+
+function securityHeaders(req, res) {
+  res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'; object-src 'none'");
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  if (req.headers['x-forwarded-proto'] === 'https') res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+}
+
+// Pedidos que mudam algo: só do próprio painel (mesma origem + cabeçalho que outro site não consegue mandar)
+function sameOrigin(req) {
+  if (req.headers['x-painel'] !== '1') return false;
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  try { return new URL(origin).host === req.headers.host; } catch { return false; }
+}
+
+const api = {
+  'GET /api/me': (req, res, s) => json(res, 200, { ok: true, since: s.created, ip: s.ip, domain: DOMAIN }),
+  'GET /api/status': async (req, res) => json(res, 200, { ...latest, sizes, certs: await certificates(), busy, domain: DOMAIN, publicPort: env.PUBLIC_PORT || null }),
+  'GET /api/history': (req, res, s, url) => {
+    const hours = Math.min(24, Math.max(1, Number(url.searchParams.get('hours')) || 1));
+    const since = Date.now() - hours * 3_600_000;
+    const rows = history.filter((h) => h.t >= since);
+    const step = Math.max(1, Math.floor(rows.length / 360)); // até ~360 pontos por gráfico
+    json(res, 200, rows.filter((_, i) => i % step === 0));
+  },
+  'GET /api/overview': (req, res) => json(res, 200, overview()),
+  'GET /api/users': (req, res) => json(res, 200, usersList()),
+  'GET /api/audit': (req, res, s, url) => json(res, 200, { rows: auditQuery(url), labels: AUDIT_LABELS, groups: Object.keys(AUDIT_GROUPS) }),
+  'GET /api/audit.csv': (req, res, s, url) => {
+    url.searchParams.set('limit', '1000');
+    res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="auditoria-${new Date().toISOString().slice(0, 10)}.csv"`, 'Cache-Control': 'no-store' });
+    res.end(auditCsv(auditQuery(url)));
+  },
+  'GET /api/logs': async (req, res, s, url) => json(res, 200, await logs(url.searchParams.get('which'), Math.min(2000, Number(url.searchParams.get('lines')) || 400))),
+  'GET /api/access': async (req, res) => json(res, 200, await accessSummary()),
+  'GET /api/backups': async (req, res) => json(res, 200, await backups()),
+  'GET /api/sessions': (req, res, s) => json(res, 200, [...sessions.entries()].map(([id, v]) => ({ current: id === s.id, created: v.created, last: v.last, ip: v.ip, ua: v.ua }))),
+  'POST /api/logout': (req, res, s) => logout(req, res, s),
+  'POST /api/logout-all': (req, res, s) => {
+    for (const id of sessions.keys()) if (id !== s.id) sessions.delete(id);
+    json(res, 200, { ok: true });
+  },
+  'POST /api/backup': async (req, res) => json(res, 200, await doBackup(req)),
+  'POST /api/restart': async (req, res) => json(res, 200, await doRestart(req, await readBody(req))),
+};
+
+const server = http.createServer(async (req, res) => {
+  securityHeaders(req, res);
+  const url = new URL(req.url, 'http://x');
+  try {
+    if (req.method === 'POST' && url.pathname === '/api/login') {
+      if (!sameOrigin(req)) return json(res, 403, { error: 'Origem não permitida.' });
+      return await login(req, res);
+    }
+    if (url.pathname.startsWith('/api/')) {
+      const s = sessionOf(req);
+      if (!s) return json(res, 401, { error: 'Entre de novo.' });
+      if (req.method !== 'GET' && !sameOrigin(req)) return json(res, 403, { error: 'Origem não permitida.' });
+      const handler = api[`${req.method} ${url.pathname}`];
+      if (!handler) return json(res, 404, { error: 'Não encontrado' });
+      return await handler(req, res, s, url);
+    }
+    if (req.method !== 'GET') return json(res, 405, { error: 'Método não permitido' });
+    return await serveStatic(res, url.pathname);
+  } catch (err) {
+    console.error(err);
+    if (!res.headersSent) json(res, 500, { error: 'Erro interno' });
+  }
+});
+
+// Limpeza: sessões vencidas e bloqueios antigos
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, s] of sessions) if (now - s.last > SESSION_IDLE_MS || now - s.created > SESSION_MAX_MS) sessions.delete(id);
+  for (const [ip, f] of ipFails) if (f.until < now && f.count === 0) ipFails.delete(ip);
+}, 60_000).unref();
+
+process.on('SIGTERM', () => {
+  try { fs.writeFileSync(HISTORY_FILE, JSON.stringify(history), { mode: 0o600 }); } catch { /* sem histórico salvo */ }
+  process.exit(0);
+});
+
+server.listen(PORT, HOST, () => console.log(`[${new Date().toLocaleString('pt-BR')}] Painel em http://${HOST}:${PORT} (${DOMAIN})`));

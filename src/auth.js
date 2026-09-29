@@ -5,6 +5,7 @@ import { announceJoin } from './welcome.js';
 import { pushServer } from './realtime.js';
 import { HttpError, readBody, sameSecret, clean, clientIp, sleep, bearer } from './util.js';
 import { sockets } from './realtime.js';
+import { audit } from './audit.js';
 
 // Limite de tentativas de login/cadastro por IP (evita adivinhar senhas)
 const authFails = new Map(); // ip -> { count, until }
@@ -60,7 +61,10 @@ export async function register(req) {
   // Só entra quem tem o código de acesso ou um convite válido de algum servidor
   const inviteInfo = db.invite(invite);
   const viaAccessCode = sameSecret(invite, ACCESS_PASSWORD);
-  if (!viaAccessCode && !inviteInfo) await authFailed(ip, 'Código de convite inválido.');
+  if (!viaAccessCode && !inviteInfo) {
+    audit('auth:register:fail', { userName: username, ip, ok: false });
+    await authFailed(ip, 'Código de convite inválido.');
+  }
   if (db.usernameTaken(username)) throw new HttpError(409, 'Esse nome de usuário já existe.');
 
   const user = await db.createUser({ username, displayName, password });
@@ -72,6 +76,7 @@ export async function register(req) {
     db.addMember(HOME_SERVER, user);
     db.setOwner(HOME_SERVER, user);
   }
+  audit('auth:register', { user, ip, serverId, detail: { via: viaAccessCode ? 'código de acesso' : `convite ${inviteInfo.code}` } });
   pushServer(serverId); // quem já está online vê o membro novo na hora
   announceJoin(serverId, user);
   return { token: db.createSession(user), serverId };
@@ -92,9 +97,14 @@ export async function changePassword(req) {
   const password = String(body.password ?? '');
   if (password.length < 6 || password.length > 200) throw new HttpError(400, 'A senha nova deve ter pelo menos 6 caracteres.');
   if (password === current) throw new HttpError(400, 'A senha nova precisa ser diferente da atual.');
-  if (!(await db.checkPassword(user.id, current))) { accountFailed(user.username); await authFailed(ip, 'A senha atual está incorreta.'); }
+  if (!(await db.checkPassword(user.id, current))) {
+    accountFailed(user.username);
+    audit('auth:password:fail', { user, ip, ok: false });
+    await authFailed(ip, 'A senha atual está incorreta.');
+  }
   await db.setPassword(user.id, password);
   const others = db.deleteOtherSessions(user.id, token);
+  audit('auth:password', { user, ip, detail: { outrosAparelhosDesconectados: others } });
   // Abas e aparelhos que estavam conectados com outra sessão: saem agora (voltam para a tela de login)
   for (const ws of sockets.get(user.id) ?? []) {
     if (ws.sessionToken !== token) { try { ws.send(JSON.stringify({ t: 'error', code: 'auth', message: 'A senha foi trocada. Entre de novo.' })); } catch {} ws.close(); }
@@ -109,7 +119,12 @@ export async function login(req) {
   const username = String(body.username ?? '').trim().toLowerCase().slice(0, 64);
   checkAccountRate(username);
   const user = await db.checkLogin(username, String(body.password ?? ''));
-  if (!user) { accountFailed(username); await authFailed(ip, 'Usuário ou senha incorretos.'); }
+  if (!user) {
+    accountFailed(username);
+    audit('auth:login:fail', { userName: username, ip, ok: false, detail: { contaExiste: db.usernameTaken(username) } });
+    await authFailed(ip, 'Usuário ou senha incorretos.');
+  }
+  audit('auth:login', { user, ip, detail: { aparelho: String(req.headers['user-agent'] ?? '').slice(0, 160) } });
   authFails.delete(ip);
   accountFails.delete(username);
   return { token: db.createSession(user) };

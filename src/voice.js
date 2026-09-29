@@ -4,7 +4,8 @@ import { API_KEY, API_SECRET, LIVEKIT_HTTP_URL, LIVEKIT_URL, VOICE_POLL_MS } fro
 import { db } from './store.js';
 import { sockets, sendToUser } from './realtime.js';
 import { requireUser } from './guards.js';
-import { HttpError, readBody } from './util.js';
+import { HttpError, readBody, clientIp } from './util.js';
+import { audit } from './audit.js';
 import { PERMS, computePerms, can } from '../public/js/permissions.js';
 
 export const roomService = new RoomServiceClient(LIVEKIT_HTTP_URL, API_KEY, API_SECRET);
@@ -34,6 +35,8 @@ export async function voiceToken(req) {
     if (inside.filter((id) => id !== user.id).length >= limit) throw new HttpError(403, `Esse canal está cheio (máximo de ${limit} ${limit === 1 ? 'pessoa' : 'pessoas'}).`);
   }
 
+  // Entrada em canal de voz fica na auditoria (menos nas ligações das mensagens diretas)
+  if (snap.kind !== 'dm') audit('voice:join', { user, ip: clientIp(req), serverId: snap.id, detail: { servidor: snap.name, canal: channel.name } });
   const at = new AccessToken(API_KEY, API_SECRET, { identity: user.id, name: user.name, ttl: '6h' });
   at.addGrant({
     room: channel.id,
@@ -58,6 +61,7 @@ export function voiceChannelOf(userId) {
   return null;
 }
 export const voicePeople = (channelId) => voiceState[channelId] ?? [];
+export const voiceAll = () => voiceState;
 
 export function voiceFor(userId) {
   const allowed = new Set(db.serverIdsOf({ id: userId }));

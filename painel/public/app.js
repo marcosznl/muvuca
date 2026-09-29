@@ -1,0 +1,601 @@
+// Painel do Muvuca (site). Tudo que vem do servidor entra como texto (nunca como HTML).
+'use strict';
+
+const $ = (sel) => document.querySelector(sel);
+function h(tag, attrs = {}, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs ?? {})) {
+    if (v === null || v === undefined || v === false) continue;
+    if (k === 'class') el.className = v;
+    else if (k === 'style') el.style.cssText = v; // pelo CSSOM (a CSP não deixa atributo style)
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? '' : v);
+  }
+  for (const kid of kids.flat()) if (kid !== null && kid !== undefined && kid !== false) el.append(kid instanceof Node ? kid : String(kid));
+  return el;
+}
+const svg = (tag, attrs = {}) => {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+};
+
+// ---------- Formatação ----------
+const nf = new Intl.NumberFormat('pt-BR');
+const num = (n) => nf.format(n ?? 0);
+function bytes(b) {
+  if (!b) return '0 B';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(u.length - 1, Math.floor(Math.log(b) / Math.log(1024)));
+  return `${(b / 1024 ** i).toLocaleString('pt-BR', { maximumFractionDigits: i >= 2 ? 1 : 0 })} ${u[i]}`;
+}
+function bits(b) {
+  if (!b) return '0 bps';
+  const u = ['bps', 'Kbps', 'Mbps', 'Gbps'];
+  const i = Math.min(u.length - 1, Math.floor(Math.log(b) / Math.log(1000)));
+  return `${(b / 1000 ** i).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} ${u[i]}`;
+}
+const when = (t) => (t ? new Date(t).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—');
+function ago(t) {
+  if (!t) return 'nunca';
+  const s = Math.round((Date.now() - t) / 1000);
+  if (s < 60) return 'agora';
+  if (s < 3600) return `há ${Math.floor(s / 60)} min`;
+  if (s < 86400) return `há ${Math.floor(s / 3600)} h`;
+  return `há ${Math.floor(s / 86400)} d`;
+}
+function duration(sec) {
+  sec = Math.floor(sec);
+  const d = Math.floor(sec / 86400); const hh = Math.floor((sec % 86400) / 3600); const m = Math.floor((sec % 3600) / 60);
+  return d ? `${d} d ${hh} h` : hh ? `${hh} h ${m} min` : `${m} min`;
+}
+const pct = (v) => `${(v ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
+
+// ---------- Servidor ----------
+async function api(path, opts = {}) {
+  const r = await fetch(path, {
+    method: opts.method ?? 'GET',
+    headers: { 'x-painel': '1', ...(opts.body ? { 'Content-Type': 'application/json' } : {}) },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+    credentials: 'same-origin',
+  });
+  if (r.status === 401 && path !== '/api/login') { showLogin(); throw new Error('Entre de novo.'); }
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || `Erro ${r.status}`);
+  return data;
+}
+
+function toast(text, ms = 4000) {
+  const el = h('div', { class: 'toast', role: 'status' }, text);
+  document.body.append(el);
+  setTimeout(() => el.remove(), ms);
+}
+
+// ---------- Login ----------
+function showLogin() {
+  stopTimers();
+  $('#app').hidden = true;
+  $('#login').hidden = false;
+  $('#login-user').focus();
+}
+$('#login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = e.submitter ?? $('#login-form button');
+  btn.disabled = true;
+  $('#login-error').textContent = '';
+  try {
+    await api('/api/login', { method: 'POST', body: { user: $('#login-user').value, password: $('#login-pass').value } });
+    $('#login-pass').value = '';
+    start();
+  } catch (err) {
+    $('#login-error').textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+$('#logout').addEventListener('click', async () => {
+  try { await api('/api/logout', { method: 'POST' }); } catch { /* já saiu */ }
+  showLogin();
+});
+
+// ---------- Abas ----------
+const TABS = {
+  geral: ['Visão geral', viewGeral, 5000],
+  aovivo: ['Ao vivo', viewAoVivo, 5000],
+  usuarios: ['Usuários', viewUsuarios, 30000],
+  auditoria: ['Auditoria', viewAuditoria, 0],
+  acessos: ['Acessos ao site', viewAcessos, 60000],
+  logs: ['Logs', viewLogs, 0],
+  backups: ['Backups', viewBackups, 60000],
+  sistema: ['Sistema', viewSistema, 30000],
+};
+let tab = 'geral';
+let timer = null;
+let status = null;
+const stopTimers = () => { clearInterval(timer); timer = null; };
+
+document.querySelectorAll('.side button[data-tab]').forEach((b) => b.addEventListener('click', () => openTab(b.dataset.tab)));
+function openTab(name) {
+  tab = TABS[name] ? name : 'geral';
+  try { localStorage.setItem('painel-tab', tab); } catch { /* sem armazenamento */ }
+  document.querySelectorAll('.side button[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+  const [title, fn, every] = TABS[tab];
+  $('#title').textContent = title;
+  const view = $('#view');
+  view.replaceChildren(h('p', { class: 'muted' }, 'Carregando…'));
+  stopTimers();
+  const load = async (first) => {
+    try {
+      const node = await fn(first);
+      if (node && tab === name) view.replaceChildren(node);
+      $('#updated').textContent = `Atualizado ${new Date().toLocaleTimeString('pt-BR')}`;
+    } catch (err) {
+      if (first) view.replaceChildren(h('p', { class: 'error' }, err.message));
+    }
+  };
+  load(true);
+  if (every) timer = setInterval(() => load(false), every);
+}
+
+async function start() {
+  try { await api('/api/me'); } catch { showLogin(); return; }
+  $('#login').hidden = true;
+  $('#app').hidden = false;
+  let saved = 'geral';
+  try { saved = localStorage.getItem('painel-tab') || 'geral'; } catch { /* sem armazenamento */ }
+  openTab(saved);
+  refreshTop();
+  setInterval(refreshTop, 15000);
+}
+
+async function refreshTop() {
+  if ($('#app').hidden) return;
+  try { status = await api('/api/status'); } catch { return; }
+  const m = status.main ?? {};
+  const ok = m.up && !m.error;
+  $('#top-status').replaceChildren(h('span', { class: `pill ${ok ? 'good' : 'bad'}` }, h('span', { class: 'dot' }), ok ? 'Muvuca no ar' : `Muvuca: ${m.error ?? 'fora do ar'}`));
+}
+
+// ---------- Componentes ----------
+// bar: porcentagem da barrinha; level: cor ('', 'warn', 'bad'), senão vem da porcentagem
+const stat = (label, value, sub, bar, level) => h('div', { class: 'card stat' },
+  h('div', { class: 'label' }, label), h('div', { class: 'value' }, value), sub ? h('div', { class: 'sub' }, sub) : null,
+  bar !== undefined ? h('div', { class: `bar ${level ?? (bar > 90 ? 'bad' : bar > 75 ? 'warn' : '')}` }, h('span', { style: `width:${Math.min(100, bar)}%` })) : null);
+
+function table(cols, rows, { empty = 'Nada por aqui.', rowClass } = {}) {
+  if (!rows.length) return h('p', { class: 'empty' }, empty);
+  return h('div', { class: 'table-wrap' }, h('table', {},
+    h('thead', {}, h('tr', {}, cols.map((c) => h('th', { class: c.num ? 'num' : null }, c.label)))),
+    h('tbody', {}, rows.map((r) => h('tr', { class: rowClass?.(r) ?? null }, cols.map((c) => h('td', { class: c.num ? 'num' : null }, c.get(r))))))));
+}
+
+// Gráfico de linhas em SVG: series = [{ label, color, values }]
+function lineChart(times, series, { format = (v) => v, max } = {}) {
+  const W = 600; const H = 150; const L = 44; const B = 18; const T = 8;
+  const top = max ?? Math.max(1, ...series.flatMap((s) => s.values));
+  const el = svg('svg', { class: 'chart', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', role: 'img' });
+  for (let i = 0; i <= 2; i++) {
+    const y = T + ((H - T - B) * i) / 2;
+    el.append(svg('line', { class: 'grid-line', x1: L, x2: W, y1: y, y2: y }));
+    const t = svg('text', { x: L - 6, y: y + 3, 'text-anchor': 'end' });
+    t.textContent = format(top * (1 - i / 2));
+    el.append(t);
+  }
+  if (times.length > 1) {
+    const t0 = times[0]; const t1 = times[times.length - 1];
+    const x = (t) => L + ((W - L) * (t - t0)) / Math.max(1, t1 - t0);
+    const y = (v) => T + (H - T - B) * (1 - Math.min(1, v / top));
+    for (const s of series) {
+      const d = s.values.map((v, i) => `${i ? 'L' : 'M'}${x(times[i]).toFixed(1)},${y(v).toFixed(1)}`).join('');
+      el.append(svg('path', { d, fill: 'none', stroke: s.color, 'stroke-width': 2, 'vector-effect': 'non-scaling-stroke', 'stroke-linejoin': 'round' }));
+    }
+    for (const [t, anchor] of [[t0, 'start'], [t1, 'end']]) {
+      const label = svg('text', { x: anchor === 'start' ? L : W, y: H - 4, 'text-anchor': anchor });
+      label.textContent = new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      el.append(label);
+    }
+  }
+  const legend = h('div', { class: 'legend' }, series.map((s) => h('span', {}, h('i', { style: `background:${s.color}` }), s.label)));
+  return h('div', {}, el, legend);
+}
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+// ---------- Alertas (o que merece atenção agora) ----------
+function alerts(s, ov, bk) {
+  const out = [];
+  const m = s.main ?? {};
+  if (!m.up) out.push(['bad', `O Muvuca está fora do ar (${m.error ?? 'sem resposta'}).`]);
+  else if (m.error) out.push(['warn', `Muvuca: ${m.error}`]);
+  for (const [name, label] of [['livekit', 'voz (LiveKit)'], ['caddy', 'HTTPS (Caddy)'], ['ddns', 'DuckDNS']]) {
+    if (!s.procs?.[name]) out.push(['bad', `O serviço de ${label} não está rodando.`]);
+  }
+  const memPct = s.mem ? (s.mem.used / s.mem.total) * 100 : 0;
+  if (memPct > 90) out.push(['warn', `Memória do Mac em ${pct(memPct)}.`]);
+  if (s.cpu > 85) out.push(['warn', `Processador em ${pct(s.cpu)}.`]);
+  if (s.disk && s.disk.free < 5 * 1024 ** 3) out.push(['bad', `Disco quase cheio: só ${bytes(s.disk.free)} livres.`]);
+  else if (s.disk && s.disk.free < 15 * 1024 ** 3) out.push(['warn', `Pouco espaço em disco: ${bytes(s.disk.free)} livres.`]);
+  if (m.loopDelayMs > 100) out.push(['warn', `O Muvuca está respondendo devagar (atraso médio de ${m.loopDelayMs} ms).`]);
+  for (const c of s.certs ?? []) {
+    if (!c.name.endsWith('duckdns.org')) continue;
+    const days = Math.floor((c.validTo - Date.now()) / 86400000);
+    if (days < 14) out.push([days < 5 ? 'bad' : 'warn', `Certificado HTTPS de ${c.name} vence em ${days} dias (o Caddy renova sozinho; se não renovar, confira os logs).`]);
+  }
+  if (ov?.failed24 > 10) out.push(['warn', `${ov.failed24} tentativas que falharam (senha errada etc.) nas últimas 24 h — veja a Auditoria.`]);
+  if (ov && !ov.auditReady) out.push(['warn', 'A auditoria ainda não está ativa: reinicie o Muvuca uma vez para criar o registro.']);
+  if (bk) {
+    const last = bk.local?.[0]?.at;
+    if (!last || Date.now() - last > 26 * 3600000) out.push(['warn', `O último backup é de ${last ? ago(last) : 'nunca'}.`]);
+    const lastWarn = (bk.warnings ?? []).find((w) => w.startsWith('[backup'));
+    if (lastWarn) out.push(['warn', `Último backup com aviso: ${lastWarn.replace(/^\[backup [^\]]+\]\s*/, '')}${bk.warnings.some((w) => /Operation not permitted/.test(w)) ? ' — o macOS bloqueou o acesso à pasta do iCloud (veja a aba Backups).' : ''}`]);
+  }
+  return out;
+}
+
+// ---------- Visão geral ----------
+let range = 1;
+let bkCache = null;
+async function viewGeral(first) {
+  const [s, ov, hist] = await Promise.all([api('/api/status'), api('/api/overview'), api(`/api/history?hours=${range}`)]);
+  status = s;
+  if (first || !bkCache || Date.now() - bkCache.t > 60000) bkCache = { t: Date.now(), data: await api('/api/backups').catch(() => null) };
+  const m = s.main ?? {};
+  const inVoice = (m.voice ?? []).reduce((n, v) => n + v.count, 0);
+  const lives = (m.voice ?? []).reduce((n, v) => n + (v.people ?? []).filter((p) => p.streaming).length, 0);
+  const memPct = s.mem ? (s.mem.used / s.mem.total) * 100 : 0;
+  const diskPct = s.disk ? (1 - s.disk.free / s.disk.total) * 100 : 0;
+  const al = alerts(s, ov, bkCache.data);
+
+  const times = hist.map((p) => p.t);
+  const rangeSel = h('div', { class: 'row' }, h('span', { class: 'muted small' }, 'Período:'),
+    [1, 6, 24].map((hr) => h('button', { class: `btn small ${hr === range ? 'primary' : ''}`, onclick: () => { range = hr; openTab('geral'); } }, `${hr} h`)));
+
+  const maxDay = Math.max(1, ...ov.perDay.map((d) => d.n));
+  const days = Array.from({ length: 14 }, (_, i) => ov.perDay.find((d) => d.d === i)?.n ?? 0);
+
+  return h('div', {},
+    h('div', { class: 'alerts' }, al.length ? al.map(([k, t]) => h('div', { class: `alert ${k}` }, t)) : h('div', { class: 'alert good' }, 'Tudo certo: nenhum alerta agora.')),
+    h('div', { class: 'grid cards' },
+      stat('Muvuca', m.up && !m.error ? 'No ar' : 'Fora', m.upSince ? `há ${duration((Date.now() - m.upSince) / 1000)}` : m.error ?? ''),
+      stat('Online agora', num(m.users?.length ?? 0), `${num(m.connections ?? 0)} abas/apps conectados`),
+      stat('Em call', num(inVoice), `${num((m.voice ?? []).length)} canais · ${num(lives)} ${lives === 1 ? 'live' : 'lives'}`),
+      stat('Jogando', num((m.games ?? []).filter((g) => g.status === 'playing').reduce((n, g) => n + g.players.length, 0)), `${num((m.games ?? []).length)} salas abertas`),
+      stat('Processador', pct(s.cpu), `Muvuca: ${pct((s.procs?.muvuca?.cpu ?? 0) + (s.procs?.livekit?.cpu ?? 0) + (s.procs?.caddy?.cpu ?? 0))}`, s.cpu),
+      stat('Memória do Mac', pct(memPct), `${bytes(s.mem?.used)} de ${bytes(s.mem?.total)}`, memPct),
+      stat('Rede agora', `↑ ${bits(s.net?.tx)}`, `↓ ${bits(s.net?.rx)} · ${s.net?.iface ?? ''}`),
+      stat('Disco', `${bytes(s.disk?.free)} livres`, `${pct(diskPct)} usado de ${bytes(s.disk?.total)}`, diskPct, !s.disk ? '' : s.disk.free < 5 * 1024 ** 3 ? 'bad' : s.disk.free < 15 * 1024 ** 3 ? 'warn' : ''),
+    ),
+    h('div', { class: 'section row' }, h('h2', {}, 'Histórico'), h('span', { class: 'spacer' }), rangeSel),
+    h('div', { class: 'grid two' },
+      h('div', { class: 'card' }, h('h2', {}, 'Processador'), lineChart(times, [
+        { label: 'Mac inteiro', color: css('--chart1'), values: hist.map((p) => p.cpu) },
+        { label: 'Muvuca + voz + HTTPS', color: css('--chart2'), values: hist.map((p) => p.mcpu / (s.cores || 1)) },
+      ], { format: (v) => `${Math.round(v)}%`, max: 100 })),
+      h('div', { class: 'card' }, h('h2', {}, 'Memória'), lineChart(times, [
+        { label: 'Mac inteiro', color: css('--chart1'), values: hist.map((p) => p.mem) },
+        { label: 'Muvuca + voz + HTTPS', color: css('--chart2'), values: hist.map((p) => p.mrss) },
+      ], { format: bytes, max: s.mem?.total })),
+      h('div', { class: 'card' }, h('h2', {}, 'Rede'), lineChart(times, [
+        { label: 'Envio (upload)', color: css('--chart2'), values: hist.map((p) => p.tx) },
+        { label: 'Recebimento', color: css('--chart1'), values: hist.map((p) => p.rx) },
+      ], { format: bits })),
+      h('div', { class: 'card' }, h('h2', {}, 'Pessoas'), lineChart(times, [
+        { label: 'Online', color: css('--chart1'), values: hist.map((p) => p.online) },
+        { label: 'Em call', color: css('--chart3'), values: hist.map((p) => p.voice) },
+        { label: 'Lives', color: css('--chart2'), values: hist.map((p) => p.lives) },
+      ], { format: (v) => Math.round(v) })),
+    ),
+    h('div', { class: 'section grid cards' },
+      stat('Contas', num(ov.users), `${num(ov.usersNew7)} novas em 7 dias`),
+      stat('Ativas', ov.active24 === null ? '—' : num(ov.active24), ov.active7 === null ? '' : `24 h · ${num(ov.active7)} em 7 dias`),
+      stat('Mensagens', num(ov.messages), `${num(ov.messages24)} nas últimas 24 h`),
+      stat('Servidores', num(ov.servers), `${num(ov.channels)} canais · ${num(ov.dms)} conversas diretas`),
+      stat('Anexos', num(ov.files), bytes(ov.filesBytes)),
+      stat('Sessões abertas', num(ov.sessions), 'aparelhos conectados às contas'),
+    ),
+    h('div', { class: 'section grid two' },
+      h('div', { class: 'card' }, h('h2', {}, 'Mensagens por dia (14 dias)'),
+        h('div', { class: 'bars' }, days.map((n, i) => h('div', { title: `${n} mensagens`, style: `height:${Math.max(2, (n / maxDay) * 100)}%` }))),
+        h('div', { class: 'legend' }, h('span', {}, 'há 14 dias'), h('span', { class: 'spacer' }), h('span', {}, 'hoje'))),
+      h('div', { class: 'card' }, h('h2', {}, 'Jogos mais jogados (7 dias)'),
+        table([{ label: 'Jogo', get: (r) => r.game }, { label: 'Partidas', num: true, get: (r) => num(r.n) }], ov.games7, { empty: 'Nenhuma partida nesta semana.' })),
+    ),
+    h('div', { class: 'section card' }, h('h2', {}, 'Processos'), processTable(s)),
+  );
+}
+
+function processTable(s) {
+  const names = { muvuca: 'Muvuca (site, chat, jogos)', livekit: 'LiveKit (voz, vídeo, live)', caddy: 'Caddy (HTTPS)', ddns: 'DuckDNS', start: 'Supervisor (start.sh)', painel: 'Este painel' };
+  const rows = Object.entries(names).map(([k, label]) => ({ k, label, p: s.procs?.[k] }));
+  return table([
+    { label: 'Serviço', get: (r) => r.label },
+    { label: 'Estado', get: (r) => h('span', { class: `pill ${r.p ? 'good' : 'bad'}` }, r.p ? 'rodando' : 'parado') },
+    { label: 'CPU', num: true, get: (r) => (r.p ? pct(r.p.cpu) : '—') },
+    { label: 'RAM', num: true, get: (r) => (r.p ? bytes(r.p.rss) : '—') },
+    { label: 'Ligado há', num: true, get: (r) => r.p?.etime ?? '—' },
+    { label: 'PID', num: true, get: (r) => r.p?.pid ?? '—' },
+  ], rows);
+}
+
+// ---------- Ao vivo ----------
+async function viewAoVivo() {
+  const s = await api('/api/status');
+  const m = s.main ?? {};
+  if (!m.up || m.error) return h('p', { class: 'error' }, `Sem dados ao vivo: ${m.error ?? 'o Muvuca está fora do ar'}.`);
+  const statusLabel = { online: ['good', 'online'], idle: ['warn', 'ausente'], dnd: ['bad', 'não perturbe'], invisible: ['', 'invisível'] };
+  return h('div', {},
+    h('div', { class: 'grid two' },
+      h('div', { class: 'card' }, h('h2', {}, `Online (${m.users.length})`),
+        table([
+          { label: 'Pessoa', get: (u) => h('span', {}, h('b', {}, u.name), ' ', h('span', { class: 'muted small' }, `@${u.username}`)) },
+          { label: 'Status', get: (u) => { const [k, t] = statusLabel[u.status] ?? ['', u.status]; return h('span', { class: `pill ${k}` }, t); } },
+          { label: 'Abas', num: true, get: (u) => `${u.tabs}${u.hidden ? ' (em segundo plano)' : ''}` },
+          { label: 'IP', get: (u) => h('span', { class: 'mono' }, u.ip ?? '—') },
+        ], m.users, { empty: 'Ninguém online agora.' })),
+      h('div', { class: 'card' }, h('h2', {}, 'Canais de voz'),
+        m.voice.length ? m.voice.map((v) => h('div', { class: 'section' },
+          v.private ? h('div', {}, h('b', {}, 'Ligação privada'), h('span', { class: 'muted' }, ` · ${v.count} ${v.count === 1 ? 'pessoa' : 'pessoas'}`))
+            : h('div', {}, h('b', {}, `🔊 ${v.name}`), h('span', { class: 'muted' }, ` · ${v.server} · ${v.count} ${v.count === 1 ? 'pessoa' : 'pessoas'}`)),
+          v.people ? h('div', { class: 'people' }, v.people.map((p) => h('span', { class: `pill ${p.streaming ? 'bad' : ''}` },
+            p.name, p.streaming ? ' · 🔴 live' : '', p.camera ? ' · 📷' : '', p.deafened ? ' · 🔇 som' : p.muted ? ' · 🎙️ mudo' : ''))) : null,
+        )) : h('p', { class: 'empty' }, 'Ninguém em call.')),
+    ),
+    h('div', { class: 'section grid two' },
+      h('div', { class: 'card' }, h('h2', {}, 'Salas de jogo'),
+        table([
+          { label: 'Jogo', get: (g) => g.game },
+          { label: 'Estado', get: (g) => h('span', { class: `pill ${g.status === 'playing' ? 'good' : ''}` }, g.status === 'playing' ? 'jogando' : 'esperando') },
+          { label: 'Jogadores', get: (g) => g.players.join(', ') },
+          { label: 'Assistindo', num: true, get: (g) => g.spectators },
+        ], m.games, { empty: 'Nenhuma sala aberta.' })),
+      h('div', { class: 'card' }, h('h2', {}, 'Salas de música'),
+        table([
+          { label: 'Canal', get: (r) => `${r.name} · ${r.server}` },
+          { label: 'Ouvindo', num: true, get: (r) => r.listeners },
+          { label: 'Tocando', get: (r) => r.track ?? '—' },
+        ], m.music, { empty: 'Ninguém ouvindo música.' })),
+    ),
+  );
+}
+
+// ---------- Usuários ----------
+let userFilter = '';
+async function viewUsuarios() {
+  const users = await api('/api/users');
+  const box = h('div', { class: 'card' });
+  const input = h('input', { type: 'search', placeholder: 'Buscar por nome ou usuário…', value: userFilter });
+  const body = h('div');
+  const render = () => {
+    const q = userFilter.toLowerCase();
+    const rows = users.filter((u) => !q || u.username.toLowerCase().includes(q) || u.name.toLowerCase().includes(q));
+    body.replaceChildren(table([
+      { label: 'Pessoa', get: (u) => h('span', {}, h('b', {}, u.name), ' ', h('span', { class: 'muted small' }, `@${u.username}`)) },
+      { label: 'Agora', get: (u) => h('span', { class: `pill ${u.online ? 'good' : ''}` }, u.online ? 'online' : ago(u.last_seen)) },
+      { label: 'Conta criada', get: (u) => when(u.created_at) },
+      { label: 'Último login', get: (u) => h('span', {}, u.lastLogin ? ago(u.lastLogin) : '—', u.lastIp ? h('div', { class: 'mono muted' }, u.lastIp) : null) },
+      { label: 'Aparelhos', num: true, get: (u) => u.sessions },
+      { label: 'Mensagens', num: true, get: (u) => num(u.messages) },
+      { label: 'Anexos', num: true, get: (u) => bytes(u.bytes) },
+      { label: 'Servidores', num: true, get: (u) => u.servers },
+      { label: 'Senha errada (7 d)', num: true, get: (u) => (u.fails7 ? h('span', { class: `pill ${u.fails7 >= 5 ? 'bad' : 'warn'}` }, u.fails7) : '0') },
+      { label: '', get: (u) => h('button', { class: 'btn small ghost', onclick: () => { auditFilters = { user: u.username }; openTab('auditoria'); } }, 'Auditoria') },
+    ], rows, { empty: 'Nenhuma conta encontrada.' }));
+  };
+  input.addEventListener('input', () => { userFilter = input.value; render(); });
+  render();
+  box.append(h('div', { class: 'row' }, h('h2', {}, `${users.length} contas`), h('span', { class: 'spacer' }), input), body);
+  return box;
+}
+
+// ---------- Auditoria ----------
+const KEY_LABELS = {
+  contaExiste: 'conta existe', outrosAparelhosDesconectados: 'outros aparelhos desconectados', pessoasEmCall: 'pessoas em call',
+  expiresIn: 'validade', maxUses: 'usos', userLimit: 'limite de pessoas', name: 'nome', type: 'tipo', topic: 'tópico', word: 'palavra',
+  code: 'código', color: 'cor', bitrate: 'qualidade', pinned: 'fixada', on: 'ligado', usuario: 'usuário tentado', texto: 'texto',
+};
+// "Mozilla/5.0 (Macintosh…) Chrome/…" → "Chrome no Mac" (o texto completo fica na dica ao passar o mouse)
+function device(ua) {
+  ua = String(ua ?? '');
+  if (!ua) return '—';
+  const app = /Muvuca\//.test(ua) ? 'App do Muvuca' : /Electron\//.test(ua) ? 'App' : /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera'
+    : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : /curl\//.test(ua) ? 'curl' : ua.split(/[ /]/)[0];
+  const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Mac OS X|Macintosh/.test(ua) ? 'Mac'
+    : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : '';
+  return os ? `${app} no ${os}` : app;
+}
+let auditFilters = {};
+async function viewAuditoria() {
+  const labels = (await api('/api/audit?limit=1')).labels;
+  const f = auditFilters;
+  const user = h('input', { type: 'search', placeholder: 'Usuário', value: f.user ?? '', size: 12 });
+  const text = h('input', { type: 'search', placeholder: 'Texto (canal, servidor…)', value: f.text ?? '', size: 18 });
+  const ip = h('input', { type: 'search', placeholder: 'IP', value: f.ip ?? '', size: 14 });
+  const action = h('select', {}, h('option', { value: '' }, 'Todas as ações'),
+    Object.entries(labels).map(([k, v]) => h('option', { value: k, selected: f.action === k }, v)));
+  const group = h('select', {},
+    [['', 'Todos os tipos'], ['seguranca', 'Segurança'], ['contas', 'Contas e acesso'], ['moderacao', 'Moderação'], ['painel', 'Painel']]
+      .map(([k, v]) => h('option', { value: k, selected: f.group === k }, v)));
+  const period = h('select', {},
+    [['', 'Sempre'], ['1', 'Últimas 24 h'], ['7', '7 dias'], ['30', '30 dias']].map(([k, v]) => h('option', { value: k, selected: f.days === k }, v)));
+  const onlyFail = h('input', { type: 'checkbox', checked: f.ok === '0' });
+  const list = h('div');
+  const more = h('button', { class: 'btn small', hidden: true }, 'Carregar mais');
+  let rows = [];
+
+  const params = (extra = {}) => {
+    const p = new URLSearchParams();
+    const v = { user: user.value.trim(), text: text.value.trim(), ip: ip.value.trim(), action: action.value, group: group.value, ok: onlyFail.checked ? '0' : '' };
+    auditFilters = { ...v, days: period.value };
+    for (const [k, val] of Object.entries(v)) if (val) p.set(k, val);
+    if (period.value) p.set('from', String(Date.now() - Number(period.value) * 86400000));
+    for (const [k, val] of Object.entries(extra)) p.set(k, val);
+    return p;
+  };
+  const describe = (d) => (d ? Object.entries(d).map(([k, v]) => h('span', {}, `${KEY_LABELS[k] ?? k}: `,
+    h('b', { title: k === 'aparelho' ? String(v) : null }, k === 'aparelho' ? device(v) : Array.isArray(v) ? v.join(', ') : v === true ? 'sim' : v === false ? 'não' : String(v)), '  ')) : '');
+  const render = () => list.replaceChildren(table([
+    { label: 'Quando', get: (r) => h('span', { title: when(r.at) }, when(r.at)) },
+    { label: 'Quem', get: (r) => h('b', {}, r.user_name ?? '—') },
+    { label: 'O quê', get: (r) => h('span', {}, r.ok ? '' : '❌ ', r.label) },
+    { label: 'Detalhes', get: (r) => h('div', { class: 'detail' }, describe(r.detail)) },
+    { label: 'IP', get: (r) => h('span', { class: 'mono' }, r.ip ?? '') },
+  ], rows, { empty: 'Nenhum registro com esses filtros.', rowClass: (r) => (r.ok ? null : 'fail') }));
+
+  const load = async (append) => {
+    const extra = { limit: '100' };
+    if (append && rows.length) extra.before = String(rows[rows.length - 1].id);
+    const data = await api(`/api/audit?${params(extra)}`);
+    rows = append ? rows.concat(data.rows) : data.rows;
+    more.hidden = data.rows.length < 100;
+    render();
+  };
+  more.addEventListener('click', () => load(true));
+  for (const el of [action, group, period, onlyFail]) el.addEventListener('change', () => load(false));
+  for (const el of [user, text, ip]) el.addEventListener('keydown', (e) => { if (e.key === 'Enter') load(false); });
+  const csv = h('button', { class: 'btn small', onclick: () => { location.href = `/api/audit.csv?${params()}`; } }, 'Exportar CSV');
+  await load(false);
+  return h('div', { class: 'card' },
+    h('div', { class: 'row' }, user, text, ip, action, group, period, h('label', { class: 'row small' }, onlyFail, 'Só falhas'),
+      h('button', { class: 'btn small primary', onclick: () => load(false) }, 'Filtrar'), h('span', { class: 'spacer' }), csv),
+    h('p', { class: 'muted small' }, 'Registra logins (e erros de senha), cadastros, trocas de senha, entradas em canais de voz e todas as ações de gerenciamento: servidores, canais, cargos, convites, expulsões e mensagens apagadas por moderadores. Conversas privadas e mensagens comuns não entram. Guardado por 180 dias.'),
+    list, h('div', { class: 'row section' }, more));
+}
+
+// ---------- Acessos ----------
+async function viewAcessos() {
+  const [sum, recent] = await Promise.all([api('/api/access'), api('/api/logs?which=caddy&lines=200')]);
+  const pairs = (list, a, b) => table([{ label: a, get: (r) => h('span', { class: 'mono' }, r[0]) }, { label: b, num: true, get: (r) => num(r[1]) }], list);
+  const reqCols = [
+    { label: 'Quando', get: (r) => when(r.at) },
+    { label: 'IP', get: (r) => h('span', { class: 'mono' }, r.ip) },
+    { label: 'Pedido', get: (r) => h('span', { class: 'mono' }, `${r.method} ${r.path}`) },
+    { label: 'Status', num: true, get: (r) => h('span', { class: `pill ${r.status >= 500 ? 'bad' : r.status >= 400 ? 'warn' : 'good'}` }, r.status) },
+    { label: 'Tempo', num: true, get: (r) => `${r.ms} ms` },
+  ];
+  return h('div', {},
+    h('div', { class: 'grid cards' },
+      stat('Pedidos em 24 h', num(sum.total)),
+      stat('Sucesso (2xx/3xx)', num((sum.status['2xx'] ?? 0) + (sum.status['3xx'] ?? 0))),
+      stat('Recusados (4xx)', num(sum.status['4xx'] ?? 0)),
+      stat('Erros (5xx)', num(sum.status['5xx'] ?? 0)),
+    ),
+    h('div', { class: 'section grid two' },
+      h('div', { class: 'card' }, h('h2', {}, 'IPs que mais acessaram (24 h)'), pairs(sum.ips, 'IP', 'Pedidos')),
+      h('div', { class: 'card' }, h('h2', {}, 'Endereços mais pedidos (24 h)'), pairs(sum.paths, 'Caminho', 'Pedidos')),
+    ),
+    h('div', { class: 'section card' }, h('h2', {}, 'Recusados: sem permissão ou tentativas demais'), table(reqCols, sum.denied, { empty: 'Nenhum nas últimas 24 h.' })),
+    h('div', { class: 'section card' }, h('h2', {}, 'Erros do servidor'), table(reqCols, sum.errors, { empty: 'Nenhum erro nas últimas 24 h.' })),
+    h('div', { class: 'section card' }, h('h2', {}, 'Últimos pedidos'), table(reqCols, recent)),
+  );
+}
+
+// ---------- Logs ----------
+let logWhich = 'muvuca';
+let logFilter = '';
+async function viewLogs() {
+  const sel = h('select', {}, [['muvuca', 'Muvuca (servidor)'], ['backup', 'Backups'], ['painel', 'Painel']].map(([k, v]) => h('option', { value: k, selected: k === logWhich }, v)));
+  const search = h('input', { type: 'search', placeholder: 'Filtrar linhas…', value: logFilter });
+  const pre = h('pre', { class: 'log' });
+  const auto = h('input', { type: 'checkbox' });
+  let lines = [];
+  const render = () => {
+    const q = logFilter.toLowerCase();
+    const shown = lines.filter((l) => !q || l.toLowerCase().includes(q));
+    pre.textContent = shown.length ? shown.join('\n') : '(vazio)';
+    pre.scrollTop = pre.scrollHeight;
+  };
+  const load = async () => { lines = await api(`/api/logs?which=${logWhich}&lines=800`); render(); };
+  sel.addEventListener('change', () => { logWhich = sel.value; load(); });
+  search.addEventListener('input', () => { logFilter = search.value; render(); });
+  auto.addEventListener('change', () => { stopTimers(); if (auto.checked) timer = setInterval(load, 3000); });
+  await load();
+  return h('div', { class: 'card' },
+    h('div', { class: 'row' }, sel, search, h('label', { class: 'row small' }, auto, 'Acompanhar ao vivo'), h('span', { class: 'spacer' }), h('button', { class: 'btn small', onclick: load }, 'Atualizar')),
+    h('div', { class: 'section' }, pre));
+}
+
+// ---------- Backups ----------
+async function viewBackups() {
+  const b = await api('/api/backups');
+  const cols = [{ label: 'Arquivo', get: (r) => h('span', { class: 'mono' }, r.name) }, { label: 'Tamanho', num: true, get: (r) => bytes(r.size) }, { label: 'Quando', get: (r) => `${when(r.at)} (${ago(r.at)})` }];
+  const btn = h('button', { class: 'btn primary' }, 'Fazer backup agora');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.textContent = 'Fazendo backup…';
+    try {
+      const r = await api('/api/backup', { method: 'POST' });
+      toast(r.output || (r.ok ? 'Backup feito.' : 'O backup falhou.'), 8000);
+      bkCache = null;
+      openTab('backups');
+    } catch (err) { toast(err.message); } finally { btn.disabled = false; }
+  });
+  return h('div', {},
+    h('div', { class: 'card row' }, h('div', {}, h('b', {}, 'Backup automático todo dia às 4h'), h('div', { class: 'muted small' }, 'Banco de dados, emojis, fotos e chave das notificações. Fica 1 cópia no Mac e as 7 mais recentes no iCloud Drive.')), h('span', { class: 'spacer' }), btn),
+    b.warnings.length ? h('div', { class: 'alerts section' }, b.warnings.map((w) => h('div', { class: 'alert warn mono' }, w))) : null,
+    h('div', { class: 'section grid two' },
+      h('div', { class: 'card' }, h('h2', {}, 'No Mac (data/backups)'), b.local ? table(cols, b.local, { empty: 'Nenhum backup ainda.' }) : h('p', { class: 'empty' }, 'Pasta não encontrada.')),
+      h('div', { class: 'card' }, h('h2', {}, 'No iCloud Drive'), b.cloud ? table(cols, b.cloud, { empty: 'Nenhum backup no iCloud.' }) : h('p', { class: 'empty' }, 'O painel não conseguiu ler a pasta do iCloud.')),
+    ),
+    h('div', { class: 'section card' }, h('h2', {}, 'Últimos resultados'), h('pre', { class: 'log' }, b.results.join('\n') || '(nenhum)')),
+  );
+}
+
+// ---------- Sistema ----------
+async function viewSistema() {
+  const [s, sessions] = await Promise.all([api('/api/status'), api('/api/sessions')]);
+  const m = s.main ?? {};
+  const sz = s.sizes ?? {};
+  const restart = h('button', { class: 'btn danger' }, 'Reiniciar o Muvuca');
+  restart.addEventListener('click', async () => {
+    if (!confirm('Reiniciar o Muvuca agora? Quem estiver conectado cai por uns 10 segundos e volta sozinho.')) return;
+    restart.disabled = true;
+    try {
+      let r = await api('/api/restart', { method: 'POST', body: {} });
+      if (r.needsForce && confirm(`${r.output}\nReiniciar mesmo assim?`)) r = await api('/api/restart', { method: 'POST', body: { force: true } });
+      toast(r.output, 8000);
+    } catch (err) { toast(err.message); } finally { setTimeout(() => { restart.disabled = false; }, 15000); }
+  });
+  const logoutAll = h('button', { class: 'btn small', onclick: async () => { await api('/api/logout-all', { method: 'POST' }); toast('Os outros aparelhos saíram do painel.'); openTab('sistema'); } }, 'Tirar os outros aparelhos');
+  const site = `https://${s.domain}${s.publicPort && s.publicPort !== '443' ? ` (IPv4: porta ${s.publicPort})` : ''}`;
+  return h('div', {},
+    h('div', { class: 'grid two' },
+      h('div', { class: 'card' }, h('h2', {}, 'Muvuca'), table([{ label: '', get: (r) => h('span', { class: 'muted' }, r[0]) }, { label: '', get: (r) => r[1] }], [
+        ['Endereço', site],
+        ['Estado', m.up && !m.error ? 'no ar' : m.error ?? 'fora do ar'],
+        ['Ligado desde', m.upSince ? `${when(m.upSince)} (${duration((Date.now() - m.upSince) / 1000)})` : '—'],
+        ['Node.js', m.node ?? '—'],
+        ['Memória do Node', m.memory ? `${bytes(m.memory.rss)} (heap ${bytes(m.memory.heapUsed)} de ${bytes(m.memory.heapTotal)})` : '—'],
+        ['Atraso de resposta', m.loopDelayMs !== undefined ? `${m.loopDelayMs} ms em média (pico ${m.loopDelayMaxMs} ms)` : '—'],
+        ['Conexões abertas', num(m.connections ?? 0)],
+      ])),
+      h('div', { class: 'card' }, h('h2', {}, 'Mac'), table([{ label: '', get: (r) => h('span', { class: 'muted' }, r[0]) }, { label: '', get: (r) => r[1] }], [
+        ['Ligado há', duration(s.uptime ?? 0)],
+        ['Processador', `${pct(s.cpu)} de ${s.cores} núcleos · carga ${(s.load ?? []).join(' / ')}`],
+        ['Memória', `${bytes(s.mem?.used)} de ${bytes(s.mem?.total)} (${bytes(s.mem?.compressed)} comprimida)`],
+        ['Disco', `${bytes(s.disk?.free)} livres de ${bytes(s.disk?.total)}`],
+        ['Rede', `${s.net?.iface ?? '—'} · total enviado ${bytes(s.net?.totalTx)} · recebido ${bytes(s.net?.totalRx)}`],
+      ])),
+    ),
+    h('div', { class: 'section grid two' },
+      h('div', { class: 'card' }, h('h2', {}, 'Espaço usado pelos dados'), table([{ label: 'O quê', get: (r) => r[0] }, { label: 'Tamanho', num: true, get: (r) => bytes(r[1]) }], [
+        ['Banco de dados', (sz['malegna.db'] ?? 0) + (sz['malegna.db-wal'] ?? 0)],
+        ['Anexos do chat', sz.anexos ?? 0], ['Fotos (perfil, banner, ícones)', sz.fotos ?? 0], ['Emojis', sz.emojis ?? 0], ['Sons', sz.sons ?? 0], ['Backups no Mac', sz.backups ?? 0],
+      ]), h('p', { class: 'muted small' }, `Medido ${ago(sz.at)} (a cada 10 min).`)),
+      h('div', { class: 'card' }, h('h2', {}, 'Certificados HTTPS'), table([
+        { label: 'Endereço', get: (c) => c.name },
+        { label: 'Vence', get: (c) => { const d = Math.floor((c.validTo - Date.now()) / 86400000); return h('span', { class: `pill ${d < 5 ? 'bad' : d < 14 ? 'warn' : 'good'}` }, `em ${d} dias`); } },
+        { label: 'Emissor', get: (c) => c.issuer },
+      ], s.certs ?? [], { empty: 'Nenhum certificado encontrado.' }), h('p', { class: 'muted small' }, 'O Caddy renova sozinho cerca de 30 dias antes de vencer.')),
+    ),
+    h('div', { class: 'section card' }, h('h2', {}, 'Processos'), processTable(s)),
+    h('div', { class: 'section card' }, h('div', { class: 'row' }, h('h2', {}, 'Aparelhos conectados ao painel'), h('span', { class: 'spacer' }), logoutAll),
+      table([
+        { label: 'Aparelho', get: (x) => h('span', { title: x.ua }, x.current ? h('span', { class: 'pill good' }, 'este') : null, ' ', device(x.ua)) },
+        { label: 'IP', get: (x) => h('span', { class: 'mono' }, x.ip) },
+        { label: 'Entrou', get: (x) => when(x.created) },
+        { label: 'Último uso', get: (x) => ago(x.last) },
+      ], sessions)),
+    h('div', { class: 'section card row' }, h('div', {}, h('b', {}, 'Reiniciar o Muvuca'), h('div', { class: 'muted small' }, 'Reinicia o site, a voz e o HTTPS (fica registrado na auditoria). O painel continua no ar. Se tiver gente em call, ele avisa antes.')), h('span', { class: 'spacer' }), restart),
+  );
+}
+
+start();

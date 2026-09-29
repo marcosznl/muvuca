@@ -227,6 +227,22 @@ export function openDb(file) {
       created_at INTEGER NOT NULL
     );
 
+    -- Auditoria: quem fez o quê e de onde (lida pelo painel administrativo). user_id sem REFERENCES:
+    -- o registro continua mesmo se a conta for apagada (o nome fica gravado em user_name)
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id         INTEGER PRIMARY KEY,
+      at         INTEGER NOT NULL,
+      user_id    INTEGER,
+      user_name  TEXT,
+      action     TEXT    NOT NULL,
+      server_id  TEXT,
+      detail     TEXT,
+      ip         TEXT,
+      ok         INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS audit_by_time ON audit_log(at);
+    CREATE INDEX IF NOT EXISTS audit_by_user ON audit_log(user_id, at);
+
     -- Notificações no celular (Web Push): um registro por aparelho
     CREATE TABLE IF NOT EXISTS push_subs (
       endpoint   TEXT    PRIMARY KEY,
@@ -349,6 +365,8 @@ function migrate(db) {
   const uCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
   if (!uCols.includes('presence')) db.exec("ALTER TABLE users ADD COLUMN presence TEXT NOT NULL DEFAULT 'online'");
   if (!uCols.includes('status_text')) db.exec('ALTER TABLE users ADD COLUMN status_text TEXT');
+  // Última vez que a pessoa esteve conectada (painel administrativo)
+  if (!uCols.includes('last_seen')) db.exec('ALTER TABLE users ADD COLUMN last_seen INTEGER');
   // Não lidas: quem já existia começa com tudo lido (senão o histórico inteiro viraria "novo")
   if (!db.prepare("SELECT value FROM meta WHERE key = 'read_state_v1'").get()) {
     db.exec(`INSERT OR IGNORE INTO read_state (user_id, channel_id, last_read)
@@ -465,6 +483,9 @@ class Store {
       setPassword: p('UPDATE users SET password_hash = ? WHERE id = ?'),
       gamePlays: p('SELECT game, COUNT(*) AS n FROM game_results WHERE created_at > ? GROUP BY game'),
       purgeSessions: p('DELETE FROM sessions WHERE expires_at <= ?'),
+      touchUser: p('UPDATE users SET last_seen = ? WHERE id = ?'),
+      insertAudit: p('INSERT INTO audit_log (at, user_id, user_name, action, server_id, detail, ip, ok) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
+      purgeAudit: p('DELETE FROM audit_log WHERE at < ?'),
       // servidores e membros
       server: p('SELECT * FROM servers WHERE id = ?'),
       insertServer: p('INSERT INTO servers (id, name, color, owner_id, created_at) VALUES (?, ?, ?, ?, ?)'),
@@ -728,6 +749,13 @@ class Store {
   }
   deleteOtherSessions(userId, keepToken) { return this.q.deleteOtherSessions.run(unum(userId), hashToken(String(keepToken))).changes; }
   purgeExpiredSessions() { this.q.purgeSessions.run(Date.now()); }
+  touchUser(userId) { this.q.touchUser.run(Date.now(), unum(userId)); }
+
+  // Auditoria (painel administrativo): userId pode ser null (ex.: login errado de conta que não existe)
+  audit({ userId = null, userName = null, action, serverId = null, detail = null, ip = null, ok = true }) {
+    this.q.insertAudit.run(Date.now(), userId ? unum(userId) : null, userName, action, serverId, detail ? JSON.stringify(detail) : null, ip, ok ? 1 : 0);
+  }
+  purgeAudit(before) { return this.q.purgeAudit.run(before).changes; }
 
   // ---------- Servidores ----------
 
