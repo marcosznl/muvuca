@@ -4,6 +4,7 @@ import { sockets, sendToUser, broadcastPresence, setActivityProvider } from '../
 import { fail } from '../util.js';
 import { db } from '../store.js';
 import { announceGameRoom } from '../welcome.js';
+import { xpForGame } from '../xp.js';
 import * as bomberman from './bomberman.js';
 import * as tron from './tron.js';
 import * as tanks from './tanks.js';
@@ -310,6 +311,7 @@ function recordResult(r, winners) {
   const people = r.engine.players.map((p) => p.id).filter(isPerson);
   if (people.length < 2) return;
   db.addGameResult(r.game, winners.filter(isPerson), people);
+  xpForGame(people, winners.filter(isPerson));
   const msg = { t: 'games:leaderboard', week: weeklyLeaderboard(), all: allTimeLeaderboard() };
   for (const id of sockets.keys()) sendToUser(id, msg);
 }

@@ -44,6 +44,7 @@ export const AUDIT_LABELS = {
   // Conteúdo e moderação
   'msg:delete:other': 'Apagou mensagem de outra pessoa',
   'msg:pin': 'Fixou/desafixou mensagem',
+  'msg:purge': 'Limpou mensagens do canal (/limpar)',
   'emoji:rename': 'Renomeou emoji',
   'emoji:delete': 'Apagou emoji',
   'sound:delete': 'Apagou som',
@@ -84,7 +85,7 @@ export const AUDIT_LABELS = {
 export const AUDIT_GROUPS = {
   seguranca: ['auth:login:fail', 'auth:login:blocked', 'painel:user:block', 'painel:user:unblock', 'painel:ip:block', 'painel:ip:unblock', 'painel:user:disconnect', 'auth:register:fail', 'auth:password', 'auth:password:fail', 'painel:login', 'painel:login:fail', 'painel:logout'],
   contas: ['auth:login', 'auth:register', 'auth:logout', 'auth:password', 'voice:join'],
-  moderacao: ['member:kick', 'member:roles', 'msg:delete:other', 'msg:pin', 'music:kick', 'emoji:delete', 'sound:delete', 'invite:revoke'],
+  moderacao: ['msg:purge', 'member:kick', 'member:roles', 'msg:delete:other', 'msg:pin', 'music:kick', 'emoji:delete', 'sound:delete', 'invite:revoke'],
   painel: ['painel:login', 'painel:login:fail', 'painel:logout', 'painel:restart', 'painel:backup', 'painel:speedtest', 'painel:user:disconnect', 'painel:user:block', 'painel:user:unblock', 'painel:ip:block', 'painel:ip:unblock', 'painel:maintenance', 'painel:deploy', 'painel:rollback'],
   minecraft: ['painel:mc:start', 'painel:mc:stop', 'painel:mc:restart', 'painel:mc:autostop', 'painel:mc:wake', 'painel:mc:backup', 'painel:mc:cmd', 'painel:mc:settings'],
 };

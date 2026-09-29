@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { xpInfo } from './src/xp-curve.js';
 import { DEFAULT_PERMS, PERMS } from './public/js/permissions.js';
 
 const scrypt = promisify(crypto.scrypt);
@@ -375,6 +376,8 @@ function migrate(db) {
   // Última vez que a pessoa esteve conectada (painel administrativo)
   if (!uCols.includes('last_seen')) db.exec('ALTER TABLE users ADD COLUMN last_seen INTEGER');
   // Conta bloqueada pelo painel administrativo: não entra e todas as sessões deixam de valer
+  // XP da conta (ver src/xp.js)
+  if (!uCols.includes('xp')) db.exec('ALTER TABLE users ADD COLUMN xp INTEGER NOT NULL DEFAULT 0');
   if (!uCols.includes('blocked_at')) db.exec('ALTER TABLE users ADD COLUMN blocked_at INTEGER; ALTER TABLE users ADD COLUMN blocked_reason TEXT;');
   // Não lidas: quem já existia começa com tudo lido (senão o histórico inteiro viraria "novo")
   if (!db.prepare("SELECT value FROM meta WHERE key = 'read_state_v1'").get()) {
@@ -410,6 +413,7 @@ async function verifyPassword(password, stored) {
 }
 
 const publicUser = (row) => row && {
+  xp: xpInfo(row.xp ?? 0),
   id: uid(row.id), username: row.username, name: row.display_name,
   avatar: row.avatar ?? null, bio: row.bio ?? '', banner: row.banner ?? null, bannerImage: row.banner_image ?? null,
   presence: row.presence ?? 'online', statusText: row.status_text ?? '',
@@ -493,6 +497,8 @@ class Store {
       gamePlays: p('SELECT game, COUNT(*) AS n FROM game_results WHERE created_at > ? GROUP BY game'),
       purgeSessions: p('DELETE FROM sessions WHERE expires_at <= ?'),
       touchUser: p('UPDATE users SET last_seen = ? WHERE id = ?'),
+      addXp: p('UPDATE users SET xp = xp + ? WHERE id = ? RETURNING xp'),
+      xpRank: p('SELECT COUNT(*) + 1 AS n FROM users WHERE blocked_at IS NULL AND xp > (SELECT xp FROM users WHERE id = ?)'),
       setBlocked: p('UPDATE users SET blocked_at = ?, blocked_reason = ? WHERE id = ?'),
       deleteUserSessions: p('DELETE FROM sessions WHERE user_id = ?'),
       blockIp: p('INSERT OR REPLACE INTO blocked_ips (ip, reason, created_at) VALUES (?, ?, ?)'),
@@ -500,6 +506,7 @@ class Store {
       blockedIps: p('SELECT ip, reason, created_at FROM blocked_ips ORDER BY created_at DESC'),
       insertAudit: p('INSERT INTO audit_log (at, user_id, user_name, action, server_id, detail, ip, ok) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
       purgeAudit: p('DELETE FROM audit_log WHERE at < ?'),
+      recentUnpinned: p('SELECT id FROM messages WHERE channel_id = ? AND pinned_at IS NULL ORDER BY id DESC LIMIT ?'),
       // servidores e membros
       server: p('SELECT * FROM servers WHERE id = ?'),
       insertServer: p('INSERT INTO servers (id, name, color, owner_id, created_at) VALUES (?, ?, ?, ?, ?)'),
@@ -508,7 +515,7 @@ class Store {
       deleteServer: p('DELETE FROM servers WHERE id = ?'),
       ownedCount: p('SELECT COUNT(*) AS n FROM servers WHERE owner_id = ?'),
       serversOfUser: p('SELECT server_id FROM members WHERE user_id = ? ORDER BY joined_at'),
-      members: p(`SELECT u.id, u.username, u.display_name, u.avatar, u.bio, u.banner, u.banner_image, u.status_text, m.joined_at FROM members m JOIN users u ON u.id = m.user_id
+      members: p(`SELECT u.id, u.username, u.display_name, u.avatar, u.bio, u.banner, u.banner_image, u.status_text, u.xp, m.joined_at FROM members m JOIN users u ON u.id = m.user_id
                   WHERE m.server_id = ? ORDER BY m.joined_at`),
       memberRoles: p('SELECT user_id, role_id FROM member_roles WHERE server_id = ?'),
       isMember: p('SELECT 1 FROM members WHERE server_id = ? AND user_id = ?'),
@@ -764,6 +771,10 @@ class Store {
   deleteOtherSessions(userId, keepToken) { return this.q.deleteOtherSessions.run(unum(userId), hashToken(String(keepToken))).changes; }
   purgeExpiredSessions() { this.q.purgeSessions.run(Date.now()); }
   touchUser(userId) { this.q.touchUser.run(Date.now(), unum(userId)); }
+  // XP da conta
+  xpOf(userId) { return this.q.userById.get(unum(userId))?.xp ?? 0; }
+  addXp(userId, amount) { return this.q.addXp.get(Math.floor(amount), unum(userId))?.xp ?? 0; }
+  xpRank(userId) { return this.q.xpRank.get(unum(userId)).n; }
   // Bloqueio pelo painel administrativo
   isBlocked(userId) { return !!this.q.userById.get(unum(userId))?.blocked_at; }
   setBlocked(userId, reason) { this.q.setBlocked.run(reason === null ? null : Date.now(), reason, unum(userId)); }
@@ -777,6 +788,14 @@ class Store {
     this.q.insertAudit.run(Date.now(), userId ? unum(userId) : null, userName, action, serverId, detail ? JSON.stringify(detail) : null, ip, ok ? 1 : 0);
   }
   purgeAudit(before) { return this.q.purgeAudit.run(before).changes; }
+  // /limpar: apaga as N últimas mensagens não fixadas do canal; devolve os ids e os anexos delas
+  purgeMessages(channelId, count) {
+    return this.transaction(() => this.q.recentUnpinned.all(channelId, count).map(({ id }) => {
+      const files = this.filesOfMessage(id);
+      this.q.deleteMessage.run(id);
+      return { id, files };
+    }));
+  }
 
   // ---------- Servidores ----------
 
@@ -845,7 +864,7 @@ class Store {
       })),
       members: this.q.members.all(serverId).map((m) => ({
         id: uid(m.id), username: m.username, name: m.display_name, avatar: m.avatar ?? null,
-        bio: m.bio ?? '', banner: m.banner ?? null, bannerImage: m.banner_image ?? null, statusText: m.status_text ?? '', joinedAt: m.joined_at, roles: rolesByUser.get(m.id) ?? [],
+        bio: m.bio ?? '', banner: m.banner ?? null, bannerImage: m.banner_image ?? null, statusText: m.status_text ?? '', joinedAt: m.joined_at, xp: xpInfo(m.xp ?? 0), roles: rolesByUser.get(m.id) ?? [],
       })),
     };
   }

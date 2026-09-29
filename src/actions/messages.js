@@ -8,6 +8,7 @@ import { linkPreview } from '../links.js';
 import { requireServer, requirePerm } from '../guards.js';
 import { claimAttachments, removeFiles } from '../attachments.js';
 import { fail, underLimit } from '../util.js';
+import { xpForMessage } from '../xp.js';
 import { PERMS } from '../../public/js/permissions.js';
 
 const MAX_PINS = 50;
@@ -79,6 +80,7 @@ export default {
     db.markRead(user.id, channel.id, msg.id); // quem manda já leu tudo até aqui
     sendToServer(channel.server_id, { t: 'msg', msg });
     notifyMentions(msg, channel, ctx, user, replyTo ? original : null);
+    xpForMessage(user, text, files.length);
   },
 
   // Reação com emoji (liga ou desliga a sua)
@@ -190,6 +192,18 @@ export default {
   },
 
   // Apagar: a própria mensagem, ou a de outros com "Gerenciar mensagens" (os anexos vão junto)
+  // /limpar N: apaga as N últimas mensagens do canal (as fixadas ficam), para quem gerencia mensagens
+  'msg:purge'(user, m) {
+    const { channel, ctx } = requireChatChannel(user, m.channel);
+    if (ctx.snap.kind === 'dm') fail('Não dá para limpar uma conversa privada.');
+    requirePerm(ctx, PERMS.MANAGE_MESSAGES, 'Você precisa da permissão "Gerenciar mensagens" para limpar o canal.');
+    const count = Math.max(1, Math.min(100, Math.floor(Number(m.count)) || 10));
+    const removed = db.purgeMessages(channel.id, count);
+    removeFiles(removed.flatMap((r) => r.files)).catch(() => {});
+    for (const r of removed) sendToServer(ctx.snap.id, { t: 'msg:delete', channel: channel.id, id: r.id });
+    return { t: 'purged', deleted: removed.length };
+  },
+
   'msg:delete'(user, m) {
     const { row, ctx } = requireMessage(user, m.id, { allowSystem: true });
     if (row.user_id !== unum(user.id)) requirePerm(ctx, PERMS.MANAGE_MESSAGES, 'Você não tem permissão para apagar mensagens de outras pessoas.');

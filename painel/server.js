@@ -18,6 +18,7 @@ import { AUDIT_LABELS, AUDIT_GROUPS } from '../src/audit-labels.js';
 import { mcRoutes, startMinecraft, mcSummary } from './minecraft.js';
 import { speedRoutes } from './speedtest.js';
 import { deployRoutes } from './deploy.js';
+import { xpInfo } from '../src/xp-curve.js';
 
 const run = promisify(execFile);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -374,6 +375,7 @@ function usersList() {
   const online = new Set((latest.main?.users ?? []).map((u) => u.id));
   let blockCols = '';
   try { one('SELECT blocked_at FROM users LIMIT 1'); blockCols = 'u.blocked_at, u.blocked_reason,'; } catch { /* Muvuca ainda sem a coluna */ }
+  try { one('SELECT xp FROM users LIMIT 1'); blockCols += ' u.xp,'; } catch { /* Muvuca ainda sem XP */ }
   const rows = all(`SELECT u.id, u.username, u.display_name name, u.created_at, u.last_seen, ${blockCols}
       (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.expires_at > ?) sessions,
       (SELECT COUNT(*) FROM messages m WHERE m.user_id = u.id) messages,
@@ -387,7 +389,7 @@ function usersList() {
     for (const r of all("SELECT LOWER(user_name) name, COUNT(*) n FROM audit_log WHERE action = 'auth:login:fail' AND at > ? GROUP BY LOWER(user_name)", now - 7 * DAY)) fails.set(r.name, r.n);
   } catch { /* auditoria ainda não existe */ }
   return rows.map((r) => ({
-    ...r, online: online.has(`u${r.id}`),
+    ...r, online: online.has(`u${r.id}`), level: r.xp == null ? null : xpInfo(r.xp),
     lastLogin: lastLogin.get(r.id)?.at ?? null, lastIp: lastLogin.get(r.id)?.ip ?? null,
     fails7: fails.get(r.username.toLowerCase()) ?? 0,
   }));

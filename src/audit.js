@@ -5,7 +5,7 @@ import { db } from './store.js';
 import { AUDIT_LABELS } from './audit-labels.js';
 
 const KEEP_DAYS = 180;
-const TEXT_KEYS = ['name', 'topic', 'word', 'code', 'expiresIn', 'maxUses', 'color', 'type', 'bitrate', 'userLimit', 'pinned', 'on'];
+const TEXT_KEYS = ['count', 'name', 'topic', 'word', 'code', 'expiresIn', 'maxUses', 'color', 'type', 'bitrate', 'userLimit', 'pinned', 'on'];
 
 const short = (v, n = 80) => (typeof v === 'string' ? (v.length > n ? `${v.slice(0, n)}…` : v) : v);
 
@@ -14,8 +14,9 @@ function describe(user, m) {
   const d = {};
   let serverId = m.serverId ?? null;
   // Ações sobre uma mensagem (ex.: fixar) só trazem o id dela: o canal e o servidor vêm da mensagem
-  const msgRow = m.t?.startsWith('msg:') && m.id !== undefined ? db.messageRow(m.id) : null;
-  const channel = m.channelId ? db.channel(m.channelId) : msgRow ? db.channel(msgRow.channel_id) : null;
+  const msgRow = m.t?.startsWith('msg:') && m.id !== undefined && m.t !== 'msg:purge' ? db.messageRow(m.id) : null;
+  const channelId = m.channelId ?? (m.t === 'msg:purge' ? m.channel : null);
+  const channel = channelId ? db.channel(channelId) : msgRow ? db.channel(msgRow.channel_id) : null;
   if (msgRow) { d.autor = msgRow.author_name; d.pinned = !!m.pinned; }
   if (channel) { d.canal = channel.name; serverId ??= channel.server_id; }
   if (m.roleId) { const r = db.role(m.roleId); if (r) { d.cargo = r.name; serverId ??= r.server_id; } }

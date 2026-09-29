@@ -442,6 +442,7 @@ async function viewUsuarios() {
     body.replaceChildren(table([
       { label: 'Pessoa', get: (u) => h('span', {}, h('b', {}, u.name), ' ', h('span', { class: 'muted small' }, `@${u.username}`)) },
       { label: 'Agora', get: (u) => h('span', { class: `pill ${u.online ? 'good' : ''}` }, u.online ? 'online' : ago(u.last_seen)) },
+      { label: 'Nível', num: true, get: (u) => (u.level ? h('span', { title: `${num(u.level.total)} XP · ${num(u.level.into)}/${num(u.level.need)} para o próximo` }, h('b', {}, u.level.level), h('span', { class: 'muted small' }, ` · ${num(u.level.total)} XP`)) : '—') },
       { label: 'Conta criada', get: (u) => when(u.created_at) },
       { label: 'Último login', get: (u) => h('span', {}, u.lastLogin ? ago(u.lastLogin) : '—', u.lastIp ? h('div', { class: 'mono muted' }, u.lastIp) : null) },
       { label: 'Aparelhos', num: true, get: (u) => u.sessions },

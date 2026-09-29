@@ -151,6 +151,7 @@ function welcome(ws, token) {
     friends: db.friendsOf(user.id),
     readState: db.readState(user.id),
     maintenance: maintenance(),
+    xpRank: db.xpRank(user.id),
   });
   music.cancelLeave(user.id); // voltou a tempo depois de uma queda: continua na sala de música
   if (firstSocket) broadcastPresence();

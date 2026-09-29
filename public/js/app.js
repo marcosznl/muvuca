@@ -167,9 +167,20 @@ function handle(m) {
     case 'maintenance':
       renderMaintBar(m.maintenance);
       break;
+    // XP da conta: barrinha atualiza; subiu de nível, comemora
+    case 'xp':
+      if (!state.me) break;
+      state.me.xp = m.xp;
+      state.me.xpRank = m.rank ?? state.me.xpRank;
+      renderUserPanel();
+      if (m.levelUp) {
+        showBanner(`🎉 Você subiu para o nível ${m.levelUp}!`, { kind: 'info', timeout: 6000 });
+        sounds.win();
+      }
+      break;
     case 'welcome': {
       renderMaintBar(m.maintenance);
-      state.me = m.you;
+      state.me = { ...m.you, xpRank: m.xpRank ?? null };
       state.servers = m.servers;
       state.online = new Set(m.online);
       state.status = m.status ?? {};

@@ -612,6 +612,25 @@ export function renderComposer() {
   $('btn-emoji').disabled = $('btn-gif').disabled = $('btn-attach').disabled = $('btn-voice').disabled = !allowed;
 }
 
+async function purgeChannel(channelId, count) {
+  const { server, channel } = findChannel(channelId);
+  if (server?.kind === 'dm') return showBanner('Não dá para limpar uma conversa privada.', { timeout: 4000 });
+  if (!canIn(server, PERMS.MANAGE_MESSAGES)) return showBanner('Você precisa da permissão "Gerenciar mensagens" para limpar o canal.', { timeout: 4000 });
+  const n = Math.max(1, Math.min(100, count));
+  const ok = await confirmDialog({
+    title: 'Limpar mensagens',
+    message: `${n === 1 ? 'Apagar a última mensagem' : `Apagar as ${n} últimas mensagens`} de #${channel?.name ?? 'canal'}? As mensagens fixadas ficam. Não dá para desfazer.`,
+    confirm: n === 1 ? 'Apagar' : `Apagar ${n}`,
+  });
+  if (!ok) return;
+  try {
+    const r = await request({ t: 'msg:purge', channel: channelId, count: n });
+    showBanner(r.deleted ? `${r.deleted} ${r.deleted === 1 ? 'mensagem apagada' : 'mensagens apagadas'}.` : 'Não havia mensagens para apagar.', { kind: 'info', timeout: 3500 });
+  } catch (err) {
+    showBanner(err.message, { timeout: 4000 });
+  }
+}
+
 // Esc cancela a resposta; seta para cima com o campo vazio edita a sua última mensagem (como no Discord)
 $('chat-input').addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && replying) { e.preventDefault(); cancelReply(); return; }
@@ -628,6 +647,14 @@ $('chat-form').addEventListener('submit', async (e) => {
   const text = input.value.trim();
   if (!text && !hasPending()) return;
   const channel = state.view.channelId;
+  // /limpar N: apaga as N últimas mensagens do canal (para quem gerencia mensagens)
+  const purge = text.match(/^\/limpar(?:\s+(\d+))?$/i);
+  if (purge) {
+    input.value = '';
+    fitComposer();
+    purgeChannel(channel, Number(purge[1]) || 10);
+    return;
+  }
   const replyTo = replying?.id;
   const encoded = encode(text);
   input.value = '';

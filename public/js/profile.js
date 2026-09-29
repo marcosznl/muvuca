@@ -93,6 +93,20 @@ function profileCard(p, { server = null, preview = false } = {}) {
     body.append(box);
   };
   if (p.bio) section('Sobre mim', h('div', 'profile-card-bio', p.bio));
+  // XP da conta (o mesmo em todos os servidores)
+  if (p.xp && !preview) {
+    const x = p.xp;
+    const fmt = (n) => n.toLocaleString('pt-BR');
+    const fill = h('div');
+    fill.style.width = `${Math.round((x.into / x.need) * 100)}%`;
+    const bar = h('div', 'xp-bar');
+    bar.append(fill);
+    const head = h('div', 'xp-level');
+    head.append(h('b', '', `Nível ${x.level}`), h('span', 'muted small', `${fmt(x.total)} XP${p.id === state.me?.id && state.me.xpRank ? ` · #${state.me.xpRank} no Muvuca` : ''}`));
+    const box = h('div');
+    box.append(head, bar, h('div', 'muted small', `${fmt(x.into)} / ${fmt(x.need)} XP para o nível ${x.level + 1}`));
+    section('Nível', box);
+  }
   if (server && p.joinedAt) section(`Membro de ${server.name} desde`, h('div', 'small', fmtDate(p.joinedAt)));
   if (server) {
     const roles = server.roles.filter((r) => !r.isDefault && p.roles?.includes(r.id)).sort((a, b) => b.position - a.position);
@@ -193,11 +207,19 @@ export function openProfileCard(userId, x, y, serverId = state.view.serverId) {
 
   card.classList.add('floating');
   document.getElementById('overlay-layer').append(card);
-  // Fica dentro da tela, ao lado do clique
-  const r = card.getBoundingClientRect();
-  const left = x + r.width + 16 > innerWidth ? x - r.width - 16 : x + 16;
-  card.style.left = `${Math.max(8, Math.min(left, innerWidth - r.width - 8))}px`;
-  card.style.top = `${Math.max(8, Math.min(y - 60, innerHeight - r.height - 8))}px`;
+  // Fica dentro da tela, ao lado do clique. Mede de novo depois da animação de abrir e quando os jogos
+  // chegam (o cartão cresce): sem isso, aberto perto do rodapé ele ficava cortado
+  const place = () => {
+    if (!card.isConnected) return;
+    const w = card.offsetWidth;
+    const hgt = card.offsetHeight;
+    const left = x + w + 16 > innerWidth ? x - w - 16 : x + 16;
+    card.style.left = `${Math.max(8, Math.min(left, innerWidth - w - 8))}px`;
+    card.style.top = `${Math.max(8, Math.min(y - 60, innerHeight - hgt - 8))}px`;
+  };
+  place();
+  setTimeout(place, 250);
+  new ResizeObserver(place).observe(card);
   openCard = card;
   setTimeout(() => document.addEventListener('mousedown', outsideCard, true), 0);
 }
