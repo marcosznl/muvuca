@@ -1,5 +1,5 @@
 // Canais de voz: conexão LiveKit, quadros de vídeo, volumes, indicador de fala, ping e painel de qualidade
-import { $, h, store, makeAvatar, showBanner } from './util.js';
+import { $, h, store, makeAvatar, showBanner, toast } from './util.js';
 import { icon } from './icons.js';
 import { openModal, button, contextMenu } from './dialogs.js';
 import { avatarOf } from './state.js';
@@ -267,6 +267,7 @@ function onVoiceClosed({ keepView = false } = {}) {
   audioSink.replaceChildren();
   renderVoicePanel();
   syncDesktopPtt(); // saiu da call: o app para de escutar a tecla
+  stopMacAppAudio();
   showSelfInChannel(); // some da lista na hora
   poke();
   // Estava olhando o canal de voz: volta para o último canal de texto do servidor
@@ -696,7 +697,7 @@ function onMuteChange(pub, participant) {
 function onLocalUnpublished(pub) {
   poke();
   // Usuário clicou em "parar compartilhamento" na barra do navegador
-  if (pub.source === Track.Source.ScreenShare) updateMediaButtons();
+  if (pub.source === Track.Source.ScreenShare) { updateMediaButtons(); stopMacAppAudio(); }
   renderStage();
 }
 
@@ -825,8 +826,51 @@ function openScreenDialog() {
   setTimeout(() => go.focus(), 0);
 }
 
+// ---------- App do Mac: som da live (só o app da janela transmitida, via ScreenCaptureKit) ----------
+// O Electron não captura som no Mac; o app captura à parte e o site publica como o "som da live".
+let macAudio = null;       // { track, stop } da faixa publicada
+let macAudioRunning = false;
+let macAudioStarting = false;
+async function publishMacAppAudio() {
+  if (!room || macAudio || macAudioStarting || !macAudioRunning || !room.localParticipant.isScreenShareEnabled) return;
+  macAudioStarting = true;
+  try {
+    const { createAppAudioTrack } = await import('./desktop-audio.js');
+    macAudio = await createAppAudioTrack(desktop);
+    await room.localParticipant.publishTrack(macAudio.track, { source: Track.Source.ScreenShareAudio, ...STREAM_AUDIO });
+  } catch (err) {
+    console.warn('som da live (app do Mac)', err);
+    showBanner(`Não deu para transmitir o som: ${err.message}`, { timeout: 5000 });
+  } finally {
+    macAudioStarting = false;
+  }
+}
+function stopMacAppAudio() {
+  macAudioRunning = false;
+  desktop?.stopAppAudio?.();
+  if (!macAudio) return;
+  const a = macAudio;
+  macAudio = null;
+  room?.localParticipant.unpublishTrack(a.track).catch(() => {});
+  a.stop();
+}
+desktop?.onAppAudioState?.((s) => {
+  if (s.error) {
+    macAudioRunning = false;
+    const hint = /permiss|not authorized|declined|TCC/i.test(s.error) ? ' Libere o Muvuca em Ajustes do Sistema → Privacidade e Segurança → Gravação de Tela e Áudio do Sistema.' : '';
+    showBanner(`A live está sem som: ${s.error}.${hint}`, { timeout: 9000 });
+    return;
+  }
+  if (s.info) toast(`Transmitindo ${s.info}`);
+  macAudioRunning = !!s.running;
+  if (s.running) publishMacAppAudio();
+  else if (macAudio) stopMacAppAudio();
+});
+
 async function startScreenShare({ res, fps, audio }) {
   if (!room) return;
+  // App do Mac: o som vem pelo ScreenCaptureKit (o app começa ao escolher a janela)
+  if (desktop?.platform === 'darwin' && desktop.appAudioSupported) desktop.wantAppAudio(!!audio && await desktop.appAudioSupported());
   const r = SCREEN_RES[res];
   const bitrate = screenBitrate(res, fps);
   try {
@@ -855,6 +899,7 @@ async function startScreenShare({ res, fps, audio }) {
   } catch (err) {
     if (err.name !== 'NotAllowedError') warnDevice('tela')(err); // NotAllowed = usuário cancelou
   }
+  publishMacAppAudio(); // o som do app pode ter ficado pronto antes da imagem
   updateMediaButtons();
   renderStage();
 }

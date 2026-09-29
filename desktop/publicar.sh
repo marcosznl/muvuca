@@ -8,6 +8,7 @@ cd "$(dirname "$0")"
 version=$(node -p "require('./package.json').version")
 echo "Gerando o Muvuca $version…"
 rm -rf dist
+native/build.sh >/dev/null
 CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac >/dev/null
 codesign --verify --deep --strict dist/mac-arm64/Muvuca.app
 codesign --verify --deep --strict dist/mac/Muvuca.app

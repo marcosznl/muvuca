@@ -1,14 +1,14 @@
 {
   "name": "muvuca-desktop",
   "productName": "Muvuca",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Muvuca para Mac",
   "main": "main.js",
   "private": true,
   "author": "marcos",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --mac"
+    "dist": "native/build.sh && electron-builder --mac"
   },
   "devDependencies": {
     "electron": "^44.4.5",
@@ -75,6 +75,15 @@
     "dmg": {
       "title": "Muvuca",
       "artifactName": "Muvuca-${version}-${arch}.${ext}"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "build/bin",
+        "to": "bin",
+        "filter": [
+          "muvuca-audio"
+        ]
+      }
+    ]
   }
 }

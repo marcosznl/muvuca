@@ -5,6 +5,8 @@ const {
   app, BrowserWindow, Menu, Tray, Notification, desktopCapturer, ipcMain, nativeImage, session, shell, systemPreferences,
 } = require('electron');
 const path = require('node:path');
+const os = require('node:os');
+const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 
 // Endereço do servidor: o link público por padrão; dá para trocar no menu (ex.: http://localhost:3000 em casa)
@@ -111,11 +113,13 @@ function setupPermissions() {
       const chosen = await pickSource(sources);
       if (!chosen) return callback({});
       callback({ video: chosen });
+      // Som da live no Mac: o Electron não captura; o muvuca-audio (ScreenCaptureKit) pega o som do app da janela
+      if (wantAppAudio && canCaptureAppAudio()) startAppAudio(chosen.id);
     } catch (err) {
       console.error('captura de tela', err);
       callback({});
     }
-  }, { useSystemPicker: true });
+  }); // o seletor próprio (e não o do sistema) diz qual janela foi escolhida, para pegar o som do app certo
 }
 
 // Janelinha para escolher tela ou janela (quando o seletor do sistema não aparece)
@@ -151,6 +155,68 @@ function pickSource(sources) {
     picker.loadFile(path.join(__dirname, 'picker.html'));
   });
 }
+
+// ---------- Som da live no Mac (som só do app da janela transmitida) ----------
+// O site avisa se a pessoa quer transmitir o som (opção da janela "Transmitir tela"); ao escolher a janela,
+// o muvuca-audio começa e o áudio (float32, 48 kHz, estéreo) vai em pedaços para o site publicar na call.
+
+let wantAppAudio = false;
+let audioProc = null;
+const canCaptureAppAudio = () => process.platform === 'darwin' && Number(os.release().split('.')[0]) >= 22; // macOS 13+
+const helperPath = () => (app.isPackaged ? path.join(process.resourcesPath, 'bin', 'muvuca-audio') : path.join(__dirname, 'build', 'bin', 'muvuca-audio'));
+
+function stopAppAudio() {
+  if (!audioProc) return;
+  const p = audioProc;
+  audioProc = null;
+  try { p.stdin.end(); } catch {}
+  setTimeout(() => { try { p.kill(); } catch {} }, 500);
+}
+
+function startAppAudio(sourceId) {
+  stopAppAudio();
+  const [kind, id] = sourceId.split(':');
+  const args = kind === 'window' ? ['--window', id] : ['--display', id];
+  if (kind !== 'window') {
+    // Tela inteira: tira o som do próprio Muvuca (senão a galera ouve a call de volta)
+    for (const m of app.getAppMetrics()) args.push('--exclude-pid', String(m.pid));
+    args.push('--exclude-bundle', app.isPackaged ? 'br.malegna.muvuca' : 'com.github.Electron');
+  }
+  const p = spawn(helperPath(), args, { stdio: ['pipe', 'pipe', 'pipe'] });
+  audioProc = p;
+  let rest = Buffer.alloc(0);
+  let pending = [];
+  let pendingBytes = 0;
+  p.stdout.on('data', (chunk) => {
+    if (audioProc !== p) return;
+    // Só manda quadros inteiros (8 bytes = esquerda + direita em float32), em pedaços de ~20 ms
+    const all = rest.length ? Buffer.concat([rest, chunk]) : chunk;
+    const usable = all.length - (all.length % 8);
+    rest = all.subarray(usable);
+    pending.push(all.subarray(0, usable));
+    pendingBytes += usable;
+    if (pendingBytes >= 7680) { // 960 quadros = 20 ms
+      win?.webContents.send('app-audio:data', Buffer.concat(pending));
+      pending = [];
+      pendingBytes = 0;
+    }
+  });
+  p.stderr.on('data', (d) => {
+    for (const line of String(d).split('\n').filter(Boolean)) {
+      if (line === 'ok') win?.webContents.send('app-audio:state', { running: true });
+      else if (line.startsWith('info:')) win?.webContents.send('app-audio:state', { running: true, info: line.slice(5).trim() });
+      else if (line.startsWith('erro:')) win?.webContents.send('app-audio:state', { running: false, error: line.slice(5).trim() });
+    }
+  });
+  p.on('exit', () => {
+    if (audioProc === p) { audioProc = null; win?.webContents.send('app-audio:state', { running: false }); }
+  });
+  p.on('error', (err) => win?.webContents.send('app-audio:state', { running: false, error: err.message }));
+}
+
+ipcMain.handle('app-audio:supported', () => canCaptureAppAudio());
+ipcMain.on('app-audio:want', (_e, on) => { wantAppAudio = !!on; });
+ipcMain.on('app-audio:stop', () => stopAppAudio());
 
 // ---------- Apertar para falar com o app em segundo plano (teclado global) ----------
 // Com a janela em foco, o próprio site cuida da tecla; fora dela, este gancho avisa o site.
@@ -351,4 +417,4 @@ app.whenReady().then(() => {
   setInterval(checkUpdate, 6 * 3600_000);
 });
 
-app.on('will-quit', () => { try { hook?.stop(); } catch {} });
+app.on('will-quit', () => { try { hook?.stop(); } catch {} stopAppAudio(); });

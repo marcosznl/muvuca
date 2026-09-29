@@ -21,4 +21,10 @@ contextBridge.exposeInMainWorld('muvucaDesktop', {
   // Ícone da barra de menus: mostrar o estado do microfone e alternar por lá
   setVoiceState: (s) => ipcRenderer.send('voice:state', { muted: !!s?.muted }),
   onToggleMute: listen('toggle-mute'),
+  // Som da live no Mac (som só do app da janela transmitida, via ScreenCaptureKit)
+  appAudioSupported: () => ipcRenderer.invoke('app-audio:supported'),
+  wantAppAudio: (on) => ipcRenderer.send('app-audio:want', !!on),
+  stopAppAudio: () => ipcRenderer.send('app-audio:stop'),
+  onAppAudioData: listen('app-audio:data'),
+  onAppAudioState: listen('app-audio:state'),
 });
