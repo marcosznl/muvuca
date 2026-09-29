@@ -26,7 +26,10 @@ export const GAMES = {
     name: 'Última!', maxPlayers: cartas.MAX_PLAYERS, options: cartas.RULES,
     create: (players, { options }) => new cartas.Cartas(players, { rules: options }),
   },
-  desenho: { name: 'Desenha aí', maxPlayers: desenho.MAX_PLAYERS, minPlayers: 2, create: (players) => new desenho.Desenho(players) },
+  desenho: {
+    name: 'Desenha aí', maxPlayers: desenho.MAX_PLAYERS, minPlayers: 2, options: desenho.OPTIONS,
+    create: (players, { options }) => new desenho.Desenho(players, { options, customWords: db.gameWords() }),
+  },
   stop: { name: 'Stop', maxPlayers: stop.MAX_PLAYERS, create: (players) => new stop.Stop(players) },
   impostor: { name: 'Impostor', maxPlayers: impostor.MAX_PLAYERS, minPlayers: impostor.MIN_PLAYERS, create: (players) => new impostor.Impostor(players) },
 };
@@ -155,8 +158,9 @@ export function createRoom(user, game) {
     engine: null,
     timer: null,
     chat: [],
-    // Opções do jogo (ex.: regras da casa), cada uma com o valor padrão
-    options: Object.fromEntries(Object.entries(GAMES[game].options ?? {}).map(([k, o]) => [k, !!o.default])),
+    // Opções do jogo (regras da casa, tema, tempo…), cada uma com o valor padrão.
+    // Liga/desliga, ou uma escolha entre valores (choices: [[valor, rótulo], …])
+    options: Object.fromEntries(Object.entries(GAMES[game].options ?? {}).map(([k, o]) => [k, o.choices ? o.default : !!o.default])),
   };
   rooms.set(r.id, r);
   changed(r);
@@ -208,7 +212,12 @@ export function setOptions(user, roomId, options) {
   const r = requireRoom(roomId);
   if (r.hostId !== user.id) fail('Só quem manda na sala muda as regras.');
   if (r.status === 'playing') fail('Espere a partida acabar para mudar as regras.');
-  for (const k of Object.keys(r.options)) if (typeof options?.[k] === 'boolean') r.options[k] = options[k];
+  const defs = GAMES[r.game].options ?? {};
+  for (const k of Object.keys(r.options)) {
+    const v = options?.[k];
+    if (v === undefined) continue;
+    if (defs[k]?.choices ? defs[k].choices.some(([c]) => c === v) : typeof v === 'boolean') r.options[k] = v;
+  }
   changed(r);
 }
 

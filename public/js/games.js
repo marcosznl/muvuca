@@ -327,21 +327,36 @@ function optionsBox(r) {
   if (!keys.length || !r.options) return null;
   const box = h('div', 'game-options');
   const editable = r.hostId === state.me?.id && r.status === 'waiting';
+  const choiceLabel = (k) => meta[k].choices?.find(([v]) => v === r.options[k])?.[1];
   if (r.status === 'playing') {
-    const on = keys.filter((k) => r.options[k]).map((k) => meta[k].label);
-    box.append(h('span', 'muted small', on.length ? `Regras da casa: ${on.join(', ')}` : 'Sem regras da casa'));
+    const on = keys.map((k) => (meta[k].choices ? `${meta[k].label}: ${choiceLabel(k)}` : r.options[k] ? meta[k].label : null)).filter(Boolean);
+    box.append(h('span', 'muted small', on.length ? `Opções da sala: ${on.join(' · ')}` : 'Sem regras da casa'));
     return box;
   }
-  box.append(h('span', 'game-options-title', 'Regras da casa'));
+  box.append(h('span', 'game-options-title', 'Opções da sala'));
   for (const k of keys) {
     const label = h('label', 'game-option');
     label.title = meta[k].hint;
-    const box2 = h('input');
-    box2.type = 'checkbox';
-    box2.checked = !!r.options[k];
-    box2.disabled = !editable;
-    box2.onchange = () => request({ t: 'game:options', roomId: r.id, options: { [k]: box2.checked } }).catch(fail);
-    label.append(box2, h('span', '', meta[k].label));
+    if (meta[k].choices) {
+      // Escolha entre valores (tema, tempo, mapa…)
+      const select = h('select', 'game-option-select');
+      for (const [v, text] of meta[k].choices) {
+        const o = h('option', '', text);
+        o.value = JSON.stringify(v);
+        o.selected = v === r.options[k];
+        select.append(o);
+      }
+      select.disabled = !editable;
+      select.onchange = () => request({ t: 'game:options', roomId: r.id, options: { [k]: JSON.parse(select.value) } }).catch(fail);
+      label.append(h('span', '', meta[k].label), select);
+    } else {
+      const box2 = h('input');
+      box2.type = 'checkbox';
+      box2.checked = !!r.options[k];
+      box2.disabled = !editable;
+      box2.onchange = () => request({ t: 'game:options', roomId: r.id, options: { [k]: box2.checked } }).catch(fail);
+      label.append(box2, h('span', '', meta[k].label));
+    }
     box.append(label);
   }
   if (!editable) box.append(h('span', 'muted small', `(quem escolhe é ${roomHost(r)})`));
@@ -456,6 +471,9 @@ function roomView(r) {
     h('span', 'muted small', amPlayer() ? '' : 'Você está assistindo'));
   const info = GAME_INFO[r.game];
   const rules = optionsBox(r);
+  // Botões extras do jogo na sala de espera (ex.: palavras da galera no Desenha aí)
+  const extra = r.status === 'waiting' ? info?.roomExtras?.(r) : null;
+  if (extra) (rules ?? top).append(extra);
   const body = h('div', 'game-body');
   body.append(stage, chatPanel(r));
   const parts = [top, ...(rules ? [rules] : []), body];

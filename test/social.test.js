@@ -303,9 +303,9 @@ test('jogos de festa: chat da sala, "Jogando…", palpite escondido e mínimo de
   await guesser.waitFor('game:events', (e) => e.events.some((ev) => ev.type === 'stroke'));
   const sync = await guesser.request({ t: 'game:sync', roomId: r2.id });
   assert.equal(sync.data.strokes.length, 1);
-  await guesser.request({ t: 'game:chat', roomId: r2.id, text: mine.state.choices[0] });
+  await guesser.request({ t: 'game:chat', roomId: r2.id, text: mine.state.choices[0].word });
   await drawer.waitFor('game:chat', (e) => /acertou/.test(e.line.text));
-  assert.ok(!drawer.events.some((e) => e.t === 'game:chat' && e.line.text === mine.state.choices[0]));
+  assert.ok(!drawer.events.some((e) => e.t === 'game:chat' && e.line.text === mine.state.choices[0].word));
   await dono.request({ t: 'game:leave' });
   await bia.request({ t: 'game:leave' });
   const stats = await bia.request({ t: 'games:stats', userId: dono.me.id });

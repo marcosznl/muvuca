@@ -1,7 +1,8 @@
 // Testes dos jogos de festa: Desenha aí, Stop e Impostor (sem rede nem tela)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Desenho, CHOOSE_MS, DRAW_MS } from '../src/games/desenho.js';
+import { Desenho, CHOOSE_MS, DRAW_MS, REVEAL_MS, GALLERY_MS, BEST_BONUS } from '../src/games/desenho.js';
+import { THEMES } from '../src/games/desenho-palavras.js';
 import { Stop, WRITE_MS, VOTE_MS, SCORE_MS, ROUNDS, FIXED_CATEGORIES } from '../src/games/stop.js';
 import { Impostor } from '../src/games/impostor.js';
 
@@ -57,6 +58,77 @@ test('desenho: traços viram eventos; desfazer e limpar; quem chega recebe o des
   assert.equal(g.strokes.length, 1);
   g.input(g.drawer.id, { act: 'clear' });
   assert.equal(g.strokes.length, 0);
+});
+
+test('desenho: tema, dificuldade, palavras da galera e tempo vêm das opções da sala', () => {
+  const g = new Desenho(people(2), { random: () => 0.3, options: { tema: 'animais', dificuldade: 'dificil', tempo: 120, galera: false } });
+  const choices = g.stateFor(g.drawer.id).choices;
+  assert.equal(choices.length, 3);
+  for (const c of choices) { assert.ok(THEMES.animais.dificil.includes(c.word), c.word); assert.equal(c.level, 'dificil'); }
+  g.input(g.drawer.id, { cell: 0 });
+  assert.equal(g.timeLeft, 120_000);
+  // Misturada: uma de cada nível
+  const mix = new Desenho(people(2), { random: () => 0.9, options: { tema: 'comida', galera: false } });
+  assert.deepEqual(mix.stateFor(mix.drawer.id).choices.map((c) => c.level).sort(), ['dificil', 'facil', 'medio']);
+  // Só palavras da galera
+  const gal = new Desenho(people(2), { random: () => 0.1, options: { tema: 'galera' }, customWords: ['Tio Zé', 'Bar do Juca', 'Rolê na praia', 'Fusca azul'] });
+  for (const c of gal.stateFor(gal.drawer.id).choices) { assert.ok(['Tio Zé', 'Bar do Juca', 'Rolê na praia', 'Fusca azul'].includes(c.word)); assert.equal(c.galera, true); }
+});
+
+test('desenho: palavra difícil vale mais que fácil', () => {
+  const score = (level) => {
+    const g = new Desenho(people(2), { random: () => 0, options: { tema: 'animais', dificuldade: level, galera: false } });
+    g.input(g.drawer.id, { cell: 0 });
+    const guesser = g.players.find((p) => p !== g.drawer);
+    g.chat(guesser.id, g.word);
+    return guesser.score;
+  };
+  assert.ok(score('dificil') > score('facil'));
+});
+
+test('desenho: linha, círculo e balde de tinta viram traços; balde precisa de 1 ponto e linha de 2', () => {
+  const g = new Desenho(people(2), { random: () => 0 });
+  const d = g.drawer.id;
+  g.input(d, { cell: 0 });
+  g.input(d, { stroke: { c: 3, w: 1, k: 'l', p: [[10, 10], [500, 500]] } });
+  g.input(d, { stroke: { c: 4, w: 2, k: 'o', p: [[300, 300], [400, 300]] } });
+  g.input(d, { stroke: { c: 5, w: 0, k: 'f', p: [[50, 50]] } });
+  g.input(d, { stroke: { c: 5, w: 0, k: 'l', p: [[1, 1]] } }); // linha com 1 ponto: ignora
+  assert.deepEqual(g.strokes.map((s) => s.k), ['l', 'o', 'f']);
+});
+
+test('desenho: galeria no fim — vota no melhor (não no próprio) e o mais votado ganha bônus', () => {
+  const g = new Desenho(people(2), { random: () => 0 });
+  // Duas rodadas por pessoa com 2 jogadores: desenha, passa o tempo, revela
+  let guard = 0;
+  while (g.phase !== 'gallery' && !g.over && guard++ < 20) {
+    if (g.phase === 'choose') g.input(g.drawer.id, { cell: 0 });
+    if (g.phase === 'draw') { g.input(g.drawer.id, { stroke: { c: 0, w: 1, p: [[1, 1], [9, 9]] } }); g.tick(g.drawMs); }
+    if (g.phase === 'reveal') g.tick(REVEAL_MS);
+  }
+  assert.equal(g.phase, 'gallery');
+  assert.equal(g.gallery.length, 4);
+  const [a, b] = g.players;
+  const mine = g.gallery.findIndex((x) => x.drawer === a.id);
+  const theirs = g.gallery.findIndex((x) => x.drawer === b.id);
+  g.input(a.id, { act: 'vote', target: String(mine) }); // o próprio: não vale
+  assert.equal(g.votes.has(a.id), false);
+  const before = b.score;
+  g.input(a.id, { act: 'vote', target: String(theirs) });
+  g.input(b.id, { act: 'vote', target: String(mine) });
+  assert.equal(g.over, true); // todos votaram: acaba na hora
+  assert.equal(b.score, before + BEST_BONUS);
+  assert.ok(a.score >= BEST_BONUS);
+  // Ninguém vota: acaba sozinho quando o tempo passa
+  const h = new Desenho(people(2), { random: () => 0 });
+  guard = 0;
+  while (h.phase !== 'gallery' && guard++ < 20) {
+    if (h.phase === 'choose') h.input(h.drawer.id, { cell: 0 });
+    if (h.phase === 'draw') { h.input(h.drawer.id, { stroke: { c: 0, w: 1, p: [[1, 1]] } }); h.tick(h.drawMs); }
+    if (h.phase === 'reveal') h.tick(REVEAL_MS);
+  }
+  h.tick(GALLERY_MS);
+  assert.equal(h.over, true);
 });
 
 test('desenho: tempo esgotado revela, passa a vez e no fim ganha quem fez mais pontos', () => {

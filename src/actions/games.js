@@ -3,8 +3,20 @@ import {
   GAMES, listRooms, createRoom, joinRoom, leaveRoom, startGame, gameInput, weeklyLeaderboard, allTimeLeaderboard, setOptions, roomChat, syncRoom,
 } from '../games/lobby.js';
 import { achievements } from '../games/achievements.js';
-import { db } from '../store.js';
-import { underLimit } from '../util.js';
+import { db, HOME_SERVER } from '../store.js';
+import { underLimit, fail, clean } from '../util.js';
+import { computePerms, can, PERMS } from '../../public/js/permissions.js';
+
+// Palavras da galera: só quem gerencia o servidor principal vê e mexe (os outros só sabem quantas são)
+function canManageWords(user) {
+  const snap = db.snapshot(HOME_SERVER);
+  return !!snap?.members.some((m) => m.id === user.id) && can(computePerms(snap, user.id), PERMS.MANAGE_SERVER);
+}
+const wordsReply = (user) => {
+  const words = db.gameWords();
+  const manage = canManageWords(user);
+  return { t: 'game:words', count: words.length, canManage: manage, words: manage ? words : [] };
+};
 
 const inputTimes = new Map(); // userId -> últimos comandos (evita inundar o servidor)
 
@@ -19,7 +31,7 @@ export default {
       t: 'games:rooms',
       games: sorted.map(([id, g]) => ({
         id, name: g.name, maxPlayers: g.maxPlayers, minPlayers: g.minPlayers ?? 1,
-        options: Object.fromEntries(Object.entries(g.options ?? {}).map(([k, o]) => [k, { label: o.label, hint: o.hint }])),
+        options: Object.fromEntries(Object.entries(g.options ?? {}).map(([k, o]) => [k, { label: o.label, hint: o.hint, ...(o.choices ? { choices: o.choices } : {}) }])),
       })),
       rooms: listRooms(),
     };
@@ -56,6 +68,23 @@ export default {
     leaveRoom(user.id);
   },
 
+  'game:words'(user) { return wordsReply(user); },
+
+  'game:word:add'(user, m) {
+    if (!canManageWords(user)) fail('Só quem gerencia o servidor principal cadastra palavras.');
+    const word = clean(m.word, 40).replace(/\s+/g, ' ');
+    if (word.length < 2 || !/\p{L}/u.test(word)) fail('Palavra muito curta.');
+    if (db.gameWords().length >= 500) fail('Limite de 500 palavras da galera.');
+    if (!db.addGameWord(word, user.id)) fail('Essa palavra já está na lista.');
+    return wordsReply(user);
+  },
+
+  'game:word:remove'(user, m) {
+    if (!canManageWords(user)) fail('Só quem gerencia o servidor principal mexe nas palavras.');
+    db.removeGameWord(String(m.word ?? ''));
+    return wordsReply(user);
+  },
+
   'game:options'(user, m) {
     setOptions(user, m.roomId, m.options);
   },
@@ -84,6 +113,7 @@ export default {
     if (m.stroke && Array.isArray(m.stroke.p)) {
       input.stroke = {
         c: Number.isInteger(m.stroke.c) ? m.stroke.c : 0, w: Number.isInteger(m.stroke.w) ? m.stroke.w : 1,
+        ...(['l', 'o', 'f'].includes(m.stroke.k) ? { k: m.stroke.k } : {}), // linha, círculo, balde
         p: m.stroke.p.slice(0, 300).filter((pt) => Array.isArray(pt) && pt.length === 2).map(([x, y]) => [Math.max(0, Math.min(1000, x | 0)), Math.max(0, Math.min(1000, y | 0))]),
       };
     }

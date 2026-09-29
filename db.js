@@ -220,6 +220,13 @@ export function openDb(file) {
     );
     CREATE INDEX IF NOT EXISTS friends_by_b ON friends(b);
 
+    -- "Palavras da galera" do Desenha aí (cadastradas por quem gerencia o servidor principal)
+    CREATE TABLE IF NOT EXISTS game_words (
+      word       TEXT    PRIMARY KEY COLLATE NOCASE,
+      added_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at INTEGER NOT NULL
+    );
+
     -- Notificações no celular (Web Push): um registro por aparelho
     CREATE TABLE IF NOT EXISTS push_subs (
       endpoint   TEXT    PRIMARY KEY,
@@ -710,6 +717,11 @@ class Store {
     return !!row && verifyPassword(password, row.password_hash);
   }
   async setPassword(userId, password) { this.q.setPassword.run(await hashPassword(password), unum(userId)); }
+  // Palavras da galera (Desenha aí)
+  gameWords() { return this.db.prepare('SELECT word FROM game_words ORDER BY word').all().map((r) => r.word); }
+  addGameWord(word, userId) { return this.db.prepare('INSERT OR IGNORE INTO game_words (word, added_by, created_at) VALUES (?, ?, ?)').run(word, unum(userId), Date.now()).changes > 0; }
+  removeGameWord(word) { return this.db.prepare('DELETE FROM game_words WHERE word = ?').run(word).changes > 0; }
+
   // Partidas de cada jogo nos últimos `days` dias (só para ordenar a lista; não vai para o site)
   gamePlays(days = 90) {
     return Object.fromEntries(this.q.gamePlays.all(Date.now() - days * 86_400_000).map((r) => [r.game, r.n]));

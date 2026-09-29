@@ -1423,6 +1423,8 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .game-option { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text-strong); cursor: pointer; }
 .game-option input { accent-color: var(--green); width: 16px; height: 16px; }
 .game-option input:disabled + span { color: var(--muted); }
+.game-option-select { background: var(--bg-dark); color: var(--text-strong); border: 1px solid var(--bg-hover); border-radius: 6px; padding: 4px 8px; font: inherit; font-size: 13px; }
+.game-option-select:disabled { color: var(--muted); }
 
 /* Convites: validade, usos e lista dos ativos */
 .invite-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -1640,7 +1642,30 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .draw-word { font-size: 18px; color: var(--text-strong); font-weight: 700; }
 .draw-letters { letter-spacing: .12em; font-family: ui-monospace, Menlo, monospace; font-size: 22px; }
 .draw-board { position: relative; width: 100%; max-width: 820px; }
-.draw-canvas { display: block; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.35); touch-action: none; }
+.draw-canvas { display: block; width: 100%; height: auto; aspect-ratio: 4 / 3; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.35); touch-action: none; background: #fff; }
+.draw-canvas.can-draw[data-tool="fill"] { cursor: cell; }
+.draw-tool { width: 34px; height: 34px; border-radius: 8px; background: var(--bg-side); display: grid; place-items: center; font-size: 17px; }
+.draw-tool.on { background: var(--accent); }
+.draw-choice { display: inline-flex; align-items: center; gap: 8px; }
+.draw-level { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; background: rgba(255,255,255,.18); color: inherit; vertical-align: middle; }
+.draw-word .draw-level { background: var(--bg-side); }
+.draw-level.facil { color: #3ba55d; } .draw-level.medio { color: #f0b232; } .draw-level.dificil { color: #ed4245; } .draw-level.galera { color: #eb459e; }
+.draw-choice .draw-level { background: rgba(0,0,0,.25); }
+.draw-gallery[hidden] { display: none; }
+.draw-gallery-title { font-weight: 700; color: var(--text-strong); margin-bottom: 8px; }
+.draw-gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.draw-gallery-item { background: var(--bg-side); border-radius: 10px; padding: 8px; border: 2px solid transparent; display: grid; gap: 6px; }
+.draw-gallery-item.voted { border-color: var(--accent); }
+.draw-gallery-item.best { border-color: #f0b232; box-shadow: 0 0 0 3px rgba(240,178,50,.25); }
+.draw-gallery-img { width: 100%; aspect-ratio: 4 / 3; border-radius: 6px; background: #fff; display: block; }
+.draw-gallery-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.draw-gallery-votes { font-size: 13px; color: var(--muted); margin-right: auto; }
+.draw-words { display: flex; flex-wrap: wrap; gap: 6px; max-height: 260px; overflow-y: auto; }
+.draw-word-chip { display: inline-flex; align-items: center; gap: 4px; background: var(--bg-dark); border-radius: 14px; padding: 4px 6px 4px 12px; font-size: 13px; color: var(--text-strong); }
+.draw-word-x { width: 20px; height: 20px; border-radius: 50%; color: var(--muted); display: grid; place-items: center; font-size: 15px; }
+.draw-word-x:hover { background: var(--red); color: #fff; }
+.draw-words-add { display: flex; gap: 8px; }
+.draw-words-add input { flex: 1; }
 .draw-canvas.can-draw { cursor: crosshair; }
 .draw-cover { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(17,18,20,.7); border-radius: 8px; }
 .draw-cover[hidden] { display: none; }
