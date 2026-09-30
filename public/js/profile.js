@@ -127,7 +127,10 @@ function profileCard(p, { server = null, preview = false } = {}) {
 }
 
 let openCard = null;
+let cardObserver = null;
 export function closeProfileCard() {
+  cardObserver?.disconnect(); // para de acompanhar o tamanho do cartão fechado
+  cardObserver = null;
   openCard?.remove();
   openCard = null;
   document.removeEventListener('mousedown', outsideCard, true);
@@ -219,7 +222,9 @@ export function openProfileCard(userId, x, y, serverId = state.view.serverId) {
   };
   place();
   setTimeout(place, 250);
-  new ResizeObserver(place).observe(card);
+  cardObserver?.disconnect();
+  cardObserver = new ResizeObserver(place);
+  cardObserver.observe(card);
   openCard = card;
   setTimeout(() => document.addEventListener('mousedown', outsideCard, true), 0);
 }

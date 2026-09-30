@@ -270,7 +270,12 @@ async function mainStats() {
   try {
     const r = await fetch(`${MAIN_URL}/internal/stats`, { headers: { 'x-painel-key': key }, signal: AbortSignal.timeout(3000) });
     if (!r.ok) return { up: true, error: `o Muvuca respondeu ${r.status} (reinicie o Muvuca para ativar o painel)` };
-    return { up: true, ...(await r.json()) };
+    const data = await r.json();
+    // Nome dos canais de voz direto do banco (o Muvuca manda só o id em algumas versões)
+    for (const v of data.voice ?? []) {
+      if (!v.private && (!v.name || v.name === '?')) { try { v.name = one('SELECT name FROM channels WHERE id = ?', v.id)?.name ?? v.id; } catch { v.name = v.id; } }
+    }
+    return { up: true, ...data };
   } catch (err) {
     return { up: false, error: err.name === 'TimeoutError' ? 'não respondeu em 3 s' : 'fora do ar' };
   }
