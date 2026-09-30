@@ -11,7 +11,7 @@ import { PERMS } from '../public/js/permissions.js';
 
 const IMAGE_DIR = path.join(DATA_DIR, 'images');
 const MAX_BYTES = 2 * 1024 * 1024; // GIF animado pode ser maior; as fotos comuns o site já reduz para 256 px
-const BANNER_MAX = 5 * 1024 * 1024; // banner é largo: GIF animado de banner costuma pesar mais
+const BANNER_MAX = 10 * 1024 * 1024; // banner é largo: GIF animado de banner costuma pesar mais
 const NO_ICON_PERM = 'Você não tem permissão para mudar o ícone do servidor.';
 
 export async function removeImage(id) {

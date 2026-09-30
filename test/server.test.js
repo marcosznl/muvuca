@@ -258,8 +258,10 @@ test('foto de perfil: enviar, ver e remover', async () => {
 });
 
 test('banner do perfil: GIF animado maior que a foto; remover apaga o arquivo', async () => {
-  const gif = Buffer.concat([Buffer.from('GIF89a'), Buffer.alloc(3 * 1024 * 1024)]); // 3 MB: passa do limite da foto, cabe no banner
+  const gif = Buffer.concat([Buffer.from('GIF89a'), Buffer.alloc(8 * 1024 * 1024)]); // 8 MB: passa do limite da foto, cabe no banner (até 10 MB)
   assert.equal((await ana.upload('/api/image', { for: 'avatar' }, gif)).status, 413);
+  const huge = Buffer.concat([Buffer.from('GIF89a'), Buffer.alloc(11 * 1024 * 1024)]);
+  assert.equal((await ana.upload('/api/image', { for: 'banner' }, huge)).status, 413, 'mais de 10 MB não entra');
   const up = await ana.upload('/api/image', { for: 'banner' }, gif);
   assert.equal(up.status, 200);
   await sleep(150);
