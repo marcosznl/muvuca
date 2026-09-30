@@ -633,7 +633,22 @@ async function viewLogs() {
 
 // ---------- Backups ----------
 async function viewBackups() {
-  const b = await api('/api/backups');
+  const [b, up] = await Promise.all([api('/api/backups'), api('/api/upkeep').catch(() => ({}))]);
+  // Teste de restauração: abre o último backup numa pasta temporária e confere o banco (toda segunda às 5h)
+  const r = up.restore;
+  const testBtn = h('button', { class: 'btn' }, 'Testar agora');
+  testBtn.addEventListener('click', async () => {
+    testBtn.disabled = true;
+    testBtn.textContent = 'Testando…';
+    try { const res = await api('/api/upkeep/restore-test', { method: 'POST' }); toast(res.message, 8000); openTab('backups'); } catch (err) { toast(err.message); } finally { testBtn.disabled = false; }
+  });
+  const restoreCard = h('div', { class: 'section card row' },
+    h('div', {}, h('b', {}, 'Teste de restauração'),
+      h('div', { class: 'small' }, !r ? h('span', { class: 'muted' }, 'Ainda não testado (roda sozinho toda segunda às 5h).')
+        : r.ok ? h('span', {}, h('span', { class: 'pill good' }, h('span', { class: 'dot' }), 'ok'), ` ${when(r.at)} · ${r.file} abriu certinho: ${num(r.counts?.contas)} contas, ${num(r.counts?.mensagens)} mensagens`)
+          : h('span', {}, h('span', { class: 'pill bad' }, h('span', { class: 'dot' }), 'falhou'), ` ${when(r.at)} · ${r.error}`)),
+      h('div', { class: 'muted small' }, 'Abre o último backup numa pasta temporária, confere a integridade do banco e compara com o de agora. Se falhar, chega alerta no celular.')),
+    h('span', { class: 'spacer' }), testBtn);
   const cols = [{ label: 'Arquivo', get: (r) => h('span', { class: 'mono' }, r.name) }, { label: 'Tamanho', num: true, get: (r) => bytes(r.size) }, { label: 'Quando', get: (r) => `${when(r.at)} (${ago(r.at)})` }];
   const btn = h('button', { class: 'btn primary' }, 'Fazer backup agora');
   btn.addEventListener('click', async () => {
@@ -649,6 +664,7 @@ async function viewBackups() {
   return h('div', {},
     h('div', { class: 'card row' }, h('div', {}, h('b', {}, 'Backup automático todo dia às 4h'), h('div', { class: 'muted small' }, `Banco de dados (todos os servidores e conversas), emojis, fotos, sons e chave das notificações, em ${b.dir}. Guarda os 3 mais recentes, 1 por dia nos últimos 14 dias e 1 por mês nos últimos 6 meses. Os anexos do chat vão para a subpasta anexos (só os novos a cada vez).`)), h('span', { class: 'spacer' }), btn),
     b.warnings.length ? h('div', { class: 'alerts section' }, b.warnings.map((w) => h('div', { class: 'alert warn mono' }, w))) : null,
+    restoreCard,
     h('div', { class: 'section grid two' },
       h('div', { class: 'card' }, h('h2', {}, `Histórico (${b.local?.length ?? 0})`), b.local ? table(cols, b.local, { empty: 'Nenhum backup ainda.' }) : h('p', { class: 'empty' }, 'Pasta não encontrada.')),
       h('div', { class: 'card' }, h('h2', {}, 'Anexos do chat'), h('p', {}, `Cópia dos anexos: ${bytes(b.anexos)}`),

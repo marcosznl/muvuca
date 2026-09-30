@@ -18,7 +18,8 @@ import { AUDIT_LABELS, AUDIT_GROUPS } from '../src/audit-labels.js';
 import { mcRoutes, startMinecraft, mcSummary } from './minecraft.js';
 import { speedRoutes } from './speedtest.js';
 import { deployRoutes, deploying } from './deploy.js';
-import { startAlerts, alertRoutes, markPlanned } from './alerts.js';
+import { startAlerts, alertRoutes, markPlanned, sendAlert } from './alerts.js';
+import { startUpkeep, upkeepState, restoreTest } from './upkeep.js';
 import { startPasskeys, passkeyRoutes } from './passkey.js';
 import { xpInfo, xpToNext, XP_RULES } from '../src/xp-curve.js';
 
@@ -975,6 +976,11 @@ const api = {
     audit('painel:invite:revoke', { ip: clientIp(req), detail: { servidor: row.name, codigo: row.code } });
     json(res, 200, { ok: true, message: `Convite ${row.code} cancelado.` });
   },
+  'GET /api/upkeep': (req, res) => json(res, 200, upkeepState()),
+  'POST /api/upkeep/restore-test': async (req, res) => {
+    const r = await restoreTest();
+    json(res, 200, { ok: r.ok, message: r.ok ? `Backup testado: abriu certinho (${r.counts.contas} contas, ${r.counts.mensagens} mensagens).` : `O teste falhou: ${r.error}` });
+  },
   ...alertRoutes({ json, readBody, audit, clientIp }),
   ...passkeyApi,
   ...deployRoutes({
@@ -985,6 +991,15 @@ const api = {
 
 // Minecraft: as ações vindas do painel (e o desligar sozinho) entram na auditoria
 startMinecraft({ root: ROOT, auditFn: (action, opts) => audit(action, opts) });
+
+// Manutenção automática: gira os logs, recarrega o certificado do TURN e testa o backup toda semana
+startUpkeep({
+  dataDir: path.dirname(DB_FILE), logsDir: LOGS, backupDir: BACKUP_DIR, root: ROOT, one,
+  activity: () => ({ ...activityNow(), games: (latest.main?.games ?? []).length }),
+  deploying, markPlanned, alert: sendAlert,
+  audit: (action, opts) => audit(action, opts),
+  certFile: () => path.join(CADDY_CERTS, 'acme-v02.api.letsencrypt.org-directory', DOMAIN, `${DOMAIN}.crt`),
+});
 
 // Passkeys e alertas no celular (+ histórico de quedas)
 startPasskeys(path.dirname(DB_FILE)); // ao lado do banco (o painel de teste usa a pasta dele)
