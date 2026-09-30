@@ -122,3 +122,29 @@ test('eventos: marcar (com permissão), "Vou", apagar; o aviso aparece no chat',
   assert.equal((await dono.request({ t: 'event:delete', eventId: id })).t, 'ok');
   assert.equal((await snapOf(bia)).events.some((e) => e.id === id), false);
 });
+
+test('@todos e @cargo: só com a permissão; contam como menção para quem foi incluído', async () => {
+  const geralId = geral;
+  // Sem a permissão: vira texto comum (não avisa ninguém)
+  assert.equal((await bia.request({ t: 'msg', channel: geralId, text: 'oi <@todos>' })).t, 'ok');
+  const semPerm = await bia.waitFor('msg', (e) => e.msg.userId === bia.me.id && e.msg.text.includes('todos'));
+  assert.equal(semPerm?.msg.text, 'oi @todos');
+
+  // O dono pode: @todos e um cargo
+  const cargo = (await dono.request({ t: 'role:create', serverId: home, name: 'Jogadores' })).roleId;
+  await dono.request({ t: 'member:roles', serverId: home, userId: ana.me.id, roleIds: [cargo] });
+  await dono.say(geralId, 'bora <@todos>');
+  await dono.say(geralId, `partida agora <@&${cargo}>`);
+
+  // Contagem de menções não lidas (quem entra de novo vê o número vermelho)
+  const unread = async (p) => {
+    const outra = new Person(server, p.username);
+    outra.token = p.token;
+    await outra.connect();
+    const u = outra.welcome.unread[geralId];
+    outra.close();
+    return u?.mentions ?? 0;
+  };
+  assert.ok(await unread(ana) >= 2, 'a Ana tem o cargo: @todos e @Jogadores contam');
+  assert.equal(await unread(bia) >= 1, true, 'a Bia recebe o @todos');
+});

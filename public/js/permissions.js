@@ -19,6 +19,7 @@ export const PERMS = {
   MOVE_MEMBERS: 1 << 15,    // mover alguém de um canal de voz para outro
   MANAGE_NICKNAMES: 1 << 16, // mudar o apelido de membros dentro do servidor
   MANAGE_EVENTS: 1 << 17,    // criar e apagar eventos agendados
+  MENTION_EVERYONE: 1 << 18, // @todos e @cargo avisam as pessoas
 };
 
 export const ALL_PERMS = Object.values(PERMS).reduce((a, b) => a | b, 0);
@@ -46,6 +47,7 @@ export const PERM_INFO = [
   ['MOVE_MEMBERS', 'Mover membros', 'Levar alguém que está numa call para outro canal de voz do servidor.'],
   ['MANAGE_NICKNAMES', 'Gerenciar apelidos', 'Mudar o nome com que um membro (de cargo abaixo do seu) aparece neste servidor.'],
   ['MANAGE_EVENTS', 'Gerenciar eventos', 'Marcar e apagar eventos do servidor (ex.: "Jogatina sexta 21h").'],
+  ['MENTION_EVERYONE', 'Mencionar @todos e cargos', 'Usar @todos (avisa todo mundo do canal) e mencionar cargos (avisa quem tem o cargo).'],
 ];
 
 // Permissões efetivas de um usuário num servidor (snapshot enviado pelo servidor)

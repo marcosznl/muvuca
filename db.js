@@ -681,7 +681,9 @@ class Store {
                    ON CONFLICT(user_id, channel_id) DO UPDATE SET last_read = MAX(last_read, excluded.last_read)`),
       readStateOf: p('SELECT channel_id, last_read FROM read_state WHERE user_id = ?'),
       unreadCounts: p(`SELECT m.channel_id, COUNT(*) AS n,
-                              SUM(CASE WHEN m.text LIKE '%' || ? || '%' THEN 1 ELSE 0 END) AS mentions
+                              SUM(CASE WHEN m.text LIKE '%' || ? || '%' OR m.text LIKE '%<@todos>%'
+                                    OR EXISTS (SELECT 1 FROM member_roles mr WHERE mr.user_id = mem.user_id AND mr.server_id = c.server_id
+                                               AND m.text LIKE '%<@&' || mr.role_id || '>%') THEN 1 ELSE 0 END) AS mentions
                        FROM messages m JOIN channels c ON c.id = m.channel_id
                        JOIN members mem ON mem.server_id = c.server_id AND mem.user_id = ?
                        LEFT JOIN read_state r ON r.user_id = mem.user_id AND r.channel_id = m.channel_id

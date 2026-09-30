@@ -20,17 +20,41 @@ const CUSTOM_EMOJI = /^<a?:\w{2,32}:(e-[0-9a-f]{10})>$/;
 const typingTimes = new Map(); // userId -> quando avisou que está digitando
 const previewTimes = new Map(); // userId -> pedidos de prévia de link
 
+// Menções de grupo: <@todos> (todo mundo do canal) e <@&r-…> (quem tem o cargo)
+const GROUP_MENTION = /<@(todos|&r-[0-9a-f]+)>/g;
+const roleOf = (snap, token) => snap?.roles.find((r) => r.id === token.slice(1) && !r.isDefault) ?? null;
+
+// Sem a permissão "Mencionar @todos e cargos" (ou em conversa privada), a menção de grupo vira texto comum
+function checkGroupMentions(ctx, text) {
+  const allowed = ctx.snap.kind !== 'dm' && can(ctx.perms, PERMS.MENTION_EVERYONE);
+  return text.replace(GROUP_MENTION, (whole, t) => {
+    if (t === 'todos') return allowed ? whole : '@todos';
+    const role = roleOf(ctx.snap, t);
+    if (!role) return '@cargo';
+    return allowed ? whole : `@${role.name}`;
+  });
+}
+
 // Texto curto para a notificação: menções viram @nome e emojis do servidor viram :nome:
-function preview(text) {
-  const plain = text.replace(/<@(u\d+)>/g, (_, id) => `@${db.userName(id)}`).replace(/<a?:(\w+):e-[0-9a-f]{10}>/g, ':$1:');
+function preview(text, snap) {
+  const plain = text.replace(/<@(u\d+)>/g, (_, id) => `@${db.userName(id)}`)
+    .replace(GROUP_MENTION, (_, t) => (t === 'todos' ? '@todos' : `@${roleOf(snap, t)?.name ?? 'cargo'}`))
+    .replace(/<a?:(\w+):e-[0-9a-f]{10}>/g, ':$1:');
   return plain.length > 140 ? `${plain.slice(0, 139)}…` : plain || '📎 Anexo';
 }
 
-// Quem foi mencionado ou respondido recebe notificação no celular (se não estiver com o site aberto);
-// na conversa privada, todo mundo da conversa recebe. Quem silenciou o canal/servidor não recebe.
+// Quem foi mencionado (direto, por @todos ou pelo cargo) ou respondido recebe notificação no celular
+// (se não estiver com o site aberto); na conversa privada, todo mundo da conversa recebe.
+// Quem silenciou o canal/servidor não recebe; canal privado só avisa quem enxerga o canal.
 function notifyMentions(msg, channel, ctx, user, original) {
   const dm = ctx.snap.kind === 'dm';
   const targets = new Set(dm ? ctx.snap.members.map((mem) => mem.id) : [...msg.text.matchAll(/<@(u\d+)>/g)].map((x) => x[1]));
+  if (!dm) {
+    const groups = [...msg.text.matchAll(GROUP_MENTION)].map((x) => x[1]);
+    if (groups.includes('todos')) for (const mem of ctx.snap.members) targets.add(mem.id);
+    const roles = new Set(groups.filter((t) => t !== 'todos').map((t) => t.slice(1)));
+    if (roles.size) for (const mem of ctx.snap.members) if (mem.roles.some((r) => roles.has(r))) targets.add(mem.id);
+  }
   if (original?.user_id) targets.add(`u${original.user_id}`);
   targets.delete(user.id);
   for (const id of targets) {
@@ -38,7 +62,7 @@ function notifyMentions(msg, channel, ctx, user, original) {
     if (!canSeeChannel(ctx.snap, id, ctx.snap.channels.find((c) => c.id === channel.id))) continue; // canal privado
     notify(id, {
       title: dm ? (ctx.snap.members.length > 2 ? `${user.name} em ${ctx.snap.name}` : user.name) : `${user.name} em #${channel.name}`,
-      body: preview(msg.text),
+      body: preview(msg.text, ctx.snap),
       url: `/?canal=${channel.id}`,
       tag: `canal-${channel.id}`,
     });
@@ -101,6 +125,7 @@ export default {
     const now = Date.now();
     const slowSent = checkSlowmode(ctx, user, channel, now);
     text = filterText(ctx, user, channel, text, ws);
+    text = checkGroupMentions(ctx, text);
     // Anexos já enviados por esta pessoa, para este canal, ainda sem mensagem
     const files = claimAttachments(m.attachments, user, channel.id);
     if (!text && !files.length) return;
@@ -224,7 +249,7 @@ export default {
     requirePerm(ctx, PERMS.SEND_MESSAGES, 'Você não tem permissão para enviar mensagens aqui.');
     const text = String(m.text ?? '').trim().slice(0, LIMITS.msgLength);
     if (!text) fail('A mensagem não pode ficar vazia (para apagar, use Excluir).');
-    const clean = filterText(ctx, user, { id: row.channel_id, name: ctx.snap.channels.find((c) => c.id === row.channel_id)?.name }, text, ws);
+    const clean = checkGroupMentions(ctx, filterText(ctx, user, { id: row.channel_id, name: ctx.snap.channels.find((c) => c.id === row.channel_id)?.name }, text, ws));
     if (clean === row.text) return;
     sendToServer(row.server_id, { t: 'msg:edit', msg: db.editMessage(row.id, clean) });
   },
