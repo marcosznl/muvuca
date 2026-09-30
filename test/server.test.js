@@ -351,7 +351,7 @@ test('segurança: cabeçalhos em todas as respostas e CSP com a impressão digit
   assert.equal(page.headers.get('x-content-type-options'), 'nosniff');
   const csp = page.headers.get('content-security-policy');
   assert.match(csp, /frame-ancestors 'none'/);
-  assert.match(csp, /script-src 'self' blob: 'sha256-[A-Za-z0-9+/=]+'/);
+  assert.match(csp, /script-src 'self' blob: 'wasm-unsafe-eval' 'sha256-[A-Za-z0-9+/=]+'/);
   assert.doesNotMatch(csp, /unsafe-inline'[^;]*script|script-src[^;]*unsafe-inline/);
   const api = await fetch(`${server.base}/health`);
   assert.equal(api.headers.get('x-frame-options'), 'DENY');
@@ -591,4 +591,12 @@ test('a sessão se renova com o uso (30 dias a partir do último uso)', async ()
     assert.ok(after > Date.now() + 29 * 86_400_000, 'voltou a valer por 30 dias');
     p.close();
   } finally { db.close(); }
+});
+
+test('a política de segurança deixa rodar WebAssembly (supressão de ruído da call)', async () => {
+  const res = await fetch(`${server.base}/`);
+  const csp = res.headers.get('content-security-policy') ?? '';
+  const script = csp.split(';').find((d) => d.trim().startsWith('script-src')) ?? '';
+  assert.match(script, /'wasm-unsafe-eval'/, 'sem isso o microfone da call fica mudo');
+  assert.doesNotMatch(script, /'unsafe-eval'/, 'eval de JavaScript continua bloqueado');
 });

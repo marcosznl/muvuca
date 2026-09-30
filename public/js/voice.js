@@ -349,10 +349,19 @@ desktop?.onPushToTalk((down) => {
 // O microfone passa por um processador (Web Audio) quando precisa: supressão de ruído por IA e/ou volume de entrada
 let noiseContext = null;
 let liveGain = null; // ganho do processador atual (o volume de entrada muda na hora, sem reiniciar)
+// O navegador deixa rodar WebAssembly? (a supressão de ruído por IA precisa; se não puder, o microfone vai sem ela
+// em vez de ficar mudo — foi o que aconteceu quando uma regra de segurança do site bloqueou o WebAssembly)
+let wasmOk = null;
+async function canRunWasm() {
+  if (wasmOk !== null) return wasmOk;
+  try { await WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0])); wasmOk = true; } catch { wasmOk = false; }
+  return wasmOk;
+}
+
 async function applyNoiseFilter() {
   const track = room?.localParticipant.getTrackPublication(Track.Source.Microphone)?.track;
   if (!track) return;
-  const wantNoise = noiseAiOn() && !musicMode;
+  const wantNoise = noiseAiOn() && !musicMode && await canRunWasm();
   const want = wantNoise ? 'rnnoise' : inputVolume() !== 100 ? 'gain' : null;
   const has = track.getProcessor?.()?.name ?? null;
   try {
@@ -368,6 +377,9 @@ async function applyNoiseFilter() {
     }
   } catch (err) {
     console.warn('supressão de ruído', err);
+    // Nunca deixa o microfone mudo por causa do filtro: tira o processador e manda o som direto
+    await track.stopProcessor?.().catch(() => {});
+    liveGain = null;
     showBanner('A supressão de ruído por IA não funcionou neste navegador (a normal continua ligada).', { timeout: 5000 });
   }
 }

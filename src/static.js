@@ -20,7 +20,8 @@ function cspFor(html) {
     .map((m) => `'sha256-${crypto.createHash('sha256').update(m[1]).digest('base64')}'`);
   return [
     "default-src 'self'",
-    `script-src 'self' blob: ${hashes.join(' ')} https://www.youtube.com https://s.ytimg.com`,
+    // 'wasm-unsafe-eval': só deixa rodar WebAssembly (a supressão de ruído por IA); sem ele o microfone da call ficava mudo
+    `script-src 'self' blob: 'wasm-unsafe-eval' ${hashes.join(' ')} https://www.youtube.com https://s.ytimg.com`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "media-src 'self' blob: https:",
