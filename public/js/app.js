@@ -106,6 +106,7 @@ function showChannel() {
   const friendsHome = !!state.view.dms && !channel; // mensagens diretas sem conversa: página de amigos
   $('empty-view').hidden = !!channel || friendsHome;
   $('friends-view').hidden = !friendsHome;
+  $('app').classList.toggle('friends-home', friendsHome); // a barra de abas dos amigos vira o topo (sem cabeçalho repetido)
   placeMusicView();
   $('app').classList.toggle('music-mode', isMusic); // painel da direita mais largo nos canais de música
   const server = findChannel(state.view.channelId).server;

@@ -1869,7 +1869,6 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .friends-add-form input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; color: var(--text-strong); font-size: 15px; padding: 0; }
 .friends-add-form .btn { white-space: nowrap; }
 .friends-empty { display: grid; justify-items: center; gap: 10px; margin-top: 60px; text-align: center; }
-.friends-empty-emoji { font-size: 48px; }
 @media (max-width: 700px) {
   .friends-tabs { padding: 8px 12px; }
   .friends-tabs-title { display: none; }
@@ -2122,3 +2121,7 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .friend-act { background: transparent; }
 .friend-row:hover .friend-act { background: var(--bg-side); }
 [data-theme="light"] .friends-search { background: var(--bg-side); border-color: rgba(0,0,0,.06); }
+/* Página de amigos: a barra das abas é o topo (no computador o cabeçalho comum some; no celular fica só o menu) */
+@media (min-width: 701px) { .app.friends-home .main-header { display: none; } }
+@media (max-width: 700px) { .app.friends-home .friends-title, .app.friends-home .friends-dot { display: none; } }
+.app.friends-home .friends-tabs { min-height: 48px; box-sizing: border-box; }

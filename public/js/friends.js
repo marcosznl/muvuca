@@ -168,8 +168,7 @@ export function renderFriendsView(presenceOnly = false) {
     for (const f of list) body.append(row(f));
     if (!list.length) {
       const empty = h('div', 'friends-empty');
-      empty.append(h('div', 'friends-empty-emoji', tab === 'pending' ? '📭' : '👋'),
-        h('p', 'muted', q ? 'Ninguém com esse nome.' : tab === 'pending' ? 'Nenhum pedido de amizade por aqui.'
+      empty.append(h('p', 'muted', q ? 'Ninguém com esse nome.' : tab === 'pending' ? 'Nenhum pedido de amizade por aqui.'
           : tab === 'online' ? 'Nenhum amigo online agora.' : 'Você ainda não tem amigos adicionados.'));
       if (tab !== 'pending' && !q) {
         const b = h('button', 'btn primary', 'Adicionar amigo');
