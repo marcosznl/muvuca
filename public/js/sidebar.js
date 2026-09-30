@@ -557,7 +557,7 @@ function channelItem(s, c, canManage) {
       if (p.camera) icons.append(icon('video', 14));
       if (p.muted || p.deafened) icons.append(icon('mic-off', 14));
       if (p.deafened) icons.append(icon('headphones-off', 14));
-      row.append(makeAvatar(p.name, 'sm', p.id), h('span', 'name', p.name));
+      row.append(makeAvatar(p.name, 'sm', p.userId ?? p.id), h('span', 'name', p.name)); // 2º aparelho: a foto é a da conta
       if (p.streaming) {
         const live = h('button', 'live-badge', 'AO VIVO');
         live.title = `Assistir a tela de ${p.name}`;

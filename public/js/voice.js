@@ -142,11 +142,17 @@ let joinedAt = 0;
 // Avisa o servidor que algo mudou na voz: ele atualiza a lista de todos na hora
 const poke = () => send({ t: 'voice:poke' });
 
+// 2º aparelho da mesma conta na call: entra como "u5:2", sem microfone e sem som (só câmera e tela)
+let secondDevice = false;
+const selfId = () => (secondDevice ? `${state.me.id}:2` : state.me.id);
+export const isSecondDevice = () => secondDevice;
+
 function selfEntry() {
   const lp = room?.localParticipant;
   return {
-    id: state.me.id,
-    name: state.me.name,
+    id: selfId(),
+    name: secondDevice ? `${state.me.name} (2º aparelho)` : state.me.name,
+    ...(secondDevice ? { companion: true, userId: state.me.id } : {}),
     muted: !lp?.isMicrophoneEnabled,
     deafened: state.deafened,
     camera: !!lp?.isCameraEnabled,
@@ -158,10 +164,11 @@ function selfEntry() {
 // Mostra você no canal de voz na hora (sem esperar o servidor). Se já está na lista, atualiza no mesmo lugar:
 // tirar e pôr no fim fazia as pessoas "trocarem de lugar" a cada mutar/desmutar (o servidor devolvia a ordem certa)
 function showSelfInChannel() {
-  for (const [id, list] of Object.entries(state.voice)) if (id !== roomChannel) state.voice[id] = list.filter((p) => p.id !== state.me?.id);
+  const me = state.me ? selfId() : null;
+  for (const [id, list] of Object.entries(state.voice)) if (id !== roomChannel) state.voice[id] = list.filter((p) => p.id !== me);
   if (roomChannel) {
     const list = (state.voice[roomChannel] ??= []);
-    const i = list.findIndex((p) => p.id === state.me?.id);
+    const i = list.findIndex((p) => p.id === me);
     if (i >= 0) list[i] = selfEntry();
     else list.push(selfEntry());
   }
@@ -172,21 +179,59 @@ function showSelfInChannel() {
 export function mergeSelfIntoVoice(voice) {
   if (!roomChannel || !state.me || Date.now() - joinedAt > 5000) return voice;
   const list = voice[roomChannel] ?? [];
-  if (!list.some((p) => p.id === state.me.id)) voice[roomChannel] = [...list, selfEntry()];
+  if (!list.some((p) => p.id === selfId())) voice[roomChannel] = [...list, selfEntry()];
   return voice;
 }
 export const speakingNow = () => speakingSet;
 
 // ---------- Voz ----------
 
+// A conta já está numa call por outro aparelho (e não por esta aba)?
+function inCallElsewhere() {
+  if (room || !state.me) return null;
+  for (const [channelId, list] of Object.entries(state.voice)) if (list.some((p) => p.id === state.me.id)) return channelId;
+  return null;
+}
+
+// Pergunta o que fazer: entrar com 2 dispositivos (sem microfone e sem som aqui) ou trocar para este aparelho
+function askSecondDevice(otherChannel, channelId) {
+  return new Promise((resolve) => {
+    const same = otherChannel === channelId;
+    const body = h('div', 'form');
+    body.append(
+      h('p', '', same ? 'Você já está nesta call em outro aparelho.' : 'Você já está em outra call num outro aparelho.'),
+      h('p', 'muted small', same
+        ? 'Com 2 dispositivos, este aqui entra sem microfone e sem som (para não dar eco): dá para ligar a câmera ou transmitir a tela daqui enquanto fala pelo outro. Ou troque, e o outro aparelho sai da call.'
+        : 'Trocando, o outro aparelho sai daquela call e você entra nesta por aqui.'));
+    let done = false;
+    let modal = null;
+    const finish = (v) => { if (done) return; done = true; modal?.close(); resolve(v); };
+    const cancel = button('Cancelar', { kind: 'link' });
+    const move = button('Trocar para este aparelho', { kind: same ? 'secondary' : 'primary' });
+    const both = button('Entrar com 2 dispositivos');
+    cancel.onclick = () => finish(null);
+    move.onclick = () => finish('move');
+    both.onclick = () => finish('second');
+    modal = openModal({ title: 'Você já está em call', content: body, actions: same ? [cancel, move, both] : [cancel, move], onClose: () => finish(null) });
+  });
+}
+
 export async function joinVoice(channelId) {
   if (joining) return;
   const { server } = findChannel(channelId);
   if (!canIn(server, PERMS.CONNECT)) return showBanner('Você não tem permissão para entrar neste canal.', { timeout: 4000 });
+  let second = false;
+  const other = inCallElsewhere();
+  if (other) {
+    const choice = await askSecondDevice(other, channelId);
+    if (!choice) return;
+    second = choice === 'second';
+  }
   joining = true;
   try {
     if (room) await leaveVoice({ keepView: true });
-    const data = await api('/token', { channel: channelId });
+    const data = await api('/token', { channel: channelId, ...(second ? { second: true } : {}) });
+    secondDevice = second;
 
     const r = new Room({
       // Só recebe a resolução que o quadro realmente mostra. 'screen' conta os pixels reais da tela:
@@ -237,6 +282,7 @@ export async function joinVoice(channelId) {
     room = r;
     roomChannel = channelId;
     joinedAt = Date.now();
+    if (secondDevice) showBanner('Você entrou com 2 dispositivos: este aparelho está sem microfone e sem som (fica no outro). Dá para ligar a câmera ou transmitir a tela daqui.', { kind: 'info', timeout: 8000 });
     showSelfInChannel();
     await applyAudioState();
     updateMediaButtons();
@@ -275,6 +321,7 @@ function onVoiceClosed({ keepView = false } = {}) {
   syncDesktopPtt(); // saiu da call: o app para de escutar a tecla
   stopMacAppAudio();
   showSelfInChannel(); // some da lista na hora
+  secondDevice = false;
   poke();
   // Estava olhando o canal de voz: volta para o último canal de texto do servidor
   const { server, channel } = findChannel(state.view.channelId);
@@ -289,7 +336,7 @@ export async function applyAudioState() {
   if (!room) return;
   const lp = room.localParticipant;
   try {
-    const canSpeak = canIn(findChannel(roomChannel).server, PERMS.SPEAK);
+    const canSpeak = canIn(findChannel(roomChannel).server, PERMS.SPEAK) && !secondDevice; // 2º aparelho: o microfone é o do outro
     await lp.setMicrophoneEnabled(canSpeak && state.micOn && !state.deafened);
     await applyNoiseFilter();
     await applyPtt();
@@ -532,6 +579,7 @@ async function applyVoiceBitrate() {
 }
 
 $('btn-mic').onclick = () => {
+  if (secondDevice && room) return showBanner('Este é o 2º aparelho da call: o microfone e o som ficam no outro.', { kind: 'info', timeout: 4000 });
   state.micOn = !state.micOn;
   if (state.micOn && state.deafened) state.deafened = false;
   store.set('micOn', state.micOn ? null : '0');
@@ -557,6 +605,8 @@ export async function watchStream(channelId, identity) {
 }
 
 function onTrackSubscribed(track, pub, participant) {
+  // 2º aparelho: não toca som nenhum (o som sai pelo aparelho principal; tocar aqui daria eco)
+  if (secondDevice && track.kind === Track.Kind.Audio) { pub.setSubscribed?.(false); return; }
   if (pub.source === Track.Source.Microphone) attachMeter(participant.identity, track.mediaStreamTrack);
   // Áudio remoto (voz e som da transmissão) toca num elemento escondido
   if (track.kind === Track.Kind.Audio) {
@@ -1171,10 +1221,10 @@ function updateTile(el, { p, pub, screen }, isMain) {
 
   // Avatar com a cor da pessoa quando não há vídeo
   let avatar = el.querySelector('.avatar');
-  const avatarKey = `${name}|${avatarOf(p.identity) ?? ''}`; // troca se a pessoa mudar de nome ou foto
+  const avatarKey = `${name}|${avatarOf(String(p.identity).split(':')[0]) ?? ''}`; // troca se a pessoa mudar de nome ou foto
   if (!avatar || avatar.dataset.key !== avatarKey) {
     avatar?.remove();
-    avatar = makeAvatar(name, '', p.identity);
+    avatar = makeAvatar(name, '', String(p.identity).split(':')[0]); // 2º aparelho ("u5:2"): foto da conta
     avatar.dataset.key = avatarKey;
     el.prepend(avatar);
   }
@@ -1287,7 +1337,7 @@ function reportDelta(key, value, perSecond = false) {
   return perSecond ? ((value - prev.v) * 1000) / (now - prev.time) : value - prev.v;
 }
 async function reportStats() {
-  if (!room) return;
+  if (!room || secondDevice) return; // o relatório da conta é o do aparelho principal
   const lp = room.localParticipant;
   const pub = [];
   for (const p of lp.videoTrackPublications.values()) {
