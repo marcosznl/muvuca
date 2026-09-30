@@ -403,7 +403,7 @@ function usersList() {
 // Arquivos pesados: os maiores anexos, quem mandou e onde. Em conversa privada, sem nome do arquivo nem canal.
 function heavyFiles(url) {
   const kind = url.searchParams.get('kind');
-  const kinds = ['image', 'video', 'audio', 'document'];
+  const kinds = ['image', 'video', 'audio', 'file'];
   const where = kinds.includes(kind) ? 'WHERE f.kind = ?' : '';
   const rows = all(`SELECT f.id, f.kind, f.mime, f.size, f.name, f.created_at, f.message_id, u.username, u.display_name,
       c.name channel, s.name server, s.kind skind
@@ -420,11 +420,42 @@ function heavyFiles(url) {
     files: rows.map((r) => {
       const dm = r.skind === 'dm';
       return {
-        kind: r.kind, mime: r.mime, size: r.size, at: r.created_at, user: r.username ?? '(conta apagada)', userName: r.display_name,
+        id: dm ? null : r.id, kind: r.kind, mime: r.mime, size: r.size, at: r.created_at, user: r.username ?? '(conta apagada)', userName: r.display_name,
         name: dm ? null : r.name, where: dm ? 'Conversa privada' : `${r.server ?? '?'} · #${r.channel ?? '?'}`, dm, orphan: r.message_id === null,
       };
     }),
   };
+}
+
+// Prévia de um anexo (aba Arquivos). Conversa privada nunca abre aqui. Documento só baixa, nunca vira página.
+const FILE_DIR = path.join(path.dirname(DB_FILE), 'files');
+async function previewFile(req, res, s, url) {
+  const id = url.searchParams.get('id') ?? '';
+  const f = /^f-[0-9a-f]{16}$/.test(id) ? one(`SELECT f.id, f.kind, f.mime, f.name, s.kind skind FROM files f
+    LEFT JOIN channels c ON c.id = f.channel_id LEFT JOIN servers s ON s.id = c.server_id WHERE f.id = ?`, id) : null;
+  if (!f || f.skind === 'dm') return json(res, 404, { error: 'Arquivo não encontrado.' });
+  const file = path.join(FILE_DIR, f.id);
+  let size;
+  try { size = (await fsp.stat(file)).size; } catch { return json(res, 404, { error: 'O arquivo não está mais no disco.' }); }
+  const media = ['image', 'video', 'audio'].includes(f.kind) && /^(image|video|audio)\/[\w.+-]+$/.test(f.mime) && f.mime !== 'image/svg+xml';
+  const download = !media || url.searchParams.get('download') === '1';
+  const headers = {
+    'Content-Type': media ? f.mime : 'application/octet-stream',
+    'Accept-Ranges': 'bytes',
+    'Cache-Control': 'private, max-age=3600',
+    'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(f.name)}`,
+    'Content-Security-Policy': 'sandbox',
+  };
+  const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
+  if (range && (range[1] || range[2])) {
+    const start = Math.max(0, range[1] ? Number(range[1]) : size - Number(range[2]));
+    const end = Math.min(range[1] && range[2] ? Number(range[2]) : size - 1, size - 1);
+    if (start > end) { res.writeHead(416, { 'Content-Range': `bytes */${size}` }); return res.end(); }
+    res.writeHead(206, { ...headers, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': end - start + 1 });
+    return fs.createReadStream(file, { start, end }).pipe(res);
+  }
+  res.writeHead(200, { ...headers, 'Content-Length': size });
+  fs.createReadStream(file).pipe(res);
 }
 
 // XP: ranking de todo mundo e de onde veio o XP nas últimas 24 h e 7 dias
@@ -695,6 +726,7 @@ const api = {
   'GET /api/overview': (req, res) => json(res, 200, overview()),
   'GET /api/users': (req, res) => json(res, 200, usersList()),
   'GET /api/files': (req, res, s, url) => json(res, 200, heavyFiles(url)),
+  'GET /api/file': previewFile,
   'GET /api/xp': (req, res) => json(res, 200, xpOverview()),
   'POST /api/xp/adjust': async (req, res) => {
     const b = await readBody(req);

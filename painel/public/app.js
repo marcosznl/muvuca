@@ -982,11 +982,34 @@ async function viewInternet() {
 }
 
 // ---------- Arquivos pesados ----------
-const KIND_LABEL = { image: '🖼️ Imagem', video: '🎬 Vídeo', audio: '🎵 Áudio', document: '📄 Documento' };
+const KIND_LABEL = { image: '🖼️ Imagem', video: '🎬 Vídeo', audio: '🎵 Áudio', file: '📄 Documento' };
+const fileUrl = (r, download) => `/api/file?id=${encodeURIComponent(r.id)}${download ? '&download=1' : ''}`;
+
+// Prévia em pop-up: imagem, vídeo ou áudio ali mesmo; documento só baixa (fecha com Esc ou clicando fora)
+function previewFile(r) {
+  const src = fileUrl(r);
+  const media = r.kind === 'image' ? h('img', { src, alt: r.name })
+    : r.kind === 'video' ? h('video', { src, controls: true, autoplay: true, playsinline: true })
+      : r.kind === 'audio' ? h('audio', { src, controls: true, autoplay: true })
+        : h('p', { class: 'muted' }, 'Documentos não abrem aqui (por segurança). Use o botão Baixar.');
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  const overlay = h('div', { class: 'preview-overlay', onclick: (e) => { if (e.target === overlay) close(); } },
+    h('div', { class: 'preview-box', role: 'dialog', 'aria-modal': 'true', 'aria-label': r.name },
+      h('div', { class: 'row preview-head' },
+        h('div', { class: 'preview-title' }, h('b', {}, r.name), h('div', { class: 'muted small' }, `${KIND_LABEL[r.kind] ?? r.kind} · ${bytes(r.size)} · @${r.user} · ${r.where}`)),
+        h('span', { class: 'spacer' }),
+        r.kind !== 'file' ? h('a', { class: 'btn small ghost', href: src, target: '_blank', rel: 'noopener' }, 'Abrir em nova aba') : null,
+        h('a', { class: 'btn small ghost', href: fileUrl(r, true) }, 'Baixar'),
+        h('button', { class: 'btn small', onclick: close, 'aria-label': 'Fechar' }, '✕')),
+      h('div', { class: 'preview-media' }, media)));
+  document.addEventListener('keydown', onKey);
+  document.body.append(overlay);
+}
 let filesKind = '';
 async function viewArquivos() {
   const d = await api(`/api/files${filesKind ? `?kind=${filesKind}` : ''}`);
-  const sel = h('select', {}, [['', 'Todos os tipos'], ['image', 'Imagens'], ['video', 'Vídeos'], ['audio', 'Áudios'], ['document', 'Documentos']]
+  const sel = h('select', {}, [['', 'Todos os tipos'], ['image', 'Imagens'], ['video', 'Vídeos'], ['audio', 'Áudios'], ['file', 'Documentos']]
     .map(([k, v]) => h('option', { value: k, selected: k === filesKind }, v)));
   sel.addEventListener('change', () => { filesKind = sel.value; openTab('arquivos'); });
   const small = (cols, rows) => table(cols, rows, { empty: 'Nenhum anexo.' });
@@ -1007,9 +1030,11 @@ async function viewArquivos() {
       ], d.byPlace))),
     h('div', { class: 'section card' },
       h('div', { class: 'row' }, h('h2', {}, 'Maiores anexos'), h('span', { class: 'spacer' }), sel),
-      h('p', { class: 'muted small' }, 'Os 200 maiores. Em conversas privadas não aparecem o nome do arquivo nem o canal.'),
+      h('p', { class: 'muted small' }, 'Os 200 maiores. Clique no nome para ver a prévia. Em conversas privadas não aparecem o nome do arquivo, o canal nem a prévia.'),
       small([
-        { label: 'Arquivo', get: (r) => (r.name ? h('span', {}, r.name) : h('span', { class: 'muted' }, '(conversa privada)')) },
+        { label: 'Arquivo', get: (r) => (!r.name ? h('span', { class: 'muted' }, '(conversa privada)')
+          : r.id ? h('button', { class: 'link-btn', title: 'Ver prévia', onclick: () => previewFile(r) }, r.kind === 'file' ? '📄 ' : '👁️ ', r.name)
+            : h('span', {}, r.name)) },
         { label: 'Tipo', get: (r) => KIND_LABEL[r.kind] ?? r.kind },
         { label: 'Tamanho', num: true, get: (r) => h('b', {}, bytes(r.size)) },
         { label: 'Quem mandou', get: (r) => `@${r.user}` },
