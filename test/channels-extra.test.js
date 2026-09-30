@@ -45,9 +45,10 @@ test('canal privado: só o cargo escolhido vê, lê, escreve e recebe as mensage
   for (const p of [ana, bia]) p.events = p.events.filter((e) => e.t !== 'server');
   assert.equal((await dono.request({ t: 'channel:privacy', channelId: secreto, private: true, roleIds: [staff] })).t, 'ok');
 
-  const visto = async (p) => (await snapOf(p)).channels.some((c) => c.id === secreto);
-  assert.equal(await visto(ana), true, 'quem tem o cargo vê');
-  assert.equal(await visto(bia), false, 'quem não tem nem sabe que existe');
+  // Espera o aviso do servidor já com o canal privado (avisos antigos podem chegar atrasados)
+  const depois = (p, pred) => p.waitFor('server', (e) => e.server.id === home && pred(e.server), 3000).then(() => true).catch(() => false);
+  assert.equal(await depois(ana, (sv) => sv.channels.some((c) => c.id === secreto && c.private)), true, 'quem tem o cargo vê');
+  assert.equal(await depois(bia, (sv) => !sv.channels.some((c) => c.id === secreto)), true, 'quem não tem nem sabe que existe');
 
   assert.equal((await bia.request({ t: 'msg', channel: secreto, text: 'entrei?' })).t, 'error');
   assert.equal((await bia.request({ t: 'history', channel: secreto })).t, 'error');
@@ -59,9 +60,8 @@ test('canal privado: só o cargo escolhido vê, lê, escreve e recebe as mensage
   assert.equal((await ana.request({ t: 'search', serverId: home, text: 'papo da staff' })).results.length, 1);
 
   // Voltou a ser público: a Bia passa a ver
-  bia.events = bia.events.filter((e) => e.t !== 'server');
   await dono.request({ t: 'channel:privacy', channelId: secreto, private: false });
-  assert.equal(await visto(bia), true);
+  assert.equal(await depois(bia, (sv) => sv.channels.some((c) => c.id === secreto && !c.private)), true);
   assert.equal((await dono.request({ t: 'channel:privacy', channelId: secreto, private: true, roleIds: [] })).t, 'ok');
   assert.equal((await ana.request({ t: 'history', channel: secreto })).t, 'error', 'sem cargo nenhum: só dono e administradores');
   assert.equal((await dono.request({ t: 'history', channel: secreto })).t, 'history', 'o dono sempre vê');
