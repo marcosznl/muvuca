@@ -5,7 +5,7 @@ import { db } from './store.js';
 import { AUDIT_LABELS } from './audit-labels.js';
 
 const KEEP_DAYS = 180;
-const TEXT_KEYS = ['count', 'name', 'topic', 'word', 'code', 'expiresIn', 'maxUses', 'color', 'type', 'bitrate', 'userLimit', 'pinned', 'on'];
+const TEXT_KEYS = ['count', 'nick', 'name', 'topic', 'word', 'code', 'expiresIn', 'maxUses', 'color', 'type', 'bitrate', 'userLimit', 'pinned', 'on'];
 
 const short = (v, n = 80) => (typeof v === 'string' ? (v.length > n ? `${v.slice(0, n)}…` : v) : v);
 

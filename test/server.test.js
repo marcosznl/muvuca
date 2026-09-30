@@ -625,3 +625,20 @@ test('mover da call: só com "Mover membros", só quem está numa call do servid
   assert.match(foraDaCall.message, /não está numa call/);
   assert.match((await dono.request({ t: 'voice:move', userId: ana.me.id, channelId: 'geral' })).message, /não encontrado/);
 });
+
+test('apelido no servidor: só com "Gerenciar apelidos", aparece no servidor e vazio volta ao nome da conta', async () => {
+  const nick = (who, userId, value) => who.request({ t: 'member:nick', serverId: home, userId, nick: value });
+  const semPermissao = await nick(ana, dono.me.id, 'chefinho');
+  assert.equal(semPermissao.t, 'error');
+  assert.match(semPermissao.message, /permissão para mudar apelidos/);
+  assert.equal((await nick(dono, ana.me.id, '  Aninha   da  Silva ')).t, 'ok');
+  const ev = await ana.waitFor('server', (e) => e.server.id === home && e.server.members.some((x) => x.id === ana.me.id && x.nick));
+  const mem = ev.server.members.find((x) => x.id === ana.me.id);
+  assert.equal(mem.nick, 'Aninha da Silva');
+  assert.equal(mem.name, 'Aninha da Silva');
+  assert.ok(mem.globalName && mem.globalName !== mem.nick, 'o nome da conta continua disponível');
+  ana.events = ana.events.filter((e) => e.t !== 'server'); // só vale o aviso que vem depois de tirar o apelido
+  assert.equal((await nick(dono, ana.me.id, '')).t, 'ok');
+  const back = await ana.waitFor('server', (e) => e.server.id === home && e.server.members.some((x) => x.id === ana.me.id && !x.nick));
+  assert.equal(back.server.members.find((x) => x.id === ana.me.id).name, mem.globalName);
+});

@@ -105,6 +105,24 @@ export default {
     await changed(ctx);
   },
 
+  // Apelido no servidor (moderação): só quem gerencia apelidos, em quem tem cargo abaixo do seu.
+  // Vazio tira o apelido (volta o nome da conta). O dono pode mudar o próprio.
+  'member:nick'(user, m) {
+    const ctx = requireServer(user, m.serverId);
+    if (ctx.snap.kind === 'dm') fail('Conversa privada não tem apelido.');
+    requirePerm(ctx, PERMS.MANAGE_NICKNAMES, 'Você não tem permissão para mudar apelidos.');
+    const target = ctx.snap.members.find((x) => x.id === m.userId);
+    if (!target) fail('Membro não encontrado.');
+    if (target.id !== user.id) {
+      if (target.id === ctx.snap.ownerId) fail('O apelido do dono só ele pode mudar.');
+      if (!isBelow(ctx, target.id)) fail('Esse membro tem cargo igual ou acima do seu.');
+    }
+    const nick = clean(m.nick ?? '', 32);
+    if ((nick || null) === (target.nick || null)) return;
+    db.setNick(ctx.snap.id, target.id, nick === target.globalName ? '' : nick);
+    pushServer(ctx.snap.id);
+  },
+
   async 'member:kick'(user, m) {
     const ctx = requireServer(user, m.serverId);
     requirePerm(ctx, PERMS.KICK_MEMBERS, 'Você não tem permissão para expulsar membros.');

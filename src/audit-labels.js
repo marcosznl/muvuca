@@ -30,6 +30,7 @@ export const AUDIT_LABELS = {
   'role:reorder': 'Reordenou cargos',
   'member:roles': 'Mudou cargos de membro',
   'member:kick': 'Expulsou membro',
+  'member:nick': 'Mudou o apelido de um membro',
   // Canais
   'channel:create': 'Criou canal',
   'channel:rename': 'Renomeou canal',
@@ -90,7 +91,7 @@ export const AUDIT_LABELS = {
 export const AUDIT_GROUPS = {
   seguranca: ['auth:login:fail', 'auth:login:blocked', 'painel:user:block', 'painel:user:unblock', 'painel:ip:block', 'painel:ip:unblock', 'painel:user:disconnect', 'auth:register:fail', 'auth:password', 'auth:password:fail', 'painel:login', 'painel:login:fail', 'painel:logout'],
   contas: ['auth:login', 'auth:register', 'auth:logout', 'auth:password', 'voice:join'],
-  moderacao: ['voice:move', 'spam:timeout', 'painel:msg:delete', 'painel:file:delete', 'msg:purge', 'member:kick', 'member:roles', 'msg:delete:other', 'msg:pin', 'music:kick', 'emoji:delete', 'sound:delete', 'invite:revoke'],
+  moderacao: ['member:nick', 'voice:move', 'spam:timeout', 'painel:msg:delete', 'painel:file:delete', 'msg:purge', 'member:kick', 'member:roles', 'msg:delete:other', 'msg:pin', 'music:kick', 'emoji:delete', 'sound:delete', 'invite:revoke'],
   painel: ['painel:login', 'painel:login:fail', 'painel:logout', 'painel:restart', 'painel:backup', 'painel:speedtest', 'painel:user:disconnect', 'painel:user:block', 'painel:user:unblock', 'painel:ip:block', 'painel:ip:unblock', 'painel:maintenance', 'painel:deploy', 'painel:rollback', 'painel:xp', 'painel:msg:delete', 'painel:file:delete'],
   minecraft: ['painel:mc:start', 'painel:mc:stop', 'painel:mc:restart', 'painel:mc:autostop', 'painel:mc:wake', 'painel:mc:backup', 'painel:mc:cmd', 'painel:mc:settings'],
 };

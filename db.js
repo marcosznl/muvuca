@@ -389,6 +389,8 @@ function migrate(db) {
   // XP da conta (ver src/xp.js)
   if (!uCols.includes('xp')) db.exec('ALTER TABLE users ADD COLUMN xp INTEGER NOT NULL DEFAULT 0');
   if (!uCols.includes('blocked_at')) db.exec('ALTER TABLE users ADD COLUMN blocked_at INTEGER; ALTER TABLE users ADD COLUMN blocked_reason TEXT;');
+  // Apelido dentro de um servidor (moderação: quem gerencia apelidos muda o nome que aparece ali)
+  if (!db.prepare('PRAGMA table_info(members)').all().some((c) => c.name === 'nick')) db.exec('ALTER TABLE members ADD COLUMN nick TEXT');
   // Não lidas: quem já existia começa com tudo lido (senão o histórico inteiro viraria "novo")
   if (!db.prepare("SELECT value FROM meta WHERE key = 'read_state_v1'").get()) {
     db.exec(`INSERT OR IGNORE INTO read_state (user_id, channel_id, last_read)
@@ -529,7 +531,7 @@ class Store {
       deleteServer: p('DELETE FROM servers WHERE id = ?'),
       ownedCount: p('SELECT COUNT(*) AS n FROM servers WHERE owner_id = ?'),
       serversOfUser: p('SELECT server_id FROM members WHERE user_id = ? ORDER BY joined_at'),
-      members: p(`SELECT u.id, u.username, u.display_name, u.avatar, u.bio, u.banner, u.banner_image, u.status_text, u.xp, m.joined_at FROM members m JOIN users u ON u.id = m.user_id
+      members: p(`SELECT u.id, u.username, u.display_name, u.avatar, u.bio, u.banner, u.banner_image, u.status_text, u.xp, m.joined_at, m.nick FROM members m JOIN users u ON u.id = m.user_id
                   WHERE m.server_id = ? ORDER BY m.joined_at`),
       memberRoles: p('SELECT user_id, role_id FROM member_roles WHERE server_id = ?'),
       isMember: p('SELECT 1 FROM members WHERE server_id = ? AND user_id = ?'),
@@ -886,7 +888,8 @@ class Store {
         id: e.id, name: e.name, animated: e.animated === 1, by: e.created_by ? uid(e.created_by) : null,
       })),
       members: this.q.members.all(serverId).map((m) => ({
-        id: uid(m.id), username: m.username, name: m.display_name, avatar: m.avatar ?? null,
+        // name: o que aparece neste servidor (o apelido, se tiver); globalName: o nome da conta
+        id: uid(m.id), username: m.username, name: m.nick || m.display_name, globalName: m.display_name, nick: m.nick ?? null, avatar: m.avatar ?? null,
         bio: m.bio ?? '', banner: m.banner ?? null, bannerImage: m.banner_image ?? null, statusText: m.status_text ?? '', joinedAt: m.joined_at, xp: xpInfo(m.xp ?? 0), roles: rolesByUser.get(m.id) ?? [],
       })),
     };
@@ -1121,6 +1124,7 @@ class Store {
     return groupVotes(this.q.votesOf.all(id))(id);
   }
 
+  setNick(serverId, userId, nick) { this.db.prepare('UPDATE members SET nick = ? WHERE server_id = ? AND user_id = ?').run(nick || null, serverId, unum(userId)); }
   setMessageMeta(id, meta) { this.q.setMsgMeta.run(JSON.stringify(meta), Number(id)); return this.message(id); }
   // Tira um anexo da mensagem (painel); devolve a mensagem atualizada
   setMessageAttachments(id, list) { this.q.setMsgAttachments.run(list.length ? JSON.stringify(list) : null, Number(id)); return this.message(id); }
