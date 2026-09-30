@@ -40,6 +40,14 @@ export default {
     pushServer(ctx.snap.id);
   },
 
+  // Ordem dos servidores na coluna da esquerda (só para a própria pessoa; vale em todos os aparelhos dela)
+  'servers:order'(user, m) {
+    const mine = new Set(db.serverIdsOf(user));
+    const ids = [...new Set((Array.isArray(m.ids) ? m.ids : []).map(String))].filter((id) => mine.has(id)).slice(0, 200);
+    db.setServerOrder(user.id, ids);
+    sendToUser(user.id, { t: 'servers:order', ids }); // as outras abas e aparelhos também reorganizam
+  },
+
   // Filtro de palavras: lista (uma por linha) e o que fazer (bloquear a mensagem ou trocar por ***)
   'server:filter'(user, m) {
     const ctx = requireServer(user, m.serverId);

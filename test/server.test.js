@@ -644,3 +644,19 @@ test('apelido no servidor: só com "Gerenciar apelidos", aparece no servidor e v
   const back = await ana.waitFor('server', (e) => e.server.id === home && e.server.members.some((x) => x.id === ana.me.id && !x.nick));
   assert.equal(back.server.members.find((x) => x.id === ana.me.id).name, mem.globalName);
 });
+
+test('ordem dos servidores na coluna: cada pessoa escolhe a sua e ela volta ao entrar de novo', async () => {
+  await dono.request({ t: 'server:create', name: 'Segundo' });
+  const segundo = (await dono.waitFor('server', (e) => e.server.name === 'Segundo')).server.id;
+  const ids = [segundo, home, 'servidor-que-nao-e-meu'];
+  assert.equal((await dono.request({ t: 'servers:order', ids })).t, 'ok');
+  const ev = await dono.waitFor('servers:order');
+  assert.deepEqual(ev.ids, [segundo, home], 'o que não é da pessoa é ignorado');
+  // Entrando de novo (outra aba): a lista já vem na ordem escolhida
+  const outra = new Person(server, 'dono');
+  outra.token = dono.token;
+  await outra.connect();
+  const ordem = outra.servers.filter((s) => s.kind !== 'dm').map((s) => s.id);
+  assert.deepEqual(ordem.slice(0, 2), [segundo, home]);
+  outra.close();
+});

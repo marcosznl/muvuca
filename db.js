@@ -423,6 +423,8 @@ function migrate(db) {
   if (!uCols.includes('blocked_at')) db.exec('ALTER TABLE users ADD COLUMN blocked_at INTEGER; ALTER TABLE users ADD COLUMN blocked_reason TEXT;');
   // Senha temporária dada pelo painel: a pessoa troca no primeiro login
   if (!uCols.includes('must_change')) db.exec('ALTER TABLE users ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0');
+  // Ordem dos servidores na coluna da esquerda (cada pessoa arrasta os seus)
+  if (!db.prepare('PRAGMA table_info(members)').all().some((c) => c.name === 'rail_pos')) db.exec('ALTER TABLE members ADD COLUMN rail_pos INTEGER');
   // Apelido dentro de um servidor (moderação: quem gerencia apelidos muda o nome que aparece ali)
   if (!db.prepare('PRAGMA table_info(members)').all().some((c) => c.name === 'nick')) db.exec('ALTER TABLE members ADD COLUMN nick TEXT');
   // Não lidas: quem já existia começa com tudo lido (senão o histórico inteiro viraria "novo")
@@ -564,7 +566,7 @@ class Store {
       setOwner: p('UPDATE servers SET owner_id = ? WHERE id = ?'),
       deleteServer: p('DELETE FROM servers WHERE id = ?'),
       ownedCount: p('SELECT COUNT(*) AS n FROM servers WHERE owner_id = ?'),
-      serversOfUser: p('SELECT server_id FROM members WHERE user_id = ? ORDER BY joined_at'),
+      serversOfUser: p('SELECT server_id FROM members WHERE user_id = ? ORDER BY rail_pos IS NULL, rail_pos, joined_at'), // a ordem que a pessoa escolheu; os novos no fim
       members: p(`SELECT u.id, u.username, u.display_name, u.avatar, u.bio, u.banner, u.banner_image, u.status_text, u.xp, m.joined_at, m.nick FROM members m JOIN users u ON u.id = m.user_id
                   WHERE m.server_id = ? ORDER BY m.joined_at`),
       memberRoles: p('SELECT user_id, role_id FROM member_roles WHERE server_id = ?'),
@@ -926,6 +928,11 @@ class Store {
   ownedCount(user) { return this.q.ownedCount.get(unum(user.id)).n; }
 
   serverIdsOf(user) { return this.q.serversOfUser.all(unum(user.id)).map((r) => r.server_id); }
+  setServerOrder(userId, ids) {
+    const u = unum(userId);
+    const st = this.db.prepare('UPDATE members SET rail_pos = ? WHERE user_id = ? AND server_id = ?');
+    this.transaction(() => ids.forEach((id, i) => st.run(i, u, id)));
+  }
   isMember(serverId, userId) { return !!this.q.isMember.get(serverId, unum(userId)); }
   addMember(serverId, user) { this.q.insertMember.run(serverId, unum(user.id), Date.now()); }
   removeMember(serverId, userId) { this.q.deleteMember.run(serverId, unum(userId)); }
