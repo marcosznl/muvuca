@@ -25,12 +25,15 @@ export const state = {
 // Foto de perfil de qualquer pessoa que aparece nos seus servidores
 // Perfil mais recente de alguém (você ou um membro); `server` dá prioridade ao membro daquele servidor
 export function profileOf(userId, server = null) {
-  const member = server?.members.find((x) => x.id === userId)
-    ?? state.servers.flatMap((s) => s.members).find((x) => x.id === userId);
-  if (userId === state.me?.id) return { ...member, ...state.me };
-  return member ?? state.friends.find((f) => f.user.id === userId)?.user ?? null; // amigo sem servidor em comum
+  const here = server?.members.find((x) => x.id === userId);
+  const any = here ?? state.servers.flatMap((s) => s.members).find((x) => x.id === userId);
+  // Apelido só vale no servidor dele: visto de fora, a pessoa aparece com o nome da conta
+  const base = any && !here && any.nick ? { ...any, name: any.globalName ?? any.name } : any;
+  if (userId === state.me?.id) return { ...base, ...state.me, ...(here?.nick ? { name: here.nick, nick: here.nick, globalName: state.me.name } : {}) };
+  return base ?? state.friends.find((f) => f.user.id === userId)?.user ?? null; // amigo sem servidor em comum
 }
-export const nameOf = (userId) => profileOf(userId)?.name ?? null;
+// Nome de alguém como aparece no servidor aberto (com o apelido de lá, se tiver)
+export const nameOf = (userId, server = serverById(state.view.serverId)) => profileOf(userId, server)?.name ?? null;
 
 export function avatarOf(userId) {
   if (userId === state.me?.id) return state.me.avatar ?? null;

@@ -7,7 +7,7 @@ import { enterRoom } from './games.js';
 import { state, serverById, permsIn, PERMS, profileOf, statusOf } from './state.js';
 import { can, topPosition, nameColor } from './permissions.js';
 import { request, upload, api, send } from './net.js';
-import { openModal, button, contextMenu } from './dialogs.js';
+import { openModal, button, contextMenu, promptText } from './dialogs.js';
 import { icon } from './icons.js';
 import { colorPicker, kickMember, openMemberRoles, canManageMember, myTop } from './settings.js';
 
@@ -89,7 +89,8 @@ function profileCard(p, { server = null, preview = false, editRoles = false, sel
   const name = h('div', 'profile-card-name', p.name || '…');
   const color = server && nameColor(server, p.id);
   if (color) name.style.color = color;
-  body.append(name, h('div', 'muted', `@${p.username}`));
+  // Com apelido no servidor: embaixo aparecem o nome da conta e o @
+  body.append(name, h('div', 'muted', p.nick && p.globalName && p.globalName !== p.nick ? `${p.globalName} · @${p.username}` : `@${p.username}`));
   // Balão de pensamento (o status personalizado) ao lado da foto; no seu cartão dá para escrever nele
   if (!preview && (p.statusText || (selfCard && p.id === state.me?.id))) card.append(thoughtBubble(p, selfCard));
 
@@ -294,7 +295,10 @@ export function openProfileCard(userId, x, y, serverId = state.view.serverId) {
     if (fs === 'friend' || fs === 'outgoing') friend.classList.add('done');
     top.append(friend);
   }
+  const canNick = inServer && can(perms, PERMS.MANAGE_NICKNAMES)
+    && (me || (p.id !== s.ownerId && topPosition(s, p.id) < myTop(s)));
   const more = [
+    canNick && { label: p.nick ? 'Mudar apelido' : 'Dar apelido', icon: 'pencil', onClick: () => { closeProfileCard(); editNick(s, p); } },
     manageRoles && { label: 'Gerenciar cargos', icon: 'shield', onClick: () => { closeProfileCard(); openMemberRoles(s.id, p.id); } },
     { label: 'Copiar nome de usuário', icon: 'link', onClick: () => navigator.clipboard?.writeText(`@${p.username}`).then(() => toast('Copiado!')).catch(() => {}) },
     canKick && 'sep',
@@ -376,6 +380,18 @@ export function openProfileCard(userId, x, y, serverId = state.view.serverId) {
   setTimeout(() => document.addEventListener('mousedown', outsideCard, true), 0);
 }
 
+// Apelido no servidor (moderação): vazio volta ao nome da conta
+async function editNick(s, p) {
+  const nick = await promptText({
+    title: `Apelido de ${p.globalName ?? p.name}`, subtitle: `Como ${p.id === state.me?.id ? 'você aparece' : 'essa pessoa aparece'} em ${s.name}. Deixe vazio para voltar ao nome da conta.`,
+    label: 'Apelido', value: p.nick ?? '', placeholder: p.globalName ?? p.name, confirm: 'Salvar', maxLength: 32, allowEmpty: true,
+  });
+  if (nick === null || nick === undefined) return;
+  request({ t: 'member:nick', serverId: s.id, userId: p.id, nick })
+    .then(() => toast(nick.trim() ? 'Apelido salvo.' : 'Apelido removido.'))
+    .catch((err) => showBanner(err.message, { timeout: 4000 }));
+}
+
 // ---------- Você (clique na sua foto lá embaixo) ----------
 // Seu cartão com o balão de pensamento e, embaixo, os atalhos: editar perfil, status e mais opções
 const PRESENCE_INFO = {
@@ -384,7 +400,7 @@ const PRESENCE_INFO = {
   dnd: { label: 'Não perturbe', desc: 'Sem sons e sem notificações' },
   invisible: { label: 'Invisível', desc: 'Você aparece offline' },
 };
-export function openMePopout(anchor, { onMore, onPassword }) {
+export function openMePopout(anchor, { onMore, onSettings }) {
   if (openCard?.classList.contains('me-popout')) return closeProfileCard(); // clicar de novo na foto fecha
   closeProfileCard();
   const me = state.me;
@@ -437,9 +453,9 @@ export function openMePopout(anchor, { onMore, onPassword }) {
   );
   const group2 = h('div', 'me-group');
   group2.append(
-    row('shield', 'Trocar senha', () => { closeProfileCard(); onPassword(); }),
+    row('settings', 'Configurações', () => { closeProfileCard(); onSettings(); }),
     h('div', 'me-sep'),
-    row('settings', 'Mais opções', (b) => { const r = b.getBoundingClientRect(); closeSub(); onMore(r.right + 8, r.top); }, { chevron: true }),
+    row('menu', 'Mais opções', (b) => { const r = b.getBoundingClientRect(); closeSub(); onMore(r.right + 8, r.top); }, { chevron: true }),
     h('div', 'me-sep'),
     row('link', 'Copiar nome de usuário', () => navigator.clipboard?.writeText(`@${me.username}`).then(() => toast('Copiado!')).catch(() => {})),
   );

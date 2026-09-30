@@ -216,12 +216,12 @@ function askSecondDevice(otherChannel, channelId) {
   });
 }
 
-export async function joinVoice(channelId) {
+export async function joinVoice(channelId, { moved = false } = {}) {
   if (joining) return;
   const { server } = findChannel(channelId);
-  if (!canIn(server, PERMS.CONNECT)) return showBanner('Você não tem permissão para entrar neste canal.', { timeout: 4000 });
+  if (!moved && !canIn(server, PERMS.CONNECT)) return showBanner('Você não tem permissão para entrar neste canal.', { timeout: 4000 });
   let second = false;
-  const other = inCallElsewhere();
+  const other = moved ? null : inCallElsewhere();
   if (other) {
     const choice = await askSecondDevice(other, channelId);
     if (!choice) return;
@@ -678,6 +678,16 @@ function closeUserMenu() {
 }
 function outsideUserMenu(e) { if (userMenu && !userMenu.contains(e.target)) closeUserMenu(); }
 function escUserMenu(e) { if (e.key === 'Escape') { e.stopPropagation(); closeUserMenu(); } }
+
+// Alguém com "Mover membros" te levou para outro canal de voz: troca sozinho (só o aparelho principal)
+export async function onVoiceMove({ channelId, by }) {
+  if (!room || secondDevice || roomChannel === channelId) return;
+  const { channel } = findChannel(channelId);
+  const wasViewing = state.view.channelId === roomChannel;
+  await joinVoice(channelId, { moved: true });
+  if (wasViewing) import('./app.js').then(({ selectChannel }) => selectChannel(channelId));
+  showBanner(`${by} te moveu para ${channel?.name ?? 'outro canal'}.`, { kind: 'info', timeout: 5000 });
+}
 
 export function openUserVolumeMenu(identity, x, y) {
   const p = room?.remoteParticipants.get(identity);

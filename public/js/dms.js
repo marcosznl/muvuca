@@ -58,7 +58,7 @@ export function renderDmSidebar() {
   // "Amigos": abre a página de amigos (com o número de pedidos esperando resposta)
   const friendsBtn = h('button', 'channel dm-item dm-friends');
   friendsBtn.classList.toggle('active', !state.view.serverId && !state.view.games);
-  friendsBtn.append(icon('users', 22), h('span', 'dm-info name', 'Amigos'));
+  friendsBtn.append(icon('friends', 22), h('span', 'dm-info name', 'Amigos'));
   const pending = incomingCount();
   if (pending) friendsBtn.append(h('span', 'badge', String(pending)));
   friendsBtn.onclick = selectDmHome;

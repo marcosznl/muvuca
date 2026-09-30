@@ -1,5 +1,6 @@
 // Ponto de entrada: conexão, eventos do servidor e navegação entre servidores/canais
 import { $, store, showBanner, toast } from './util.js';
+import { openUserSettings } from './user-settings.js';
 import { icon, applyStaticIcons } from './icons.js';
 import {
   state, serverById, findChannel, upsertServer, removeServer, rememberTextChannel, rememberedTextChannel,
@@ -16,7 +17,7 @@ import './quick-switch.js';
 import './voice-menus.js';
 import { setupPush } from './push.js';
 import { closeEmojiPanel } from './chat-picker.js';
-import { renderStage, leaveVoice, voiceChannelId, applyAudioState, updateMediaButtons, mergeSelfIntoVoice, onBoardSound } from './voice.js';
+import { renderStage, leaveVoice, voiceChannelId, applyAudioState, updateMediaButtons, mergeSelfIntoVoice, onBoardSound, onVoiceMove } from './voice.js';
 import { renderMembers } from './members.js';
 import {
   joinMusic, musicChannelId, onMusicState, onMusicQueue, rejoinMusic, musicChannelGone, placeMusicView, renderAllMusic,
@@ -125,7 +126,7 @@ function showChannel() {
   }
   $('view-topic').textContent = channel?.topic ?? '';
   $('view-topic').title = channel?.topic ?? '';
-  if (friendsHome) { $('view-icon').replaceChildren(icon('users', 22)); $('view-title').textContent = 'Amigos'; }
+  if (friendsHome) { $('view-icon').replaceChildren(icon('friends', 22)); $('view-title').textContent = 'Amigos'; }
   $('empty-view').querySelector('p').textContent = state.view.dms
     ? 'Escolha uma conversa ao lado ou comece uma nova com o +.'
     : 'Escolha um canal na lista ao lado.';
@@ -292,6 +293,9 @@ function handle(m) {
     case 'msg:edit':
       onMessageEdit(m.msg);
       break;
+    case 'voice:move':
+      onVoiceMove(m);
+      break;
     case 'msg:delete':
       onMessageDelete(m);
       break;
@@ -387,7 +391,8 @@ function start() {
   });
 }
 
-$('btn-logout').onclick = async () => {
+// Sair da conta (pelas Configurações, na engrenagem lá embaixo)
+export async function logout() {
   closeServerSettings();
   await leaveVoice();
   try { await api('/api/logout'); } catch {}
@@ -396,7 +401,8 @@ $('btn-logout').onclick = async () => {
   Object.assign(state, { me: null, servers: [], voice: {}, view: { serverId: null, channelId: null } });
   state.messages.clear();
   showAuth({ onLoggedIn: start });
-};
+}
+$('btn-settings').onclick = () => openUserSettings();
 
 // ---------- Menus laterais em telas pequenas ----------
 

@@ -72,10 +72,11 @@ ul { list-style: none; margin: 0; padding: 0; }
 .app {
   height: 100dvh;
   display: grid;
-  grid-template-columns: 72px 240px 1fr 240px;
+  --rail-col: 72px; /* coluna dos servidores (0 quando eles vão para o topo) */
+  grid-template-columns: var(--rail-col) 240px 1fr 240px;
   grid-template-rows: 100%;
 }
-.app.hide-members { grid-template-columns: 72px 240px 1fr; }
+.app.hide-members { grid-template-columns: var(--rail-col) 240px 1fr; }
 .app.hide-members .members { display: none; }
 
 .banner {
@@ -412,7 +413,7 @@ button.live-badge:hover { filter: brightness(1.15); }
 
 /* ---------- Telas menores ---------- */
 @media (max-width: 1000px) {
-  .app, .app.hide-members { grid-template-columns: 72px 240px 1fr; }
+  .app, .app.hide-members { grid-template-columns: var(--rail-col) 240px 1fr; }
   .members {
     position: fixed; right: 0; top: 0; bottom: 0; width: 240px; z-index: 30;
     box-shadow: -4px 0 16px rgba(0,0,0,.4);
@@ -839,10 +840,10 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 }
 
 /* Canais de música: painel da direita mais largo (cabine, fila e busca) */
-.app.music-mode { grid-template-columns: 72px 240px 1fr 320px; }
-.app.music-mode.hide-members { grid-template-columns: 72px 240px 1fr; }
+.app.music-mode { grid-template-columns: var(--rail-col) 240px 1fr 320px; }
+.app.music-mode.hide-members { grid-template-columns: var(--rail-col) 240px 1fr; }
 @media (max-width: 1000px) {
-  .app.music-mode, .app.music-mode.hide-members { grid-template-columns: 72px 240px 1fr; }
+  .app.music-mode, .app.music-mode.hide-members { grid-template-columns: var(--rail-col) 240px 1fr; }
   .app.music-mode .members { width: min(320px, 92vw); }
 }
 @media (max-width: 700px) {
@@ -1137,7 +1138,7 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 /* ---------- Área de jogos ---------- */
 .server-icon.games-icon { color: var(--green); }
 .rail-item .server-icon.games-icon:hover, .rail-item.active .server-icon.games-icon { background: var(--green); color: #fff; }
-.app.games-mode { grid-template-columns: 72px 240px 1fr; }
+.app.games-mode { grid-template-columns: var(--rail-col) 240px 1fr; }
 .app.games-mode .members, .app.games-mode #btn-members { display: none; }
 .game-emoji { width: 20px; text-align: center; font-family: "Apple Color Emoji", "Segoe UI Emoji", sans-serif; }
 .channel .count.live { color: var(--green); font-weight: 600; }
@@ -2065,3 +2066,59 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .game-rooms-nav { margin: 2px 0 6px 14px; padding-left: 8px; border-left: 2px solid rgba(255,255,255,.08); }
 .game-rooms-nav .channel { padding-top: 5px; padding-bottom: 5px; }
 .dm-friends .count { margin-left: auto; font-size: 11px; font-weight: 700; background: var(--accent); color: #fff; border-radius: 999px; padding: 1px 7px; }
+
+/* ---------- Servidores no topo (Configurações → Servidores → No topo), só no computador ---------- */
+@media (min-width: 701px) {
+  .app.layout-top { --rail-col: 0px; grid-template-rows: 52px minmax(0, 1fr); }
+  .app.layout-top .server-rail {
+    grid-column: 1 / -1; grid-row: 1; flex-direction: row; justify-content: flex-start;
+    padding: 0 12px; gap: 6px; overflow-x: auto; overflow-y: hidden;
+    border-bottom: 1px solid rgba(0,0,0,.25);
+  }
+  .app.layout-top .sidebar { grid-column: 2; } /* o resto segue na linha de baixo, na ordem */
+  .app.layout-top .rail-item { width: auto; flex: none; }
+  .app.layout-top .rail-pill { display: none; }
+  .app.layout-top .rail-sep { width: 2px; height: 24px; margin: 0 4px; }
+  .app.layout-top .server-icon { width: 34px; height: 34px; font-size: 13px; border-radius: 50%; }
+  .app.layout-top .rail-item .server-icon:hover, .app.layout-top .rail-item.active .server-icon { border-radius: 10px; }
+  /* Aba: ícone + nome, em formato de pílula */
+  .app.layout-top .rail-tab {
+    align-items: center; gap: 2px; padding: 3px 12px 3px 3px; border-radius: 999px; cursor: pointer;
+    transition: background .12s;
+  }
+  .app.layout-top .rail-tab:hover { background: var(--bg-hover); }
+  .app.layout-top .rail-tab.active { background: var(--bg-active); box-shadow: inset 0 0 0 1px var(--server-accent, rgba(255,255,255,.08)); }
+  .app.layout-top .rail-tab.active .server-icon { background: var(--server-color, var(--accent)); border-radius: 10px; }
+  .rail-name { display: none; }
+  .app.layout-top .rail-name {
+    display: inline-flex; align-items: center; gap: 6px; max-width: 160px; padding: 0 0 0 6px;
+    background: none; border: 0; color: var(--muted); font: inherit; font-size: 14px; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+  }
+  .app.layout-top .rail-tab:hover .rail-name, .app.layout-top .rail-tab.active .rail-name { color: var(--text-strong); }
+  /* não lida: bolinha depois do nome */
+  .app.layout-top .rail-tab.unread .rail-name::after { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--text-strong); flex: none; }
+  .app.layout-top .rail-badge { position: static; margin-left: 4px; }
+  .app.layout-top .rail-item:not(.rail-tab) .rail-badge { position: absolute; right: -4px; bottom: -2px; }
+}
+/* Configurações: botões da conta lado a lado */
+.user-settings-account { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Amigos (como na referência): título com o ícone, abas, "Adicionar amigo" azul, busca e linhas com traço */
+.friends-title { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; color: var(--text-strong); font-size: 15px; padding: 4px 4px 4px 0; }
+.friends-title svg { color: var(--muted); }
+.friends-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--muted); opacity: .6; margin: 0 6px; }
+.friends-tab.add { background: var(--accent); color: #fff; padding: 5px 12px; border-radius: 8px; }
+.friends-tab.add:hover { background: var(--accent-hover, #4752c4); color: #fff; }
+.friends-tab.add.on { background: transparent; color: var(--accent); }
+.friends-search { display: flex; align-items: center; gap: 8px; padding: 0 12px; margin: 0 0 16px; height: 40px; border-radius: 8px; background: var(--bg-dark); border: 1px solid rgba(255,255,255,.06); color: var(--muted); }
+.friends-search:focus-within { border-color: var(--accent); }
+.friends-search input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 15px; outline: none; }
+.friends-section { text-transform: none; font-size: 13px; font-weight: 600; letter-spacing: 0; color: var(--text); margin: 4px 10px 10px; }
+.friend-row { border-radius: 8px; }
+.friend-row .friend-name { font-weight: 700; color: var(--text-strong); }
+.friend-game { display: inline-flex; align-items: center; gap: 5px; }
+.friend-game svg { color: var(--green); }
+.friend-act { background: transparent; }
+.friend-row:hover .friend-act { background: var(--bg-side); }
+[data-theme="light"] .friends-search { background: var(--bg-side); border-color: rgba(0,0,0,.06); }

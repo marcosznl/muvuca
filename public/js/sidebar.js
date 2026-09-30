@@ -1,8 +1,8 @@
 // Coluna de servidores, lista de canais, painel "Voz conectada" e painel do usuário
 import { $, h, makeAvatar, paintServerIcon, toast, showBanner, store } from './util.js';
-import { openChangePassword, openProfileCard, openMePopout } from './profile.js';
+import { openProfileCard, openMePopout } from './profile.js';
 import { icon } from './icons.js';
-import { state, currentServer, canIn, PERMS, serverUnread, serverMentions, statusOf, STATUS_LABEL, isMuted } from './state.js';
+import { state, currentServer, canIn, PERMS, serverUnread, serverMentions, statusOf, STATUS_LABEL, isMuted, profileOf } from './state.js';
 import { soundsOn, setSounds } from './sounds.js';
 import { enablePush, disablePush, pushEnabled } from './push.js';
 import { request } from './net.js';
@@ -12,7 +12,7 @@ import { joinVoice, leaveVoice, watchStream, voiceChannelId, speakingNow, openUs
 import { musicChannelId } from './music.js';
 import { openServerSettings, openInviteDialog } from './settings.js';
 import { dmRailItem, renderDmSidebar, dmTitle } from './dms.js';
-import { THEMES, currentTheme, setTheme } from './theme.js';
+import { openUserSettings, currentLayout } from './user-settings.js';
 import { openQuickSwitch } from './quick-switch.js';
 
 // ---------- Coluna de servidores ----------
@@ -20,6 +20,8 @@ import { openQuickSwitch } from './quick-switch.js';
 export function renderRail() {
   const rail = $('server-rail');
   rail.replaceChildren();
+  const top = currentLayout() === 'top';
+  rail.setAttribute('aria-orientation', top ? 'horizontal' : 'vertical');
   rail.append(dmRailItem(), h('div', 'rail-sep')); // o M: mensagens diretas, amigos e jogos
   for (const s of state.servers.filter((x) => x.kind !== 'dm')) {
     const item = h('div', 'rail-item');
@@ -30,8 +32,15 @@ export function renderRail() {
     paintServerIcon(btn, s);
     btn.title = s.name;
     btn.onclick = () => selectServer(s.id);
+    if (top) { // abas no topo: o nome ao lado do ícone também é clicável
+      const name = h('button', 'rail-name', s.name);
+      name.onclick = btn.onclick;
+      name.oncontextmenu = (e) => { e.preventDefault(); serverMenu(s, e.clientX, e.clientY); };
+      item.classList.add('rail-tab');
+      item.append(pill, btn, name);
+    }
     btn.oncontextmenu = (e) => { e.preventDefault(); serverMenu(s, e.clientX, e.clientY); };
-    item.append(pill, btn);
+    if (!top) item.append(pill, btn);
     const mentions = serverMentions(s);
     if (mentions) item.append(h('span', 'rail-badge', mentions > 99 ? '99+' : String(mentions))); // te mencionaram lá
     rail.append(item);
@@ -415,7 +424,7 @@ function startDrag(e, kind, id, el) {
 function endDrag() {
   drag = null;
   clearDropMarks();
-  $('channel-list').classList.remove('dragging-channel', 'dragging-category');
+  $('channel-list').classList.remove('dragging-channel', 'dragging-category', 'dragging-member');
   if (renderPending) { renderPending = false; renderChannels(); }
 }
 
@@ -430,6 +439,14 @@ function dropTarget(e) {
   const s = currentServer();
   if (!s || !drag) return null;
   const box = $('channel-list');
+  // Pessoa arrastada da call: cai em outro canal de voz
+  if (drag.kind === 'member') {
+    const li = e.target.closest?.('li[data-channel]');
+    const c = li && s.channels.find((x) => x.id === li.dataset.channel);
+    if (!c || c.type !== 'voice' || c.id === drag.from) return null;
+    const { id } = drag;
+    return { el: li, mark: 'drop-into', apply: () => moveMember(id, c.id) };
+  }
   const group = e.target.closest?.('.cat-group');
   if (!group || !box.contains(group)) return null;
   const categoryId = group.dataset.category || null;
@@ -491,6 +508,22 @@ function dropTarget(e) {
   box.addEventListener('dragend', endDrag);
 }
 
+// Mover alguém da call para outro canal de voz (só aquela pessoa)
+function moveMember(userId, channelId) {
+  request({ t: 'voice:move', userId, channelId })
+    .then(() => toast('Pessoa movida.'))
+    .catch((err) => showBanner(err.message, { timeout: 4000 }));
+}
+
+function memberMenu(s, c, p, x, y) {
+  const others = s.channels.filter((x2) => x2.type === 'voice' && x2.id !== c.id);
+  contextMenu(x, y, [
+    ...others.map((to) => ({ label: `Mover para ${to.name}`, icon: 'speaker', onClick: () => moveMember(p.id, to.id) })),
+    p.id !== state.me?.id && voiceChannelId() === c.id && 'sep',
+    p.id !== state.me?.id && voiceChannelId() === c.id && { label: 'Volume desta pessoa…', icon: 'volume-low', onClick: () => openUserVolumeMenu(p.id, x, y) },
+  ]);
+}
+
 // ---------- Lista de canais ----------
 
 function categoryHeader(s, k, canManage) {
@@ -549,7 +582,9 @@ function channelItem(s, c, canManage) {
       if (p.camera) icons.append(icon('video', 14));
       if (p.muted || p.deafened) icons.append(icon('mic-off', 14));
       if (p.deafened) icons.append(icon('headphones-off', 14));
-      row.append(makeAvatar(p.name, 'sm', p.userId ?? p.id), h('span', 'name', p.name)); // 2º aparelho: a foto é a da conta
+      // Nome com o apelido do servidor (a voz manda o nome da conta); 2º aparelho: a foto é a da conta
+      const shown = p.companion ? p.name : profileOf(p.userId ?? p.id, s)?.name ?? p.name;
+      row.append(makeAvatar(shown, 'sm', p.userId ?? p.id), h('span', 'name', shown));
       if (p.streaming) {
         const live = h('button', 'live-badge', 'AO VIVO');
         live.title = `Assistir a tela de ${p.name}`;
@@ -557,8 +592,17 @@ function channelItem(s, c, canManage) {
         row.append(live);
       }
       row.append(icons);
-      // Botão direito: volume dessa pessoa só para você (quando vocês estão na mesma chamada)
-      row.oncontextmenu = (e) => { if (openUserVolumeMenu(p.id, e.clientX, e.clientY)) e.preventDefault(); };
+      // Botão direito: mover para outra call (quem tem "Mover membros"); senão, o volume dessa pessoa só para você
+      const movable = !p.companion && canIn(s, PERMS.MOVE_MEMBERS) && s.channels.some((x) => x.type === 'voice' && x.id !== c.id);
+      row.oncontextmenu = (e) => {
+        if (movable) { e.preventDefault(); return memberMenu(s, c, p, e.clientX, e.clientY); }
+        if (openUserVolumeMenu(p.id, e.clientX, e.clientY)) e.preventDefault();
+      };
+      if (movable) { // arrastar a pessoa para outro canal de voz também move
+        row.draggable = true;
+        row.title = `Arraste para outro canal de voz para mover ${p.name}`;
+        row.ondragstart = (e) => { e.stopPropagation(); startDrag(e, 'member', p.id, row); drag.from = c.id; };
+      }
       members.append(row);
     }
     li.append(members);
@@ -630,7 +674,7 @@ export function renderUserPanel() {
   const avatar = Object.assign(makeAvatar(state.me.name, 'sm', state.me.id), { id: 'me-avatar', title: 'Status e perfil' });
   avatar.classList.add('with-status', `status-${status === 'offline' ? 'online' : status}`);
   $('me-avatar').replaceWith(avatar);
-  const openMenu = (e) => { e.stopPropagation(); openMePopout(document.querySelector('.user-panel').getBoundingClientRect(), { onMore: prefsMenu, onPassword: openChangePassword }); };
+  const openMenu = (e) => { e.stopPropagation(); openMePopout(document.querySelector('.user-panel').getBoundingClientRect(), { onMore: prefsMenu, onSettings: openUserSettings }); };
   $('me-avatar').onclick = openMenu;
   $('me-name').onclick = openMenu;
   const micOff = !state.micOn || state.deafened;
@@ -678,7 +722,7 @@ function prefsMenu(x, y) {
     !window.muvucaDesktop && /Mac|Windows/.test(navigator.userAgent) && !/iPhone|iPad|Android/.test(navigator.userAgent)
       && { label: `Baixar o app para ${/Windows/.test(navigator.userAgent) ? 'Windows' : 'Mac'}`, icon: 'download', onClick: () => window.open('/baixar', '_blank') },
     'sep',
-    ...THEMES.map(([id, label]) => ({ label: `Tema: ${label}${currentTheme() === id ? '  ✓' : ''}`, onClick: () => setTheme(id) })),
+    { label: 'Configurações (tema, layout, conta)', icon: 'settings', onClick: openUserSettings },
   ]);
 }
 

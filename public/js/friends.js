@@ -2,14 +2,15 @@
 // aberta pelo item "Amigos" no topo das mensagens diretas. A lista chega pronta do servidor (evento 'friends').
 import { $, h, makeAvatar, showBanner, toast } from './util.js';
 import { icon } from './icons.js';
-import { state } from './state.js';
+import { state, STATUS_LABEL } from './state.js';
 import { request } from './net.js';
-import { confirmDialog } from './dialogs.js';
+import { confirmDialog, contextMenu } from './dialogs.js';
 import { startDm, realServers } from './dms.js';
 import { openProfileCard } from './profile.js';
 
 let tab = 'online';
 let draft = ''; // o que está digitado em "Adicionar amigo" (sobrevive aos redesenhos)
+let query = ''; // busca na lista de amigos
 
 export const friendStatus = (userId) => state.friends.find((f) => f.user.id === userId)?.status ?? null;
 export const incomingCount = () => state.friends.filter((f) => f.status === 'incoming').length;
@@ -32,15 +33,19 @@ async function unfriend(f) {
   if (ok) act('friend:remove', f.user.id);
 }
 
-// Segunda linha de cada pessoa: jogo, status personalizado ou online/offline
+// Segunda linha de cada pessoa: jogo (com o controle), status personalizado ou o status (Ausente, Não perturbe…)
 function subline(f) {
   if (f.status === 'incoming') return 'Pedido de amizade recebido';
   if (f.status === 'outgoing') return 'Pedido de amizade enviado';
   const id = f.user.id;
   if (!isOnline(id)) return 'Offline';
   const a = state.activity[id];
-  if (a) return `Jogando ${a.name}`;
-  return f.user.statusText || { idle: 'Ausente', dnd: 'Não perturbe' }[state.status[id]] || 'Online';
+  if (a) {
+    const game = h('span', 'friend-game');
+    game.append(icon('gamepad', 14), a.name);
+    return game;
+  }
+  return f.user.statusText || STATUS_LABEL[state.status[id] ?? 'online'];
 }
 
 function roundBtn(name, title, onClick, cls = '') {
@@ -58,12 +63,20 @@ function row(f) {
   avatar.classList.add('with-status', `status-${isOnline(f.user.id) ? state.status[f.user.id] ?? 'online' : 'offline'}`);
   const info = h('div', 'friend-info');
   const name = h('div', 'friend-name', f.user.name);
-  name.append(h('span', 'friend-user', ` @${f.user.username}`));
+  name.append(h('span', 'friend-user', ` @${f.user.username}`)); // aparece ao passar o mouse
   info.append(name, h('div', 'friend-sub', subline(f)));
   const acts = h('div', 'friend-acts');
   if (f.status === 'friend') {
     acts.append(roundBtn('chat', 'Enviar mensagem', () => startDm([f.user.id])),
-      roundBtn('close', 'Remover amigo', () => unfriend(f), 'danger'));
+      roundBtn('dots-vertical', 'Mais', () => {
+        const b = acts.lastElementChild.getBoundingClientRect();
+        contextMenu(b.left, b.bottom + 4, [
+          { label: 'Ver perfil', icon: 'friends', onClick: () => openProfileCard(f.user.id, b.left, b.top) },
+          { label: 'Enviar mensagem', icon: 'chat', onClick: () => startDm([f.user.id]) },
+          'sep',
+          { label: 'Remover amigo', icon: 'close', danger: true, onClick: () => unfriend(f) },
+        ]);
+      }));
     r.onclick = () => startDm([f.user.id]);
   } else if (f.status === 'incoming') {
     acts.append(roundBtn('check', 'Aceitar', () => act('friend:accept', f.user.id), 'ok'),
@@ -118,9 +131,15 @@ export function renderFriendsView(presenceOnly = false) {
   const view = $('friends-view');
   if (!view || view.hidden || (presenceOnly && tab === 'add')) return;
   const typing = tab === 'add' && view.contains(document.activeElement);
+  const searching = document.activeElement?.closest?.('.friends-search') && view.contains(document.activeElement);
+  const caret = searching ? document.activeElement.selectionStart : null;
   const pending = incomingCount();
+  // Topo como no Discord: "Amigos" com o ícone, as abas e o "Adicionar amigo" em destaque
   const bar = h('div', 'friends-tabs');
-  const tabs = [['online', 'Online'], ['all', 'Todos'], ['pending', 'Pendentes'], ['add', 'Adicionar amigo']];
+  const title = h('div', 'friends-title');
+  title.append(icon('friends', 22), h('span', '', 'Amigos'));
+  bar.append(title, h('span', 'friends-dot'));
+  const tabs = [['online', 'Disponível'], ['all', 'Todos'], ['pending', 'Pendente'], ['add', 'Adicionar amigo']];
   for (const [id, label] of tabs) {
     const b = h('button', `friends-tab${id === 'add' ? ' add' : ''}${tab === id ? ' on' : ''}`, label);
     if (id === 'pending' && pending) b.append(h('span', 'badge', String(pending)));
@@ -133,16 +152,26 @@ export function renderFriendsView(presenceOnly = false) {
     const byName = (a, b) => a.user.name.localeCompare(b.user.name, 'pt-BR');
     let list = state.friends.filter((f) => (tab === 'pending' ? f.status !== 'friend' : f.status === 'friend'));
     if (tab === 'online') list = list.filter((f) => isOnline(f.user.id));
+    // Busca (nome ou @usuário)
+    const search = h('label', 'friends-search');
+    const input = h('input');
+    Object.assign(input, { type: 'search', placeholder: 'Buscar', value: query, autocomplete: 'off', spellcheck: false });
+    input.setAttribute('aria-label', 'Buscar amigos');
+    input.oninput = () => { query = input.value; renderFriendsView(); };
+    search.append(icon('search', 18), input);
+    body.append(search);
+    const q = query.trim().toLowerCase().replace(/^@/, '');
+    if (q) list = list.filter((f) => f.user.name.toLowerCase().includes(q) || f.user.username.toLowerCase().includes(q));
     list.sort((a, b) => (a.status === 'incoming' ? -1 : 0) - (b.status === 'incoming' ? -1 : 0) || byName(a, b));
-    const title = { online: 'Online', all: 'Todos os amigos', pending: 'Pendentes' }[tab];
-    body.append(h('div', 'friends-section', `${title} — ${list.length}`));
+    const heading = { online: 'Online', all: 'Todos os amigos', pending: 'Pendentes' }[tab];
+    body.append(h('div', 'friends-section', `${heading} — ${list.length}`));
     for (const f of list) body.append(row(f));
     if (!list.length) {
       const empty = h('div', 'friends-empty');
       empty.append(h('div', 'friends-empty-emoji', tab === 'pending' ? '📭' : '👋'),
-        h('p', 'muted', tab === 'pending' ? 'Nenhum pedido de amizade por aqui.'
+        h('p', 'muted', q ? 'Ninguém com esse nome.' : tab === 'pending' ? 'Nenhum pedido de amizade por aqui.'
           : tab === 'online' ? 'Nenhum amigo online agora.' : 'Você ainda não tem amigos adicionados.'));
-      if (tab !== 'pending') {
+      if (tab !== 'pending' && !q) {
         const b = h('button', 'btn primary', 'Adicionar amigo');
         b.onclick = () => { tab = 'add'; renderFriendsView(); };
         empty.append(b);
@@ -152,6 +181,7 @@ export function renderFriendsView(presenceOnly = false) {
   }
   view.replaceChildren(bar, body);
   if (typing) view.querySelector('.friends-add-form input')?.focus();
+  if (searching) { const i = view.querySelector('.friends-search input'); i?.focus(); i?.setSelectionRange(caret, caret); } // continua digitando
 }
 
 export function openFriendsTab(id) { tab = id; }
