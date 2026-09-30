@@ -28,3 +28,6 @@ desktop/build/bin/
 
 # Servidores de Minecraft (mundos, mods, senhas do RCON): gerenciados pelo painel, fora do git
 minecraft/
+
+# Logs girados do Caddy (antes caíam na raiz)
+caddy-*.log.gz

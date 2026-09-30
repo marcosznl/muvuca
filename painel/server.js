@@ -654,7 +654,10 @@ async function logs(which, lines = 400) {
 // Acessos ao site (log do Caddy, em JSON): sem a parte "?..." da URL, onde podem ir tokens
 async function readAccess(maxBytes = 3_000_000) {
   const out = [];
-  for (const line of await tail(path.join(ROOT, 'caddy.log'), maxBytes)) {
+  // Log de acesso do site (em logs/; o que ficou na raiz antes da mudança é lido junto até sair da janela)
+  const files = [path.join(LOGS, 'caddy-antes.log'), path.join(LOGS, 'caddy.log')].filter((f) => fs.existsSync(f));
+  const lines = (await Promise.all(files.map((f) => tail(f, maxBytes)))).flat();
+  for (const line of lines) {
     if (!line.startsWith('{')) continue;
     try {
       const e = JSON.parse(line);

@@ -22,7 +22,7 @@
 
 	log {
 		# Guarda no máximo 3 arquivos de 10 MB (o mais antigo é apagado)
-		output file ./caddy.log {
+		output file ./logs/caddy.log {
 			roll_size 10MiB
 			roll_keep 3
 		}
@@ -34,6 +34,12 @@
 {$PAINEL_ADDRESSES} {
 	encode gzip
 	reverse_proxy 127.0.0.1:3002
+	# As consultas automáticas do painel (a cada poucos segundos) não entram no log: só login e ações
+	@leitura {
+		method GET
+		path /api/* /sw.js /manifest.webmanifest
+	}
+	log_skip @leitura
 	log {
 		output file ./logs/caddy-painel.log {
 			roll_size 5MiB

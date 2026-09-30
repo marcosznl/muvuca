@@ -6,6 +6,16 @@ rtc:
   port_range_end: 50200
   # Descobre e anuncia o IPv4 público da casa (sem CGNAT desde a liberação da operadora)
   use_external_ip: true
+# TURN: para quem está numa rede que bloqueia UDP (empresa, faculdade, alguns 4G) conseguir entrar na call.
+# TLS na porta 5349 (parece HTTPS para o firewall) e UDP na 3478. Usa o certificado que o Caddy renova sozinho
+# (o LiveKit lê o certificado ao ligar: cada reinício do Muvuca pega o renovado).
+turn:
+  enabled: true
+  domain: seu-dominio.duckdns.org
+  tls_port: 5349
+  udp_port: 3478
+  cert_file: "/Users/marcos/Library/Application Support/Caddy/certificates/acme-v02.api.letsencrypt.org-directory/seu-dominio.duckdns.org/seu-dominio.duckdns.org.crt"
+  key_file: "/Users/marcos/Library/Application Support/Caddy/certificates/acme-v02.api.letsencrypt.org-directory/seu-dominio.duckdns.org/seu-dominio.duckdns.org.key"
 room:
   max_participants: 25 # teto geral; cada canal de voz pode ter um limite menor nas configurações
   empty_timeout: 300
