@@ -77,7 +77,20 @@ function createWindow() {
 
   // Fechar a janela só esconde (a voz continua); sair de verdade é pelo menu ou ⌘Q
   win.on('close', (e) => {
-    if (!quitting) { e.preventDefault(); win.hide(); }
+    if (quitting) return;
+    e.preventDefault();
+    win.hide();
+    // Primeira vez: explica que continua rodando (senão parece que fechou e as mensagens "somem")
+    if (!settings.trayHintShown && Notification.isSupported()) {
+      settings.trayHintShown = true;
+      saveSettings();
+      new Notification({
+        title: 'O Muvuca continua aberto',
+        body: IS_MAC ? 'Ele fica na barra de menus e no Dock: você recebe as mensagens e a call continua. Para fechar de vez: ⌘Q.'
+          : 'Ele fica na bandeja, perto do relógio: você recebe as mensagens e a call continua. Para fechar de vez: clique com o botão direito no ícone → Sair.',
+        silent: true,
+      }).show();
+    }
   });
   win.on('closed', () => { win = null; });
 
@@ -92,6 +105,7 @@ function createWindow() {
       if (n > lastUnread && !win.isFocused()) win.flashFrame(true); // pisca na barra de tarefas
     }
     lastUnread = n;
+    tray?.setToolTip(n ? `Muvuca — ${n} ${n === 1 ? 'mensagem não lida' : 'mensagens não lidas'}` : 'Muvuca');
   });
   win.on('focus', () => { if (IS_WIN) win.flashFrame(false); });
 
@@ -338,7 +352,19 @@ ipcMain.on('voice:state', (_e, s) => {
   else if (!s?.inCall && napBlocker !== null) { powerSaveBlocker.stop(napBlocker); napBlocker = null; }
 });
 
-function openAtLogin() { return app.getLoginItemSettings().openAtLogin; }
+const AT_LOGIN_LABEL = IS_MAC ? 'Abrir junto com o Mac' : 'Abrir junto com o Windows';
+function openAtLogin() { return app.getLoginItemSettings(IS_WIN ? { args: ['--escondido'] } : undefined).openAtLogin; }
+// Primeira vez que o app abre: já liga "abrir junto com o computador" (escondido na bandeja), como o Discord.
+// Depois disso vale o que a pessoa escolher no menu.
+function defaultOpenAtLogin() {
+  if (settings.atLoginDefaultDone || !app.isPackaged) return;
+  settings.atLoginDefaultDone = true;
+  saveSettings();
+  if (openAtLogin()) return;
+  app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true, args: IS_WIN ? ['--escondido'] : [] });
+  buildTray(); // o ✓ aparece no menu da bandeja e no do app
+  buildMenu();
+}
 // Abrir junto com o computador, já escondido na barra de menus/bandeja
 function toggleOpenAtLogin() {
   app.setLoginItemSettings({ openAtLogin: !openAtLogin(), openAsHidden: true, args: IS_WIN ? ['--escondido'] : [] });
@@ -359,7 +385,7 @@ function buildTray() {
     { label: 'Abrir o Muvuca', click: showWindow },
     { label: voiceMuted ? 'Ativar microfone' : 'Silenciar microfone', click: () => win?.webContents.send('toggle-mute') },
     { type: 'separator' },
-    { label: 'Abrir junto com o Mac', type: 'checkbox', checked: openAtLogin(), click: toggleOpenAtLogin },
+    { label: AT_LOGIN_LABEL, type: 'checkbox', checked: openAtLogin(), click: toggleOpenAtLogin },
     { type: 'separator' },
     { label: 'Sair do Muvuca', click: () => { quitting = true; app.quit(); } },
   ]));
@@ -391,7 +417,7 @@ function buildMenu() {
       label: 'Muvuca',
       submenu: [
         ...macOnly([{ role: 'about', label: 'Sobre o Muvuca' }, { type: 'separator' }]),
-        { label: 'Abrir junto com o Mac', type: 'checkbox', checked: openAtLogin(), click: toggleOpenAtLogin },
+        { label: AT_LOGIN_LABEL, type: 'checkbox', checked: openAtLogin(), click: toggleOpenAtLogin },
         { label: 'Endereço do servidor…', click: chooseServer },
         { label: 'Procurar atualizações', click: () => updater.check({ manual: true }) },
         { type: 'separator' },
@@ -440,6 +466,7 @@ app.whenReady().then(() => {
   setupPermissions();
   buildMenu();
   buildTray();
+  defaultOpenAtLogin();
   createWindow();
   updater.init({ window: () => win, origin });
   setTimeout(() => updater.check(), 15_000);

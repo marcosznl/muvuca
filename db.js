@@ -502,6 +502,8 @@ class Store {
       sessionUser: p(`SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
                       WHERE s.token_hash = ? AND s.expires_at > ? AND u.blocked_at IS NULL`),
       deleteSession: p('DELETE FROM sessions WHERE token_hash = ?'),
+      // Sessão que se renova com o uso: no máximo 1 escrita por dia por sessão (só quando faltam menos de 29 dias)
+      renewSession: p('UPDATE sessions SET expires_at = ? WHERE token_hash = ? AND expires_at < ?'),
       deleteOtherSessions: p('DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?'),
       setPassword: p('UPDATE users SET password_hash = ? WHERE id = ?'),
       gamePlays: p('SELECT game, COUNT(*) AS n FROM game_results WHERE created_at > ? GROUP BY game'),
@@ -759,9 +761,15 @@ class Store {
     return token;
   }
 
+  // Sessão válida → a pessoa. Usar renova o prazo (30 dias a partir do último uso, como no Discord):
+  // quem abre o Muvuca pelo menos uma vez por mês nunca precisa digitar a senha de novo
   userBySession(token) {
     if (!token) return null;
-    return publicUser(this.q.sessionUser.get(hashToken(String(token)), Date.now()));
+    const hash = hashToken(String(token));
+    const now = Date.now();
+    const user = publicUser(this.q.sessionUser.get(hash, now));
+    if (user) this.q.renewSession.run(now + SESSION_DAYS * 86_400_000, hash, now + (SESSION_DAYS - 1) * 86_400_000);
+    return user;
   }
 
   deleteSession(token) { if (token) this.q.deleteSession.run(hashToken(String(token))); }

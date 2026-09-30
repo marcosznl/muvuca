@@ -570,3 +570,25 @@ test('jogo de cartas: cada pessoa recebe só a própria mão', async () => {
   await dono.request({ t: 'game:leave' });
   await ana.request({ t: 'game:leave' });
 });
+
+test('a sessão se renova com o uso (30 dias a partir do último uso)', async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const path = await import('node:path');
+  const file = path.join(server.dir, 'teste.db');
+  const p = new Person(server, 'ana');
+  const res = await p.post('/api/login', { username: 'ana', password: 'senha-123' });
+  p.token = res.body.token;
+  const { createHash } = await import('node:crypto');
+  const hash = createHash('sha256').update(p.token).digest('hex');
+  const db = new DatabaseSync(file);
+  try {
+    assert.ok(db.prepare('SELECT 1 FROM sessions WHERE token_hash = ?').get(hash), 'a sessão existe');
+    // Faz de conta que a sessão foi criada há 20 dias (faltam 10)
+    const soon = Date.now() + 10 * 86_400_000;
+    db.prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ?').run(soon, hash);
+    await p.connect(); // usar o Muvuca
+    const after = db.prepare('SELECT expires_at FROM sessions WHERE token_hash = ?').get(hash).expires_at;
+    assert.ok(after > Date.now() + 29 * 86_400_000, 'voltou a valer por 30 dias');
+    p.close();
+  } finally { db.close(); }
+});
