@@ -132,3 +132,26 @@ pre.log { background: var(--side); border: 1px solid var(--line); border-radius:
 .preview-media audio { width: min(520px, 100%); }
 @media (max-width: 600px) { .preview-head { flex-wrap: wrap; } }
 a.btn { text-decoration: none; display: inline-block; white-space: nowrap; }
+
+/* Prévia: texto e moderação */
+.preview-text { font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow: auto; }
+.preview-actions { border-top: 1px solid var(--line); padding-top: 10px; }
+/* Mensagens (moderação) */
+.msg-list { display: flex; flex-direction: column; }
+.msg-item { padding: 10px 0; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.msg-item:last-child { border-bottom: 0; }
+.msg-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+.chip-btn { border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.chip-btn:hover { border-color: var(--accent); }
+input.narrow { max-width: 160px; }
+/* Resumo da semana */
+.week-bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; align-items: end; height: 160px; margin-top: 8px; }
+.week-day { display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; }
+.week-cols { flex: 1; width: 100%; display: flex; gap: 3px; align-items: flex-end; justify-content: center; }
+.wb { display: inline-block; width: 40%; max-width: 22px; min-height: 2px; border-radius: 4px 4px 0 0; }
+.wb.msg { background: var(--accent); }
+.wb.voice { background: var(--good, #3ba55d); }
+.legend { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.legend .wb { width: 10px; height: 10px; border-radius: 3px; }
+.good-text { color: var(--good, #3ba55d); }
+.bad-text { color: var(--bad); }

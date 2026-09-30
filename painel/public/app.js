@@ -103,6 +103,8 @@ const TABS = {
   geral: ['Visão geral', viewGeral, 5000],
   aovivo: ['Ao vivo', viewAoVivo, 5000],
   usuarios: ['Usuários', viewUsuarios, 30000],
+  resumo: ['Resumo da semana', viewResumo, 300000],
+  mensagens: ['Mensagens', viewMensagens, 0],
   arquivos: ['Arquivos pesados', viewArquivos, 60000],
   xp: ['XP e níveis', viewXp, 30000],
   auditoria: ['Auditoria', viewAuditoria, 0],
@@ -479,6 +481,7 @@ const KEY_LABELS = {
   contaExiste: 'conta existe', outrosAparelhosDesconectados: 'outros aparelhos desconectados', pessoasEmCall: 'pessoas em call',
   expiresIn: 'validade', maxUses: 'usos', userLimit: 'limite de pessoas', name: 'nome', type: 'tipo', topic: 'tópico', word: 'palavra',
   code: 'código', color: 'cor', bitrate: 'qualidade', pinned: 'fixada', on: 'ligado', usuario: 'usuário tentado', texto: 'texto',
+  trava: 'trava', de: 'de', onde: 'onde', arquivo: 'arquivo', tamanho: 'tamanho', anexos: 'anexos', mensagemApagada: 'mensagem apagada junto',
 };
 // "Mozilla/5.0 (Macintosh…) Chrome/…" → "Chrome no Mac" (o texto completo fica na dica ao passar o mouse)
 function device(ua) {
@@ -981,6 +984,90 @@ async function viewInternet() {
   return h('div', {}, top, stats, capCard, chart, list);
 }
 
+// ---------- Mensagens (moderação) ----------
+let msgQuery = { q: '', user: '' };
+async function viewMensagens() {
+  const params = new URLSearchParams(msgQuery);
+  const list = await api(`/api/messages?${params}`);
+  const q = h('input', { type: 'search', placeholder: 'Texto da mensagem…', value: msgQuery.q, 'aria-label': 'Texto' });
+  const who = h('input', { type: 'search', placeholder: '@usuário', value: msgQuery.user, 'aria-label': 'Usuário', class: 'narrow' });
+  const go = (e) => { e?.preventDefault(); msgQuery = { q: q.value.trim(), user: who.value.trim() }; openTab('mensagens'); };
+  const form = h('form', { class: 'row', onsubmit: go }, q, who, h('button', { class: 'btn primary', type: 'submit' }, 'Buscar'),
+    msgQuery.q || msgQuery.user ? h('button', { class: 'btn ghost', type: 'button', onclick: () => { msgQuery = { q: '', user: '' }; openTab('mensagens'); } }, 'Limpar') : null);
+  const items = list.map((m) => h('div', { class: 'msg-item' },
+    h('div', { class: 'row' },
+      h('b', {}, m.name ?? '?'), h('span', { class: 'muted small' }, m.user ? `@${m.user}` : '(conta apagada)'),
+      h('span', { class: 'muted small' }, `· ${m.where} · ${when(m.at)}${m.edited ? ' · editada' : ''}${m.pinned ? ' · 📌 fixada' : ''}`),
+      h('span', { class: 'spacer' }),
+      h('button', { class: 'btn small ghost', onclick: () => deleteMessage(m) }, 'Apagar')),
+    m.text ? h('div', { class: 'msg-text' }, m.text) : null,
+    m.files.length ? h('div', { class: 'row' }, m.files.map((f) => h('button', { class: 'chip-btn', title: 'Ver prévia',
+      onclick: () => previewFile({ ...f, user: m.user ?? '?', where: m.where, text: m.text, messageId: m.id }) },
+    `${KIND_LABEL[f.kind]?.split(' ')[0] ?? '📎'} ${f.name} (${bytes(f.size)})`))) : null));
+  return h('div', {},
+    h('div', { class: 'card' },
+      form,
+      h('p', { class: 'muted small' }, 'As 100 mais recentes dos servidores (conversas privadas nunca aparecem aqui). Apagar some na hora para todo mundo e fica registrado na auditoria.')),
+    h('div', { class: 'section card' },
+      h('h2', {}, msgQuery.q || msgQuery.user ? `${list.length} encontradas` : 'Últimas mensagens'),
+      items.length ? h('div', { class: 'msg-list' }, items) : h('p', { class: 'empty' }, 'Nenhuma mensagem encontrada.')));
+}
+
+// ---------- Resumo da semana ----------
+let summaryWeek = 0;
+function delta(cur, prev) {
+  if (!prev && !cur) return 'igual à semana anterior';
+  if (!prev) return 'novo nesta semana';
+  const p = Math.round(((cur - prev) / prev) * 100);
+  return p === 0 ? 'igual à semana anterior' : `${p > 0 ? '▲' : '▼'} ${Math.abs(p)}% vs semana anterior`;
+}
+const hoursMin = (min) => (min >= 60 ? `${Math.floor(min / 60)} h ${min % 60 ? `${min % 60} min` : ''}`.trim() : `${min} min`);
+async function viewResumo() {
+  const d = await api(`/api/summary?week=${summaryWeek}`);
+  const day = (t) => new Date(t).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+  const sel = h('select', {}, Array.from({ length: 8 }, (_, i) => h('option', { value: i, selected: i === summaryWeek },
+    i === 0 ? 'Últimos 7 dias' : i === 1 ? '7 dias antes disso' : `Há ${i} semanas`)));
+  sel.addEventListener('change', () => { summaryWeek = Number(sel.value); openTab('resumo'); });
+  const maxDay = Math.max(1, ...d.byDay.map((x) => x.messages)); const maxVoice = Math.max(1, ...d.byDay.map((x) => x.voiceMin));
+  const days = h('div', { class: 'week-bars' }, d.byDay.map((x) => h('div', { class: 'week-day', title: `${num(x.messages)} mensagens · ${hoursMin(x.voiceMin)} de call` },
+    h('div', { class: 'week-cols' },
+      h('span', { class: 'wb msg', style: `height:${Math.round((x.messages / maxDay) * 100)}%` }),
+      h('span', { class: 'wb voice', style: `height:${Math.round((x.voiceMin / maxVoice) * 100)}%` })),
+    h('div', { class: 'muted small' }, new Date(x.at).toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')))));
+  const s = d.safety;
+  return h('div', {},
+    h('div', { class: 'row' }, h('p', { class: 'muted' }, `${day(d.start)} a ${day(d.end)}`), h('span', { class: 'spacer' }), sel),
+    h('div', { class: 'grid cards' },
+      stat('Pessoas ativas', num(d.cur.active), delta(d.cur.active, d.prev.active)),
+      stat('Tempo de call', hoursMin(d.cur.voiceMin), delta(d.cur.voiceMin, d.prev.voiceMin)),
+      stat('Mensagens nos servidores', num(d.cur.messages), delta(d.cur.messages, d.prev.messages)),
+      stat('Mensagens privadas', num(d.cur.dms), 'só a quantidade'),
+      stat('Partidas de jogos', num(d.cur.games), delta(d.cur.games, d.prev.games)),
+      stat('Anexos enviados', num(d.files.n), bytes(d.files.bytes))),
+    h('div', { class: 'section card' },
+      h('div', { class: 'row' }, h('h2', {}, 'Dia a dia'), h('span', { class: 'spacer' }),
+        h('span', { class: 'legend' }, h('i', { class: 'wb msg' }), 'mensagens'), h('span', { class: 'legend' }, h('i', { class: 'wb voice' }), 'call')),
+      days),
+    h('div', { class: 'section card' }, h('h2', {}, 'Quem mais usou'),
+      table([
+        { label: 'Pessoa', get: (r) => h('span', {}, h('b', {}, r.name), ' ', h('span', { class: 'muted small' }, `@${r.username}`)) },
+        { label: 'Call', num: true, get: (r) => (r.voiceMin ? hoursMin(r.voiceMin) : '—') },
+        { label: 'Mensagens', num: true, get: (r) => num(r.messages) },
+        { label: 'Jogos', num: true, get: (r) => (r.games ? `${num(r.games)}${r.wins ? ` (${r.wins} 🏆)` : ''}` : '—') },
+        { label: 'XP ganho', num: true, get: (r) => `+${num(r.xp)}` },
+        { label: 'Nível', num: true, get: (r) => h('span', {}, `${r.level}`, r.levelsUp > 0 ? h('span', { class: 'good-text' }, ` ▲${r.levelsUp}`) : null) },
+      ], d.ranking, { empty: 'Ninguém usou nesta semana.' })),
+    h('div', { class: 'section grid two' },
+      h('div', { class: 'card' }, h('h2', {}, 'Canais mais movimentados'), table([
+        { label: 'Canal', get: (r) => `${r.server} · #${r.channel}` },
+        { label: 'Mensagens', num: true, get: (r) => num(r.n) },
+      ], d.channels, { empty: 'Nenhuma mensagem nos servidores.' })),
+      h('div', { class: 'card' }, h('h2', {}, 'Segurança e moderação'), table([
+        { label: 'O quê', get: (r) => r[0] }, { label: 'Vezes', num: true, get: (r) => h('b', { class: r[1] && r[2] ? 'bad-text' : null }, num(r[1])) },
+      ], [['Travados pelo anti-spam', s.spam, true], ['Senhas erradas (site e painel)', s.failedLogins, s.failedLogins > 20], ['Mensagens/anexos apagados', s.moderation, false], ['Bloqueios de conta ou IP', s.blocks, true]]),
+      d.newUsers.length ? h('p', { class: 'small' }, h('b', {}, 'Contas novas: '), d.newUsers.map((u) => `${u.name} (@${u.username})`).join(', ')) : h('p', { class: 'muted small' }, 'Nenhuma conta nova.'))));
+}
+
 // ---------- Arquivos pesados ----------
 const KIND_LABEL = { image: '🖼️ Imagem', video: '🎬 Vídeo', audio: '🎵 Áudio', file: '📄 Documento' };
 const fileUrl = (r, download) => `/api/file?id=${encodeURIComponent(r.id)}${download ? '&download=1' : ''}`;
@@ -1002,9 +1089,34 @@ function previewFile(r) {
         r.kind !== 'file' ? h('a', { class: 'btn small ghost', href: src, target: '_blank', rel: 'noopener' }, 'Abrir em nova aba') : null,
         h('a', { class: 'btn small ghost', href: fileUrl(r, true) }, 'Baixar'),
         h('button', { class: 'btn small', onclick: close, 'aria-label': 'Fechar' }, '✕')),
-      h('div', { class: 'preview-media' }, media)));
+      h('div', { class: 'preview-media' }, media),
+      r.text ? h('div', { class: 'preview-text' }, h('span', { class: 'muted small' }, 'Texto da mensagem: '), r.text) : null,
+      h('div', { class: 'row preview-actions' },
+        h('span', { class: 'muted small' }, 'Moderação:'),
+        h('button', { class: 'btn small danger', onclick: () => deleteFile(r, close) }, 'Apagar este anexo'),
+        r.messageId ? h('button', { class: 'btn small ghost', onclick: () => deleteMessage({ id: r.messageId, user: r.user, where: r.where }, close) }, 'Apagar a mensagem inteira') : null)));
   document.addEventListener('keydown', onKey);
   document.body.append(overlay);
+}
+
+// Apagar pelo painel: some na hora para todo mundo e fica na auditoria
+async function deleteFile(r, done) {
+  if (!confirm(`Apagar o anexo "${r.name}" de @${r.user}? Ele some do chat para todo mundo e não dá para desfazer.`)) return;
+  try {
+    const res = await api('/api/files/delete', { method: 'POST', body: { id: r.id } });
+    toast(res.message, 5000);
+    done?.();
+    openTab(tab);
+  } catch (err) { toast(err.message, 6000); }
+}
+async function deleteMessage(m, done) {
+  if (!confirm(`Apagar esta mensagem de @${m.user ?? '?'} (${m.where})? Os anexos dela vão junto e não dá para desfazer.`)) return;
+  try {
+    const res = await api('/api/messages/delete', { method: 'POST', body: { id: m.id } });
+    toast(res.message, 5000);
+    done?.();
+    openTab(tab);
+  } catch (err) { toast(err.message, 6000); }
 }
 let filesKind = '';
 async function viewArquivos() {

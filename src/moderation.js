@@ -1,7 +1,8 @@
 // Ações do painel administrativo sobre quem usa o Muvuca: desconectar ou bloquear uma conta, bloquear um IP
 // e o modo manutenção (aviso para todo mundo e, se quiser, acesso travado para todos menos o dono).
 import { db, HOME_SERVER } from './store.js';
-import { sockets, send, broadcastPresence } from './realtime.js';
+import { sockets, send, broadcastPresence, sendToServer } from './realtime.js';
+import { removeFiles } from './attachments.js';
 import { roomService, voiceAll, baseUserId } from './voice.js';
 import { uid } from '../db.js';
 
@@ -96,4 +97,42 @@ export function setMaintenance({ on, message, lock, minutes }) {
   }
   if (closed) broadcastPresence();
   return { ...maintenance(), closed };
+}
+
+// ---------- Moderação de conteúdo (painel) ----------
+// Conversa privada nunca: o painel não mostra nem apaga nada de lá.
+
+const isDm = (serverId) => db.server(serverId)?.kind === 'dm';
+
+export function adminDeleteMessage(id) {
+  const row = db.messageRow(Number(id));
+  if (!row) throw new Error('Mensagem não encontrada (talvez já tenha sido apagada).');
+  if (isDm(row.server_id)) throw new Error('Mensagem de conversa privada não pode ser apagada pelo painel.');
+  const files = db.filesOfMessage(row.id);
+  db.deleteMessage(row.id);
+  removeFiles(files).catch(() => {});
+  sendToServer(row.server_id, { t: 'msg:delete', channel: row.channel_id, id: row.id });
+  return { ok: true, files: files.length };
+}
+
+// Apaga só o anexo; se a mensagem ficar sem texto e sem anexos, apaga a mensagem também
+export async function adminDeleteFile(fileId) {
+  const f = /^f-[0-9a-f]{16}$/.test(String(fileId)) ? db.file(fileId) : null;
+  if (!f) throw new Error('Anexo não encontrado (talvez já tenha sido apagado).');
+  const channel = db.channel(f.channel_id);
+  if (channel && isDm(channel.server_id)) throw new Error('Anexo de conversa privada não pode ser apagado pelo painel.');
+  const row = f.message_id ? db.messageRow(f.message_id) : null;
+  if (!row) {
+    await removeFiles([f.id]);
+    return { ok: true, message: 'removed' };
+  }
+  const rest = JSON.parse(row.attachments ?? '[]').filter((a) => a.id !== f.id);
+  if (!rest.length && !String(row.text ?? '').trim()) {
+    adminDeleteMessage(row.id);
+    return { ok: true, message: 'deleted' };
+  }
+  const msg = db.setMessageAttachments(row.id, rest);
+  await removeFiles([f.id]);
+  sendToServer(row.server_id, { t: 'msg:edit', msg });
+  return { ok: true, message: 'edited' };
 }

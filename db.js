@@ -692,6 +692,7 @@ class Store {
       removeVote: p('DELETE FROM poll_votes WHERE message_id = ? AND user_id = ? AND option = ?'),
       clearVotes: p('DELETE FROM poll_votes WHERE message_id = ? AND user_id = ?'),
       setMsgMeta: p('UPDATE messages SET meta = ? WHERE id = ?'),
+      setMsgAttachments: p('UPDATE messages SET attachments = ? WHERE id = ?'),
       // mensagens diretas, tópico e silenciados
       setKind: p('UPDATE servers SET kind = ?, welcome_on = 0, game_announce = 0 WHERE id = ?'),
       setRolePerms: p('UPDATE roles SET permissions = ? WHERE server_id = ? AND is_default = 1'),
@@ -1121,6 +1122,8 @@ class Store {
   }
 
   setMessageMeta(id, meta) { this.q.setMsgMeta.run(JSON.stringify(meta), Number(id)); return this.message(id); }
+  // Tira um anexo da mensagem (painel); devolve a mensagem atualizada
+  setMessageAttachments(id, list) { this.q.setMsgAttachments.run(list.length ? JSON.stringify(list) : null, Number(id)); return this.message(id); }
 
   // Liga/desliga uma reação; devolve a lista nova, ou null se passou do limite de emojis diferentes
   react(messageId, userId, emoji, on, maxKinds = 20) {

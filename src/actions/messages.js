@@ -9,6 +9,8 @@ import { requireServer, requirePerm } from '../guards.js';
 import { claimAttachments, removeFiles } from '../attachments.js';
 import { fail, underLimit } from '../util.js';
 import { xpForMessage } from '../xp.js';
+import { checkSpam, SpamError } from '../antispam.js';
+import { audit } from '../audit.js';
 import { PERMS } from '../../public/js/permissions.js';
 
 const MAX_PINS = 50;
@@ -62,7 +64,7 @@ export default {
     return { t: 'history', channel: channel.id, ...page, older: !!m.before };
   },
 
-  msg(user, m) {
+  msg(user, m, ws) {
     const { channel, ctx } = requireChatChannel(user, m.channel);
     requirePerm(ctx, PERMS.SEND_MESSAGES, 'Você não tem permissão para enviar mensagens aqui.');
     const text = String(m.text ?? '').trim().slice(0, LIMITS.msgLength);
@@ -70,8 +72,18 @@ export default {
     const files = claimAttachments(m.attachments, user, channel.id);
     if (!text && !files.length) return;
     const now = Date.now();
-    user.sent = (user.sent ?? []).filter((ts) => now - ts < MSG_RATE.windowMs);
-    if (user.sent.length >= MSG_RATE.count) fail('Calma! Você está mandando mensagens rápido demais.');
+    try {
+      user.sent = (user.sent ?? []).filter((ts) => now - ts < MSG_RATE.windowMs);
+      if (user.sent.length >= MSG_RATE.count) fail('Calma! Você está mandando mensagens rápido demais.');
+      checkSpam(user.id, text, { now }); // depois do limite: mensagem recusada e reenviada não conta como repetida
+    } catch (err) {
+      // Acabou de ser travado: fica na auditoria (com o canal, sem o texto) — nunca em conversa privada
+      if (err instanceof SpamError && err.reason && ctx.snap.kind !== 'dm') {
+        audit('spam:timeout', { user, ip: ws?.ip ?? null, serverId: ctx.snap.id, detail: { motivo: err.reason, canal: channel.name, trava: `${Math.round(err.timeoutMs / 60_000)} min` } });
+      }
+      if (err instanceof SpamError) fail(err.message);
+      throw err;
+    }
     user.sent.push(now);
     // Responder: só a uma mensagem do mesmo canal
     const original = m.replyTo ? db.messageRow(m.replyTo) : null;

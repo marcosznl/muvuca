@@ -406,8 +406,9 @@ function heavyFiles(url) {
   const kinds = ['image', 'video', 'audio', 'file'];
   const where = kinds.includes(kind) ? 'WHERE f.kind = ?' : '';
   const rows = all(`SELECT f.id, f.kind, f.mime, f.size, f.name, f.created_at, f.message_id, u.username, u.display_name,
-      c.name channel, s.name server, s.kind skind
+      c.name channel, s.name server, s.kind skind, m.text msg_text
     FROM files f LEFT JOIN users u ON u.id = f.owner_id LEFT JOIN channels c ON c.id = f.channel_id LEFT JOIN servers s ON s.id = c.server_id
+    LEFT JOIN messages m ON m.id = f.message_id
     ${where} ORDER BY f.size DESC LIMIT 200`, ...(where ? [kind] : []));
   const byUser = all(`SELECT u.username, u.display_name name, COUNT(*) n, SUM(f.size) bytes FROM files f LEFT JOIN users u ON u.id = f.owner_id
     GROUP BY f.owner_id ORDER BY bytes DESC LIMIT 20`);
@@ -422,6 +423,7 @@ function heavyFiles(url) {
       return {
         id: dm ? null : r.id, kind: r.kind, mime: r.mime, size: r.size, at: r.created_at, user: r.username ?? '(conta apagada)', userName: r.display_name,
         name: dm ? null : r.name, where: dm ? 'Conversa privada' : `${r.server ?? '?'} · #${r.channel ?? '?'}`, dm, orphan: r.message_id === null,
+        messageId: dm ? null : r.message_id, text: dm ? null : (r.msg_text ?? '').slice(0, 300),
       };
     }),
   };
@@ -456,6 +458,88 @@ async function previewFile(req, res, s, url) {
   }
   res.writeHead(200, { ...headers, 'Content-Length': size });
   fs.createReadStream(file).pipe(res);
+}
+
+// ---------- Mensagens (moderação) ----------
+// Busca nas mensagens dos servidores (nunca em conversa privada), as mais novas primeiro
+function searchMessages(url) {
+  const q = String(url.searchParams.get('q') ?? '').trim().slice(0, 100);
+  const who = String(url.searchParams.get('user') ?? '').trim().replace(/^@/, '').slice(0, 40);
+  const like = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+  const rows = all(`SELECT m.id, m.text, m.created_at, m.attachments, m.edited_at, m.pinned_at, u.username, COALESCE(u.display_name, m.author_name) name,
+      c.name channel, s.name server
+    FROM messages m JOIN channels c ON c.id = m.channel_id JOIN servers s ON s.id = c.server_id LEFT JOIN users u ON u.id = m.user_id
+    WHERE s.kind != 'dm' AND m.system = 0 AND (? = '' OR m.text LIKE ? ESCAPE '\\') AND (? = '' OR u.username = ? COLLATE NOCASE)
+    ORDER BY m.id DESC LIMIT 100`, q, like, who, who);
+  return rows.map((r) => ({
+    id: r.id, text: r.text.slice(0, 600), at: r.created_at, edited: !!r.edited_at, pinned: !!r.pinned_at, user: r.username ?? null, name: r.name,
+    where: `${r.server} · #${r.channel}`,
+    files: r.attachments ? JSON.parse(r.attachments).map((a) => ({ id: a.id, kind: a.kind, name: a.name, size: a.size })) : [],
+  }));
+}
+
+// ---------- Resumo da semana ----------
+// week=0: últimos 7 dias; week=1: os 7 anteriores… (comparando com a semana antes dela)
+function weeklySummary(url) {
+  const week = Math.max(0, Math.min(12, Math.floor(Number(url.searchParams.get('week')) || 0)));
+  const end = Date.now() - week * 7 * DAY;
+  const start = end - 7 * DAY;
+  const prevStart = start - 7 * DAY;
+  const safe = (fn, fallback) => { try { return fn(); } catch { return fallback; } };
+  const msgCount = (a, b, dm) => one(`SELECT COUNT(*) n FROM messages m JOIN channels c ON c.id = m.channel_id JOIN servers s ON s.id = c.server_id
+    WHERE m.created_at >= ? AND m.created_at < ? AND m.system = 0 AND s.kind ${dm ? '=' : '!='} 'dm'`, a, b).n;
+  // Minutos de call: 1 evento de XP de voz por minuto (com mais alguém na call e sem ensurdecer)
+  const voiceMin = (a, b) => safe(() => one("SELECT COUNT(*) n FROM xp_events WHERE reason = 'voice' AND at >= ? AND at < ?", a, b).n, 0);
+  const games = (a, b) => safe(() => one("SELECT COUNT(*) n FROM xp_events WHERE reason = 'game' AND at >= ? AND at < ?", a, b).n, 0);
+  const active = (a, b) => safe(() => one(`SELECT COUNT(*) n FROM (
+      SELECT user_id FROM messages WHERE created_at >= ? AND created_at < ? AND user_id IS NOT NULL AND system = 0
+      UNION SELECT user_id FROM xp_events WHERE at >= ? AND at < ? AND reason NOT LIKE 'admin%')`, a, b, a, b).n, 0);
+  const totals = (a, b) => ({ messages: msgCount(a, b, false), dms: msgCount(a, b, true), voiceMin: voiceMin(a, b), games: games(a, b), active: active(a, b) });
+  const cur = totals(start, end);
+  const prev = totals(prevStart, start);
+
+  // Por pessoa: mensagens (servidores e privadas juntas, só a contagem), minutos de call, partidas, XP e nível
+  const people = new Map();
+  const person = (id) => { if (!people.has(id)) people.set(id, { id, messages: 0, voiceMin: 0, games: 0, wins: 0, xp: 0 }); return people.get(id); };
+  for (const r of all('SELECT user_id, COUNT(*) n FROM messages WHERE created_at >= ? AND created_at < ? AND system = 0 AND user_id IS NOT NULL GROUP BY user_id', start, end)) person(r.user_id).messages = r.n;
+  for (const r of safe(() => all('SELECT user_id, reason, COUNT(*) n, SUM(amount) xp FROM xp_events WHERE at >= ? AND at < ? GROUP BY user_id, reason', start, end), [])) {
+    const p = person(r.user_id);
+    if (r.reason === 'voice') p.voiceMin = r.n;
+    if (r.reason === 'game') p.games = r.n;
+    if (r.reason === 'game-won') p.wins = r.n;
+    if (!r.reason.startsWith('admin')) p.xp += r.xp;
+  }
+  const users = new Map(safe(() => all('SELECT id, username, display_name name, xp FROM users'), []).map((u) => [u.id, u]));
+  // XP no fim da semana = XP de hoje menos o que entrou depois dela
+  const after = new Map(safe(() => all('SELECT user_id, SUM(amount) n FROM xp_events WHERE at >= ? GROUP BY user_id', end), []).map((r) => [r.user_id, r.n]));
+  const ranking = [...people.values()].map((p) => {
+    const u = users.get(p.id);
+    if (!u) return null;
+    const xpEnd = Math.max(0, (u.xp ?? 0) - (after.get(p.id) ?? 0));
+    const lvEnd = xpInfo(xpEnd).level;
+    const lvStart = xpInfo(Math.max(0, xpEnd - p.xp)).level;
+    return { ...p, username: u.username, name: u.name, level: lvEnd, levelsUp: lvEnd - lvStart };
+  }).filter(Boolean).sort((a, b) => (b.voiceMin + b.messages * 2 + b.games * 5) - (a.voiceMin + a.messages * 2 + a.games * 5));
+
+  const channels = all(`SELECT s.name server, c.name channel, COUNT(*) n FROM messages m JOIN channels c ON c.id = m.channel_id JOIN servers s ON s.id = c.server_id
+    WHERE m.created_at >= ? AND m.created_at < ? AND m.system = 0 AND s.kind != 'dm' GROUP BY c.id ORDER BY n DESC LIMIT 8`, start, end);
+  const byDay = [];
+  for (let d = 0; d < 7; d++) {
+    const a = start + d * DAY; const b = a + DAY;
+    byDay.push({ at: a, messages: msgCount(a, b, false) + msgCount(a, b, true), voiceMin: voiceMin(a, b) });
+  }
+  const files = one('SELECT COUNT(*) n, COALESCE(SUM(size), 0) bytes FROM files WHERE created_at >= ? AND created_at < ?', start, end);
+  const newUsers = all('SELECT username, display_name name, created_at FROM users WHERE created_at >= ? AND created_at < ? ORDER BY created_at', start, end);
+  const auditCount = (actions) => safe(() => one(`SELECT COUNT(*) n FROM audit_log WHERE at >= ? AND at < ? AND action IN (${actions.map(() => '?').join(',')})`, start, end, ...actions).n, 0);
+  return {
+    start, end, week, cur, prev, ranking, channels, byDay, files, newUsers,
+    safety: {
+      spam: auditCount(['spam:timeout']),
+      failedLogins: auditCount(['auth:login:fail', 'painel:login:fail']),
+      moderation: auditCount(['painel:msg:delete', 'painel:file:delete', 'msg:delete:other', 'msg:purge', 'member:kick']),
+      blocks: auditCount(['painel:user:block', 'painel:ip:block']),
+    },
+  };
 }
 
 // XP: ranking de todo mundo e de onde veio o XP nas últimas 24 h e 7 dias
@@ -727,6 +811,26 @@ const api = {
   'GET /api/users': (req, res) => json(res, 200, usersList()),
   'GET /api/files': (req, res, s, url) => json(res, 200, heavyFiles(url)),
   'GET /api/file': previewFile,
+  'GET /api/summary': (req, res, s, url) => json(res, 200, weeklySummary(url)),
+  'GET /api/messages': (req, res, s, url) => json(res, 200, searchMessages(url)),
+  'POST /api/messages/delete': async (req, res) => {
+    const b = await readBody(req);
+    const m = one(`SELECT m.id, m.text, u.username, c.name channel, s.name server, s.kind skind FROM messages m
+      JOIN channels c ON c.id = m.channel_id JOIN servers s ON s.id = c.server_id LEFT JOIN users u ON u.id = m.user_id WHERE m.id = ?`, Number(b.id));
+    if (!m || m.skind === 'dm') return json(res, 404, { error: 'Mensagem não encontrada.' });
+    const r = await mainPost('/internal/message/delete', { id: m.id });
+    audit('painel:msg:delete', { ip: clientIp(req), detail: { de: m.username ? `@${m.username}` : '?', onde: `${m.server} · #${m.channel}`, texto: m.text.slice(0, 200), ...(r.files ? { anexos: r.files } : {}) } });
+    json(res, 200, { ok: true, message: `Mensagem apagada${r.files ? ` (com ${r.files} ${r.files === 1 ? 'anexo' : 'anexos'})` : ''}.` });
+  },
+  'POST /api/files/delete': async (req, res) => {
+    const b = await readBody(req);
+    const f = one(`SELECT f.id, f.name, f.size, u.username, c.name channel, s.name server, s.kind skind FROM files f
+      LEFT JOIN users u ON u.id = f.owner_id LEFT JOIN channels c ON c.id = f.channel_id LEFT JOIN servers s ON s.id = c.server_id WHERE f.id = ?`, String(b.id ?? ''));
+    if (!f || f.skind === 'dm') return json(res, 404, { error: 'Anexo não encontrado.' });
+    const r = await mainPost('/internal/file/delete', { id: f.id });
+    audit('painel:file:delete', { ip: clientIp(req), detail: { arquivo: f.name, tamanho: f.size, de: f.username ? `@${f.username}` : '?', onde: `${f.server} · #${f.channel}`, ...(r.message === 'deleted' ? { mensagemApagada: true } : {}) } });
+    json(res, 200, { ok: true, message: r.message === 'deleted' ? 'Anexo apagado (a mensagem só tinha ele, então saiu também).' : 'Anexo apagado.' });
+  },
   'GET /api/xp': (req, res) => json(res, 200, xpOverview()),
   'POST /api/xp/adjust': async (req, res) => {
     const b = await readBody(req);

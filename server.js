@@ -16,7 +16,7 @@ import { leaveRoom } from './src/games/lobby.js';
 import { publicKey } from './src/push.js';
 import { uploadSound, serveSound } from './src/soundboard.js';
 import { HttpError, ActionError, json, bearer, clientIp, readBody } from './src/util.js';
-import { ipBlocked, lockedOut, maintenance, disconnectUser, blockUser, blockIp, setMaintenance } from './src/moderation.js';
+import { ipBlocked, lockedOut, maintenance, disconnectUser, blockUser, blockIp, setMaintenance, adminDeleteMessage, adminDeleteFile } from './src/moderation.js';
 import { adjustXp } from './src/xp.js';
 import { auditAction, audit, purgeAudit } from './src/audit.js';
 import { internalStats, isInternal } from './src/internal.js';
@@ -82,6 +82,8 @@ const internalActions = {
   '/internal/ip/block': (b) => blockIp(String(b.ip ?? ''), b.block === true, b.reason),
   '/internal/maintenance': (b) => setMaintenance(b),
   '/internal/xp/adjust': (b) => adjustXp(String(b.userId), b.amount, { reset: b.reset === true }),
+  '/internal/message/delete': (b) => adminDeleteMessage(b.id),
+  '/internal/file/delete': (b) => adminDeleteFile(String(b.id ?? '')),
 };
 
 const server = http.createServer(async (req, res) => {
