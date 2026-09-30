@@ -2,7 +2,7 @@
 // e o modo manutenção (aviso para todo mundo e, se quiser, acesso travado para todos menos o dono).
 import { db, HOME_SERVER } from './store.js';
 import { sockets, send, broadcastPresence } from './realtime.js';
-import { roomService, voiceChannelOf } from './voice.js';
+import { roomService, voiceAll, baseUserId } from './voice.js';
 import { uid } from '../db.js';
 
 // ---------- IPs bloqueados (consultados em todo pedido: ficam em memória) ----------
@@ -20,8 +20,14 @@ function kick(userId, code, message) {
     send(ws, { t: 'error', code, message });
     try { ws.close(); } catch { /* já fechada */ }
   }
-  const channel = voiceChannelOf(userId);
-  if (channel) roomService.removeParticipant(channel, userId).catch(() => {});
+  removeFromVoice(userId);
+}
+
+// Tira da call a conta em todos os aparelhos (o principal e o 2º)
+function removeFromVoice(userId) {
+  for (const [channel, people] of Object.entries(voiceAll())) {
+    for (const p of people) if (baseUserId(p.id) === userId) roomService.removeParticipant(channel, p.id).catch(() => {});
+  }
 }
 
 export function disconnectUser(userId) {
@@ -57,8 +63,7 @@ export function blockIp(ip, block, reason = '') {
         send(ws, { t: 'error', code: 'blocked', message: 'Acesso bloqueado.' });
         try { ws.close(); } catch { /* já fechada */ }
         closed++;
-        const channel = voiceChannelOf(userId);
-        if (channel) roomService.removeParticipant(channel, userId).catch(() => {});
+        removeFromVoice(userId);
       }
     }
   }
