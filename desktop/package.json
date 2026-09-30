@@ -1,7 +1,7 @@
 {
   "name": "muvuca-desktop",
   "productName": "Muvuca",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "description": "Muvuca para Mac",
   "main": "main.js",
   "private": true,
@@ -24,6 +24,7 @@
   },
   "build": {
     "appId": "br.malegna.muvuca",
+    "afterSign": "build/after-sign.js",
     "productName": "Muvuca",
     "copyright": "Feito pela galera da Malegna",
     "directories": {
