@@ -1,13 +1,20 @@
 // Lista de membros ao digitar @ no campo de mensagem (setas escolhem, Enter/Tab confirmam, Esc fecha)
 import { $, h, makeAvatar } from './util.js';
-import { state } from './state.js';
+import { state, canIn, PERMS } from './state.js';
 import { mentionSuggestions } from './richtext.js';
 
 const list = $('mention-list');
 let current = null; // { start, items, index }
 
-// Pessoas que dá para mencionar: as do servidor aberto
-export const mentionables = () => [...(state.servers.find((s) => s.id === state.view.serverId)?.members ?? [])];
+// Quem dá para mencionar: as pessoas do servidor aberto e, para quem tem a permissão, @todos e os cargos
+export function mentionables() {
+  const server = state.servers.find((s) => s.id === state.view.serverId);
+  const people = [...(server?.members ?? [])];
+  if (!server || server.kind === 'dm' || !canIn(server, PERMS.MENTION_EVERYONE)) return people;
+  const groups = [{ id: 'todos', name: 'todos', username: 'todos', kind: 'everyone' }];
+  for (const r of server.roles.filter((x) => !x.isDefault)) groups.push({ id: `&${r.id}`, name: r.name, username: r.name, kind: 'role', color: r.color });
+  return [...groups, ...people];
+}
 
 function update() {
   const input = $('chat-input');
@@ -21,11 +28,16 @@ function update() {
 }
 
 function render() {
-  list.replaceChildren(h('div', 'mention-title', 'Membros'));
+  list.replaceChildren(h('div', 'mention-title', current.items.some((x) => x.kind) ? 'Membros e grupos' : 'Membros'));
   current.items.forEach((p, i) => {
     const row = h('button', i === current.index ? 'mention-item active' : 'mention-item');
     row.type = 'button';
-    row.append(makeAvatar(p.name, 'sm', p.id), h('span', 'mention-name', p.name), h('span', 'muted small', `@${p.username}`));
+    if (p.kind === 'everyone') row.append(h('span', 'mention-group-ico', '@'), h('span', 'mention-name', 'todos'), h('span', 'muted small', 'avisa todo mundo do canal'));
+    else if (p.kind === 'role') {
+      const dot = h('span', 'mention-group-ico role');
+      dot.style.background = p.color || '#99aab5';
+      row.append(dot, h('span', 'mention-name', `@${p.name}`), h('span', 'muted small', 'avisa quem tem o cargo'));
+    } else row.append(makeAvatar(p.name, 'sm', p.id), h('span', 'mention-name', p.name), h('span', 'muted small', `@${p.username}`));
     row.onmousedown = (e) => { e.preventDefault(); pick(i); }; // mousedown: não tira o foco do campo
     list.append(row);
   });

@@ -44,6 +44,7 @@ export function renderRail() {
     if (!top) item.append(pill, btn);
     const mentions = serverMentions(s);
     if (mentions) item.append(h('span', 'rail-badge', mentions > 99 ? '99+' : String(mentions))); // te mencionaram lá
+    railDraggable(item, s.id, top);
     rail.append(item);
   }
   rail.append(h('div', 'rail-sep'));
@@ -54,6 +55,51 @@ export function renderRail() {
   const addItem = h('div', 'rail-item');
   addItem.append(h('span', 'rail-pill'), add);
   rail.append(addItem);
+}
+
+// ---------- Ordem dos servidores: arrastar na coluna (ou nas abas do topo) ----------
+let railDrag = null; // id do servidor sendo arrastado
+function railDraggable(item, id, horizontal) {
+  item.draggable = true;
+  item.dataset.server = id;
+  item.ondragstart = (e) => {
+    railDrag = id;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', id);
+    requestAnimationFrame(() => item.classList.add('dragging'));
+  };
+  item.ondragend = () => { railDrag = null; clearRailMarks(); };
+  item.ondragover = (e) => {
+    if (!railDrag || railDrag === id) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const r = item.getBoundingClientRect();
+    const after = horizontal ? e.clientX > r.left + r.width / 2 : e.clientY > r.top + r.height / 2;
+    clearRailMarks();
+    item.classList.add(after ? 'drop-after' : 'drop-before');
+  };
+  item.ondragleave = () => item.classList.remove('drop-before', 'drop-after');
+  item.ondrop = (e) => {
+    e.preventDefault();
+    const after = item.classList.contains('drop-after');
+    const moving = railDrag;
+    railDrag = null;
+    clearRailMarks();
+    if (!moving || moving === id) return;
+    const ids = state.servers.filter((x) => x.kind !== 'dm').map((x) => x.id).filter((x) => x !== moving);
+    ids.splice(ids.indexOf(id) + (after ? 1 : 0), 0, moving);
+    applyServerOrder(ids);
+    request({ t: 'servers:order', ids }).catch((err) => showBanner(err.message, { timeout: 4000 }));
+  };
+}
+function clearRailMarks() {
+  for (const el of $('server-rail').querySelectorAll('.drop-before, .drop-after, .dragging')) el.classList.remove('drop-before', 'drop-after', 'dragging');
+}
+// Reorganiza a lista (servidores fora da lista, como conversas privadas, ficam como estão, no fim)
+export function applyServerOrder(ids) {
+  const pos = new Map(ids.map((id, i) => [id, i]));
+  state.servers = [...state.servers].sort((a, b) => (pos.get(a.id) ?? 1e9) - (pos.get(b.id) ?? 1e9));
+  renderRail();
 }
 
 function openAddServer() {

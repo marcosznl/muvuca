@@ -5,6 +5,7 @@ import { showLock, hideLock } from './maintenance.js';
 let ws = null;
 let handler = () => {};
 let onAuthError = () => {};
+let onMustChangeFn = null;
 let stopped = false;
 let reconnectDelay = 1000;
 let locked = false; // manutenção com acesso travado: tenta de novo a cada 15 s, sem aviso de "conexão perdida"
@@ -41,7 +42,8 @@ export async function upload(path, params, file) {
   return data;
 }
 
-export function connect({ onMessage, onAuthFail }) {
+export function connect({ onMessage, onAuthFail, onMustChange }) {
+  onMustChangeFn = onMustChange;
   handler = onMessage;
   onAuthError = onAuthFail;
   stopped = false;
@@ -62,6 +64,7 @@ function open() {
     if (m.t === 'error' && m.code === 'maintenance') { locked = true; showLock(m.message); return; }
     if (m.t === 'error' && m.code === 'blocked') { stopped = true; showLock('Acesso bloqueado.', { retrying: false }); return; }
     if (m.t === 'error' && m.code === 'auth') { stopped = true; return onAuthError(m.message); }
+    if (m.t === 'error' && m.code === 'must_change') { stopped = true; return onMustChangeFn?.(); } // senha temporária
     // Resposta a um pedido feito com request()
     if (m.req && pending.has(m.req)) {
       const p = pending.get(m.req);

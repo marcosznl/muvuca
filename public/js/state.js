@@ -33,7 +33,14 @@ export function profileOf(userId, server = null) {
   return base ?? state.friends.find((f) => f.user.id === userId)?.user ?? null; // amigo sem servidor em comum
 }
 // Nome de alguém como aparece no servidor aberto (com o apelido de lá, se tiver)
-export const nameOf = (userId, server = serverById(state.view.serverId)) => profileOf(userId, server)?.name ?? null;
+export const nameOf = (userId, server = serverById(state.view.serverId)) => {
+  if (userId === 'todos') return 'todos'; // menção de grupo: @todos
+  if (String(userId).startsWith('&')) { // menção de cargo: <@&r-…>
+    const id = String(userId).slice(1);
+    return (server?.roles.find((r) => r.id === id) ?? state.servers.flatMap((s) => s.roles).find((r) => r.id === id))?.name ?? 'cargo';
+  }
+  return profileOf(userId, server)?.name ?? null;
+};
 
 export function avatarOf(userId) {
   if (userId === state.me?.id) return state.me.avatar ?? null;

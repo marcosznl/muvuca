@@ -31,7 +31,15 @@ const box = () => $('messages');
 const mine = (msg) => msg.userId === state.me?.id;
 // Mensagem que menciona você ou responde a você (na conversa privada, toda mensagem conta)
 const inDm = (channelId) => findChannel(channelId).server?.kind === 'dm';
-const mentionsMe = (msg) => !mine(msg) && (inDm(msg.channel) || msg.text?.includes(`<@${state.me?.id}>`) || msg.reply?.userId === state.me?.id);
+// Me mencionaram: direto, por @todos, por um cargo meu, ou responderam uma mensagem minha (e em conversa privada, tudo)
+function mentionsMe(msg) {
+  if (mine(msg)) return false;
+  if (inDm(msg.channel) || msg.reply?.userId === state.me?.id) return true;
+  const text = msg.text ?? '';
+  if (text.includes(`<@${state.me?.id}>`) || text.includes('<@todos>')) return true;
+  const me = findChannel(msg.channel).server?.members.find((m) => m.id === state.me?.id);
+  return !!me?.roles.some((r) => text.includes(`<@&${r}>`));
+}
 const fail = (err) => showBanner(err.message, { timeout: 4000 });
 
 // Texto digitado -> como fica guardado (emojis e menções viram códigos) e o caminho de volta
@@ -190,6 +198,17 @@ export function onMessageEdit(msg) {
   for (const m of data.list) if (m.reply?.id === msg.id && !m.reply.deleted) m.reply = { ...m.reply, text: msg.text.slice(0, 200) };
   if (state.view.channelId === msg.channel) renderMessages();
   refreshPins(msg.channel);
+}
+
+// Conta excluída pelo administrador: as mensagens dela somem de todos os canais já carregados
+export function onUserPurged(userId) {
+  for (const [channelId, data] of state.messages) {
+    const removed = new Set(data.list.filter((m) => m.userId === userId).map((m) => m.id));
+    if (!removed.size) continue;
+    data.list = data.list.filter((m) => !removed.has(m.id));
+    for (const m of data.list) if (m.reply && removed.has(m.reply.id)) m.reply = { id: m.reply.id, deleted: true };
+    if (state.view.channelId === channelId) renderMessages();
+  }
 }
 
 export function onMessageDelete({ channel, id }) {

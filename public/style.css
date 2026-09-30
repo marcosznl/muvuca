@@ -948,13 +948,14 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .role-item.drop-after::after { bottom: -1px; }
 
 /* Cartão de perfil (clique em alguém) e editor */
-.profile-card { width: 300px; background: var(--bg-dark); border-radius: 8px; overflow: hidden; position: relative; }
+/* Cartão de perfil: 340 px (como o do Discord), ou a tela toda menos a margem no celular */
+.profile-card { --card-w: min(340px, calc(100vw - 16px)); width: var(--card-w); background: var(--bg-dark); border-radius: 8px; overflow: hidden; position: relative; }
 .profile-card.floating { position: fixed; z-index: 60; box-shadow: 0 8px 28px rgba(0,0,0,.55); animation: pop .12s ease-out; }
-.profile-banner { height: 64px; }
+.profile-banner { height: 100px; }
 .profile-banner.with-image { height: auto; aspect-ratio: 17 / 6; background-size: cover !important; background-position: center !important; }
 .profile-sub-label { margin-top: 10px; }
-.profile-banner.with-image + .profile-card-avatar { top: calc(300px * 6 / 17 - 44px); }
-.profile-card-avatar { position: absolute; top: 20px; left: 14px; border: 6px solid var(--bg-dark); box-sizing: content-box; }
+.profile-banner.with-image + .profile-card-avatar { top: calc(var(--card-w) * 6 / 17 - 44px); }
+.profile-card-avatar { position: absolute; top: 56px; left: 14px; border: 6px solid var(--bg-dark); box-sizing: content-box; }
 .profile-card-body { padding: 52px 14px 12px; display: grid; gap: 1px; font-size: 13px; }
 .profile-card-body > .muted { font-size: 13px; }
 .profile-card-name { color: var(--text-strong); font-size: 18px; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
@@ -985,7 +986,7 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
   background: var(--bg-side); color: var(--text); font: inherit; font-size: 13px;
 }
 .profile-dm input:focus { outline: none; border-color: var(--accent); }
-.profile-editor { display: grid; grid-template-columns: 1fr 300px; gap: 24px; align-items: start; text-align: left; }
+.profile-editor { display: grid; grid-template-columns: 1fr 340px; gap: 24px; align-items: start; text-align: left; }
 .profile-preview { display: grid; gap: 8px; position: sticky; top: 0; }
 .profile-form .field p { margin: 6px 0 0; }
 .profile-bio-input {
@@ -1610,8 +1611,8 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
   color: var(--text-strong); padding: 8px 16px; border-radius: 20px; font-size: 14px; animation: chip-in .25s ease-out;
 }
 @keyframes chip-in { from { opacity: 0; transform: translate(-50%, 10px); } }
-.segmented { display: inline-flex; background: var(--bg-dark); border-radius: 8px; padding: 3px; gap: 3px; }
-.segmented .seg { padding: 8px 14px; border-radius: 6px; color: var(--muted); font-weight: 600; }
+.segmented { display: inline-flex; width: fit-content; justify-self: start; align-self: start; background: var(--bg-dark); border-radius: 8px; padding: 3px; gap: 3px; } /* do tamanho dos botões (não estica na largura toda) */
+.segmented .seg { display: inline-block; padding: 8px 14px; border-radius: 6px; color: var(--muted); font-weight: 600; }
 .segmented .seg.on { background: var(--accent); color: #fff; }
 .ptt-key-row { margin-top: 8px; }
 .voice-settings input[type=range] { width: 100%; accent-color: var(--accent); }
@@ -2011,12 +2012,12 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 
 /* Balão de pensamento (status personalizado) ao lado da foto no cartão */
 .thought-bubble {
-  position: absolute; left: 112px; right: 12px; top: 72px; z-index: 1;
+  position: absolute; left: 112px; right: 12px; top: 108px; z-index: 1;
   display: flex; align-items: center; gap: 6px; width: fit-content; max-width: calc(100% - 124px);
   background: var(--bg-side); color: var(--text); border-radius: 12px; padding: 6px 10px;
   font-size: 12px; font-style: italic; line-height: 1.25; box-shadow: 0 2px 8px rgba(0,0,0,.25);
 }
-.profile-banner.with-image ~ .thought-bubble { top: calc(300px * 6 / 17 + 6px); }
+.profile-banner.with-image ~ .thought-bubble { top: calc(var(--card-w) * 6 / 17 + 6px); }
 /* as bolinhas do "pensamento" saindo da foto */
 .thought-bubble::before, .thought-bubble::after { content: ''; position: absolute; background: inherit; border-radius: 50%; }
 .thought-bubble::before { width: 9px; height: 9px; left: -7px; top: 4px; }
@@ -2155,3 +2156,18 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .event-foot .btn { padding: 6px 14px; font-size: 13px; }
 .user-settings-account { align-items: center; }
 .modal textarea { font-family: inherit; }
+/* Arrastar servidores na coluna (e nas abas do topo) para mudar a ordem */
+.server-rail .rail-item.dragging { opacity: .4; }
+.server-rail .rail-item.drop-before::before, .server-rail .rail-item.drop-after::after {
+  content: ''; position: absolute; left: 14px; right: 14px; height: 3px; border-radius: 2px; background: var(--green);
+}
+.server-rail .rail-item.drop-before::before { top: -6px; }
+.server-rail .rail-item.drop-after::after { bottom: -6px; }
+.app.layout-top .server-rail .rail-item.drop-before::before, .app.layout-top .server-rail .rail-item.drop-after::after { top: 4px; bottom: 4px; width: 3px; height: auto; left: auto; right: auto; }
+.app.layout-top .server-rail .rail-item.drop-before::before { left: -5px; }
+.app.layout-top .server-rail .rail-item.drop-after::after { right: -5px; }
+/* Menções de grupo: @todos e @cargo (na cor do cargo) */
+.mention.group { --role-color: var(--accent); color: var(--role-color); background: color-mix(in srgb, var(--role-color) 18%, transparent); cursor: default; }
+.mention.group:hover { background: color-mix(in srgb, var(--role-color) 28%, transparent); }
+.mention-group-ico { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--accent); color: #fff; font-weight: 700; font-size: 14px; }
+.mention-group-ico.role { width: 14px; height: 14px; margin: 0 5px; }

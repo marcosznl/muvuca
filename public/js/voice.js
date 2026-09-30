@@ -10,7 +10,7 @@ import { renderChannels, renderUserPanel, renderVoicePanel } from './sidebar.js'
 import { applyVolume as applyMusicVolume } from './music.js';
 import { BUILTIN_SOUNDS, soundboardVolume, setSoundboardVolume, playBoardSound } from './sounds.js';
 
-const { Room, RoomEvent, Track, VideoPresets, VideoPreset, VideoQuality, ConnectionQuality, AudioPresets, DisconnectReason } = LivekitClient;
+const { Room, RoomEvent, Track, VideoPresets, VideoQuality, ConnectionQuality, AudioPresets, DisconnectReason } = LivekitClient;
 
 // Áudio em alta fidelidade (Opus). O padrão do LiveKit é 48 kbps com DTX, que corta o início das falas.
 // A taxa de bits da voz vem da configuração do canal (padrão 128 kbps)
@@ -88,23 +88,14 @@ const STREAM_AUDIO = {
 // Teto: 1080p a 30 FPS (decisão do dono: cada pessoa assistindo usa o upload do servidor; acima disso pesa demais)
 // Cada resolução leva cópias menores ("degraus"): quando a internet de alguém aperta, ele cai um degrau só
 // (1080p → 720p → 360p) em vez de despencar direto para uma imagem ruim
+// Qualidade fixa: quem transmite escolhe e é essa que todo mundo recebe (uma versão só, sem degraus menores)
 const SCREEN_RES = {
-  '720': { label: '720p', width: 1280, height: 720, bitrate: 2_500_000, layers: ['360'] },
-  '1080': { label: '1080p', width: 1920, height: 1080, bitrate: 4_500_000, layers: ['360', '720'] },
-};
-const SCREEN_LAYERS = { // largura, altura e bitrate base (a 30 FPS) de cada degrau
-  '360': [640, 360, 700_000],
-  '720': [1280, 720, 2_300_000],
-  '1080': [1920, 1080, 4_500_000],
+  '720': { label: '720p', width: 1280, height: 720, bitrate: 2_500_000 },
+  '1080': { label: '1080p', width: 1920, height: 1080, bitrate: 4_500_000 },
 };
 // Multiplicador do bitrate por FPS: o dobro de quadros não precisa do dobro de dados (quadros seguidos se parecem)
 const SCREEN_FPS = { 15: 0.6, 30: 1 };
 const screenBitrate = (res, fps) => Math.round(SCREEN_RES[res].bitrate * SCREEN_FPS[fps]);
-const screenLayers = (res, fps) => SCREEN_RES[res].layers.map((k) => {
-  const [w, h, base] = SCREEN_LAYERS[k];
-  const layerFps = k === '360' ? Math.min(fps, 30) : fps; // o degrau menor é só o "estepe": 30 FPS bastam
-  return new VideoPreset(w, h, Math.round(base * SCREEN_FPS[layerFps]), layerFps);
-});
 
 const IS_SAFARI = /^((?!chrome|chromium|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent);
 
@@ -976,15 +967,24 @@ async function startScreenShare({ res, fps, audio }) {
       },
       {
         screenShareEncoding: { maxBitrate: bitrate, maxFramerate: fps, priority: 'high' },
-        screenShareSimulcastLayers: screenLayers(res, fps),
+        // Uma versão só, na qualidade escolhida: ninguém recebe uma versão menor sem pedir
+        simulcast: false,
         // H.264 costuma ser codificado pela placa de vídeo (VP8 usa o processador): muito mais leve durante jogos
         videoCodec: 'h264',
-        // O padrão do LiveKit para tela é manter a resolução e derrubar o FPS quando o PC não dá conta
-        // (medido: 1080p a ~11 fps). Para live, é melhor baixar a resolução e manter a fluidez.
-        degradationPreference: 'balanced',
+        // Resolução fixa: se o PC ou a internet apertarem, o navegador segura a nitidez (e não a troca sozinho)
+        degradationPreference: 'maintain-resolution',
         ...STREAM_AUDIO,
       },
     );
+    // Onde o navegador aceita, trava também o FPS (nem resolução nem fluidez mudam sozinhas)
+    const sender = room.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track?.sender;
+    if (sender) {
+      try {
+        const params = sender.getParameters();
+        params.degradationPreference = 'maintain-framerate-and-resolution';
+        await sender.setParameters(params);
+      } catch { /* navegador antigo: fica com a resolução fixa */ }
+    }
     // Safari captura na resolução nativa (ver acima): segura o teto de 1080p/30 depois de começar
     if (IS_SAFARI) {
       const track = room.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track?.mediaStreamTrack;
@@ -1309,7 +1309,7 @@ function updateTile(el, { p, pub, screen }, isMain) {
   avatar.hidden = showVideo;
 
   el.querySelector('.fs').hidden = !screen;
-  // Live de outra pessoa: escolha de qualidade (teto para o automático) e a resolução que está chegando
+  // Live de outra pessoa: mostra a qualidade que está chegando (fixa, escolhida por quem transmite)
   const qual = el.querySelector('.qual');
   qual.hidden = !screen || p.isLocal || !showVideo;
   el._pub = pub;
@@ -1355,27 +1355,20 @@ function updateSpeaking() {
 }
 
 // ---------- Qualidade da live para quem assiste ----------
-// Automático: o sistema escolhe o degrau (1080p/720p/360p) pela internet de cada um e pelo tamanho do quadro.
-// Dá para travar num teto menor (economiza internet, ou evita o sobe-e-desce numa conexão ruim).
-const STREAM_QUALITY = {
-  auto: { label: 'Automática', hint: 'a melhor que a sua internet aguenta', q: VideoQuality.HIGH },
-  medium: { label: 'Média', hint: 'até 720p', q: VideoQuality.MEDIUM },
-  low: { label: 'Baixa', hint: 'até 360p, economiza internet', q: VideoQuality.LOW },
-};
-const streamQuality = () => (STREAM_QUALITY[store.get('streamQuality')] ? store.get('streamQuality') : 'auto');
-
+// Fixa: chega exatamente a qualidade que quem transmite escolheu (não há versão menor para trocar).
+// O botão só mostra o que está chegando (resolução e quadros por segundo) e a conexão de cada um.
 function applyStreamQuality(pub) {
-  if (pub && !pub.track?.isLocal && pub.setVideoQuality) pub.setVideoQuality(STREAM_QUALITY[streamQuality()].q);
+  if (pub && !pub.track?.isLocal && pub.setVideoQuality) pub.setVideoQuality(VideoQuality.HIGH);
 }
 
 function paintQualityButton(el) {
   const video = el.querySelector('video');
   const vh = video?.videoHeight;
-  const now = vh ? `${vh >= 1000 ? 1080 : vh >= 700 ? 720 : vh >= 520 ? 540 : vh >= 340 ? 360 : vh}p` : '';
-  const mode = streamQuality();
-  el.querySelector('.qual').textContent = `${mode === 'auto' ? 'Auto' : STREAM_QUALITY[mode].label}${now ? ` · ${now}` : ''}`;
+  const res = vh ? `${vh >= 1000 ? 1080 : vh >= 700 ? 720 : vh >= 520 ? 540 : vh >= 340 ? 360 : vh}p` : '';
+  const fps = el._pub?.track?.mediaStreamTrack?.getSettings?.().frameRate;
+  el.querySelector('.qual').textContent = res ? `${res}${fps ? ` · ${Math.round(fps)} fps` : ''}` : 'Live';
 }
-// A resolução que chega muda sozinha: atualiza o botão a cada 2 s
+// Mostra o que está chegando: atualiza o botão a cada 2 s
 setInterval(() => { for (const el of tiles.values()) if (!el.querySelector('.qual').hidden) paintQualityButton(el); }, 2000);
 
 const CONN_LABEL = { excellent: 'excelente', good: 'boa', poor: 'instável', lost: 'caindo', unknown: 'medindo…' };
@@ -1384,13 +1377,7 @@ function openQualityMenu(el, btn) {
   const who = room?.getParticipantByIdentity?.(el.dataset.identity) ?? room?.remoteParticipants.get(el.dataset.identity);
   const mine = room?.localParticipant.connectionQuality;
   contextMenu(r.left, r.bottom + 4, [
-    ...Object.entries(STREAM_QUALITY).map(([id, o]) => ({
-      label: `${o.label} (${o.hint})${streamQuality() === id ? '  ✓' : ''}`,
-      onClick: () => {
-        store.set('streamQuality', id === 'auto' ? null : id);
-        for (const t of tiles.values()) if (t._pub && !t.querySelector('.qual').hidden) { applyStreamQuality(t._pub); paintQualityButton(t); }
-      },
-    })),
+    { label: 'Qualidade fixa: a que quem transmite escolheu', icon: 'monitor', onClick: () => {} },
     'sep',
     { label: `Conexão de ${who?.name ?? 'quem transmite'}: ${CONN_LABEL[who?.connectionQuality] ?? '?'}`, icon: 'signal', onClick: () => {} },
     { label: `Sua conexão: ${CONN_LABEL[mine] ?? '?'}`, icon: 'signal', onClick: () => {} },

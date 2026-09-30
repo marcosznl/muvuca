@@ -31,11 +31,11 @@ export async function prepareImage(file) {
 }
 
 // Banner: recorta o centro na proporção do cartão (17:6) e reduz para 1020 px de largura.
-// GIF vai como está (até 5 MB), para continuar animado.
+// GIF vai como está (até 10 MB), para continuar animado.
 const BANNER_RATIO = 17 / 6;
 async function prepareBanner(file) {
   if (file.type === 'image/gif') {
-    if (file.size > 5 * 1024 * 1024) throw new Error('O GIF do banner deve ter no máximo 5 MB.');
+    if (file.size > 10 * 1024 * 1024) throw new Error('O GIF do banner deve ter no máximo 10 MB.');
     return file;
   }
   const bitmap = await createImageBitmap(file).catch(() => { throw new Error('Não consegui abrir essa imagem.'); });
@@ -581,7 +581,7 @@ export function openProfileEditor() {
   picker.el.addEventListener('click', onColor);
   picker.el.addEventListener('input', onColor);
   bannerField.append(h('span', 'field-label', 'Banner'), bannerBtns,
-    h('p', 'muted small', 'PNG, JPG, WEBP ou GIF animado (até 5 MB). Tamanho ideal: 1020×360.'),
+    h('p', 'muted small', 'PNG, JPG, WEBP ou GIF animado (até 10 MB). Tamanho ideal: 1020×360.'),
     h('span', 'field-label profile-sub-label', 'Cor do banner (aparece sem imagem)'), picker.el);
   changeBanner.onclick = () => pickImage(async (file) => {
     changeBanner.disabled = true;

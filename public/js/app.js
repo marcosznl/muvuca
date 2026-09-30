@@ -7,10 +7,10 @@ import {
   state, serverById, findChannel, upsertServer, removeServer, rememberTextChannel, rememberedTextChannel,
 } from './state.js';
 import { connect, disconnect, request, send, api, sessionToken, setSessionToken } from './net.js';
-import { showAuth, pendingInvite, clearInviteFromUrl } from './auth.js';
-import { renderRail, renderServerHeader, renderChannels, renderUserPanel, renderVoicePanel } from './sidebar.js';
+import { showAuth, pendingInvite, clearInviteFromUrl, showForcedPasswordChange } from './auth.js';
+import { renderRail, renderServerHeader, renderChannels, renderUserPanel, renderVoicePanel, applyServerOrder } from './sidebar.js';
 import {
-  openTextChannel, onHistory, onMessage, onMessageEdit, onMessageDelete, onReactions, onRead, onTyping, renderComposer, updateTitle, onPollVotes,
+  openTextChannel, onHistory, onMessage, onMessageEdit, onMessageDelete, onUserPurged, onReactions, onRead, onTyping, renderComposer, updateTitle, onPollVotes,
 } from './chat.js';
 import { sounds } from './sounds.js';
 import './theme.js';
@@ -303,8 +303,14 @@ function handle(m) {
     case 'event:reminder':
       onEventReminder(m);
       break;
+    case 'servers:order':
+      applyServerOrder(m.ids);
+      break;
     case 'msg:delete':
       onMessageDelete(m);
+      break;
+    case 'user:purged':
+      onUserPurged(m.userId);
       break;
     case 'msg:reactions':
       onReactions(m);
@@ -395,6 +401,8 @@ function start() {
       leaveVoice();
       showAuth({ error: message, onLoggedIn: start });
     },
+    // Senha temporária ainda não trocada (ex.: fechou o site no meio): pede a nova antes de entrar
+    onMustChange: () => showForcedPasswordChange({ onDone: start }),
   });
 }
 

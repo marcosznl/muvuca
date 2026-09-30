@@ -102,6 +102,8 @@ export async function showAuth({ error = '', onLoggedIn } = {}) {
       // No cadastro o convite já foi usado; no login ele é aceito depois de conectar
       if (isRegister) clearInviteFromUrl();
       setSessionToken(data.token);
+      // Senha temporária dada pelo administrador: escolhe a nova antes de entrar
+      if (data.mustChange) return showForcedPasswordChange({ current: inputs.password.value, onDone: () => onDone(data) });
       root.hidden = true;
       onDone(data);
     } catch (ex) {
@@ -111,4 +113,61 @@ export async function showAuth({ error = '', onLoggedIn } = {}) {
     }
   };
   (inputs.name ?? inputs.username).focus();
+}
+
+// Troca obrigatória: o administrador trocou a senha por uma temporária; a pessoa escolhe a dela antes de usar o Muvuca.
+// `current` vem preenchido quando a pessoa acabou de digitar a temporária no login; senão, ela digita de novo.
+export function showForcedPasswordChange({ current = '', onDone: done } = {}) {
+  $('app').hidden = true;
+  const root = $('auth');
+  root.hidden = false;
+  root.replaceChildren();
+  const card = h('form', 'card auth-card');
+  const brand = h('div', 'auth-brand');
+  brand.append(h('span', 'auth-logo', 'M'), 'Muvuca');
+  root.append(brand, card);
+  card.append(h('h1', '', 'Escolha uma senha nova'),
+    h('p', 'muted', 'Você entrou com uma senha temporária. Escolha a sua para continuar — só você vai saber qual é.'));
+  const field = (label, attrs) => {
+    const l = h('label', 'field');
+    l.append(h('span', 'field-label', label));
+    const input = h('input');
+    Object.assign(input, { type: 'password', maxLength: 200, required: true, ...attrs });
+    l.append(input);
+    card.append(l);
+    return input;
+  };
+  const temp = current ? null : field('Senha temporária', { autocomplete: 'current-password' });
+  const next = field('Senha nova', { autocomplete: 'new-password' });
+  const again = field('Repita a senha nova', { autocomplete: 'new-password' });
+  card.append(h('p', 'muted small', 'Pelo menos 6 caracteres, diferente da temporária.'));
+  const err = h('p', 'error');
+  err.hidden = true;
+  const submit = h('button', 'btn primary block', 'Salvar e entrar');
+  submit.type = 'submit';
+  const out = h('button', 'link', 'Sair');
+  out.type = 'button';
+  out.onclick = () => { setSessionToken(null); mode = 'login'; showAuth(); };
+  const foot = h('p', 'muted small');
+  foot.append(out);
+  card.append(err, submit, foot);
+  const fail = (msg, input) => { err.textContent = msg; err.hidden = false; input?.focus(); };
+  card.onsubmit = async (e) => {
+    e.preventDefault();
+    err.hidden = true;
+    const cur = current || temp.value;
+    if (next.value.length < 6) return fail('A senha nova precisa ter pelo menos 6 caracteres.', next);
+    if (next.value !== again.value) return fail('As duas senhas novas não são iguais.', again);
+    if (next.value === cur) return fail('A senha nova precisa ser diferente da temporária.', next);
+    submit.disabled = true;
+    try {
+      await api('/api/password', { current: cur, password: next.value });
+      root.hidden = true;
+      (done ?? onDone)();
+    } catch (ex) {
+      submit.disabled = false;
+      fail(ex.message, /atual|temporária/i.test(ex.message) ? temp : next);
+    }
+  };
+  (temp ?? next).focus();
 }

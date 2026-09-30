@@ -1,6 +1,6 @@
 // Conteúdo de uma mensagem na tela: texto com emojis, menções e links; GIF; fotos e vídeos
 import { $, h } from './util.js';
-import { state, nameOf } from './state.js';
+import { state, nameOf, serverById } from './state.js';
 import { openProfileCard } from './profile.js';
 import { CUSTOM_EMOJI, GIF_URL, isJumbo, parseMarkdown } from './richtext.js';
 import { request } from './net.js';
@@ -23,6 +23,16 @@ export function customEmojiImg(name, id, big = false) {
 }
 
 function mentionChip(userId) {
+  // @todos e @cargo: destaque (cor do cargo); em você também quando te inclui
+  if (userId === 'todos' || userId.startsWith('&')) {
+    const server = serverById(state.view.serverId);
+    const role = userId.startsWith('&') ? server?.roles.find((r) => r.id === userId.slice(1)) : null;
+    const chip = h('span', 'mention group', `@${nameOf(userId) ?? 'cargo'}`);
+    if (role?.color) chip.style.setProperty('--role-color', role.color);
+    const mine = server?.members.find((m) => m.id === state.me?.id);
+    if (userId === 'todos' || (role && mine?.roles.includes(role.id))) chip.classList.add('me');
+    return chip;
+  }
   const chip = h('span', 'mention', `@${nameOf(userId) ?? 'alguém'}`);
   if (userId === state.me?.id) chip.classList.add('me');
   chip.onclick = (e) => { e.stopPropagation(); openProfileCard(userId, e.clientX, e.clientY); };
@@ -33,7 +43,7 @@ function mentionChip(userId) {
 function appendLinkified(el, text) {
   text.split(/(https?:\/\/[^\s<>"]+)/g).forEach((part, i) => {
     if (i % 2 === 0) {
-      part.split(/(<@u\d+>)/g).forEach((piece, j) => {
+      part.split(/(<@(?:u\d+|todos|&r-[0-9a-f]+)>)/g).forEach((piece, j) => {
         if (j % 2) el.append(mentionChip(piece.slice(2, -1)));
         else if (piece) el.append(document.createTextNode(piece));
       });

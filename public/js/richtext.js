@@ -5,7 +5,7 @@
 // Mensagem que é só um GIF do Giphy (só desse endereço vira imagem; links quaisquer continuam links)
 export const GIF_URL = /^https:\/\/(media\d?|i)\.giphy\.com\/media\/[\w.\/-]+\.(gif|webp)$/;
 export const CUSTOM_EMOJI = /<(a?):(\w{2,32}):(e-[0-9a-f]{10})>/g;
-export const MENTION = /<@(u\d+)>/g;
+export const MENTION = /<@(u\d+|todos|&r-[0-9a-f]+)>/g; // pessoa, @todos ou cargo
 const ONLY_EMOJIS = /^(?:\s|<a?:\w{2,32}:e-[0-9a-f]{10}>|\p{Extended_Pictographic}|\p{Emoji_Modifier}|️|‍)+$/u;
 
 // Só emojis (até 27) ficam grandes, como no Discord
