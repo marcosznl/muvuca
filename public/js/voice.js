@@ -155,9 +155,16 @@ function selfEntry() {
 }
 
 // Mostra você na sala na hora do clique, sem esperar o servidor consultar o LiveKit
+// Mostra você no canal de voz na hora (sem esperar o servidor). Se já está na lista, atualiza no mesmo lugar:
+// tirar e pôr no fim fazia as pessoas "trocarem de lugar" a cada mutar/desmutar (o servidor devolvia a ordem certa)
 function showSelfInChannel() {
-  for (const [id, list] of Object.entries(state.voice)) state.voice[id] = list.filter((p) => p.id !== state.me?.id);
-  if (roomChannel) (state.voice[roomChannel] ??= []).push(selfEntry());
+  for (const [id, list] of Object.entries(state.voice)) if (id !== roomChannel) state.voice[id] = list.filter((p) => p.id !== state.me?.id);
+  if (roomChannel) {
+    const list = (state.voice[roomChannel] ??= []);
+    const i = list.findIndex((p) => p.id === state.me?.id);
+    if (i >= 0) list[i] = selfEntry();
+    else list.push(selfEntry());
+  }
   renderChannels();
 }
 
