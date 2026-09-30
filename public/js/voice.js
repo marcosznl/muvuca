@@ -979,7 +979,9 @@ setInterval(() => {
     m.analyser.getFloatTimeDomainData(m.data);
     let sum = 0;
     for (const v of m.data) sum += v * v;
-    if (Math.sqrt(sum / m.data.length) > SPEAK_THRESHOLD) m.lastLoud = now;
+    const rms = Math.sqrt(sum / m.data.length);
+    m.peak = Math.max(m.peak ?? 0, rms); // maior volume desde o último relatório (painel: o microfone capta algo?)
+    if (rms > SPEAK_THRESHOLD) m.lastLoud = now;
     if (now - m.lastLoud < SPEAK_HOLD_MS) next.add(identity);
   }
   const changed = next.size !== speakingSet.size || [...next].some((id) => !speakingSet.has(id));
@@ -1296,8 +1298,22 @@ async function reportStats() {
       if (st.jitter) { jitter += st.jitter; n++; }
     }
   }
+  // Microfone: quanto está enviando e o maior volume captado nos últimos 10 s (0 = mudo/sem permissão do sistema)
+  const micTrack = lp.getTrackPublication(Track.Source.Microphone)?.track;
+  const micStats = micTrack ? await micTrack.getSenderStats?.().catch(() => null) : null;
+  const micBps = micStats ? reportDelta('mic', micStats.bytesSent ?? 0, true) : null;
+  const mine = meters.get(lp.identity);
+  const mic = { on: !!micTrack && !micTrack.isMuted, kbps: micBps === null ? null : Math.round((micBps * 8) / 1000), peak: mine ? Math.round((mine.peak ?? 0) * 1000) / 1000 : null };
+  if (mine) mine.peak = 0;
+  // Volume do que chega dos outros (o que toca aqui)
+  let heard = null;
+  for (const [identity, m] of meters) {
+    if (identity === lp.identity) continue;
+    heard = Math.max(heard ?? 0, m.peak ?? 0);
+    m.peak = 0;
+  }
   send({
-    t: 'voice:stats', q: lp.connectionQuality ?? 'unknown', pub,
+    t: 'voice:stats', q: lp.connectionQuality ?? 'unknown', pub, mic, heard: heard === null ? null : Math.round(heard * 1000) / 1000,
     rx: { kbps: Math.round((rx * 8) / 1000), loss: lost + got > 0 ? Math.round((lost * 1000) / (lost + got)) / 10 : 0, jitter: n ? Math.round((jitter * 1000) / n) : null },
   });
 }

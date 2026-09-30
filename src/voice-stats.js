@@ -17,8 +17,11 @@ export const voiceStatsActions = {
       w: num(p?.w, 8000), h: num(p?.h, 8000), fps: num(p?.fps, 240), kbps: num(p?.kbps, 1_000_000),
       limit: ['bandwidth', 'cpu', 'other'].includes(p?.limit) ? p.limit : null, rtt: num(p?.rtt, 60_000),
     }));
+    const level = (v) => (Number.isFinite(Number(v)) ? Math.max(0, Math.min(1, Number(v))) : null);
     stats.set(user.id, {
       at: Date.now(), q: QUALITY.has(m.q) ? m.q : 'unknown', pub,
+      mic: m.mic && typeof m.mic === 'object' ? { on: m.mic.on === true, kbps: num(m.mic.kbps, 1_000_000), peak: level(m.mic.peak) } : null,
+      heard: level(m.heard),
       rx: { kbps: num(m.rx?.kbps, 1_000_000), loss: Number.isFinite(Number(m.rx?.loss)) ? Math.max(0, Math.min(100, Number(m.rx.loss))) : null, jitter: num(m.rx?.jitter, 60_000) },
     });
     if (stats.size > 500) for (const [id, s] of stats) if (Date.now() - s.at > 30_000) stats.delete(id);

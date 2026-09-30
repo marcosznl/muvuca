@@ -364,11 +364,19 @@ function voicePeopleTable(people) {
   return h('div', { class: 'section' }, table([
     { label: 'Pessoa', get: (p) => h('span', {}, h('b', {}, p.name), h('span', { class: 'muted small' }, p.deafened ? ' · 🔇 sem som' : p.muted ? ' · 🎙️ mudo' : '')) },
     { label: 'Conexão', get: (p) => { const [k, t] = NET_Q[p.net?.q ?? 'unknown'] ?? NET_Q.unknown; return p.net ? h('span', { class: `pill ${k}` }, t) : h('span', { class: 'muted small', title: 'Sem relatório: site antigo aberto (recarregar) ou acabou de entrar' }, '—'); } },
+    { label: 'Microfone', get: (p) => {
+      const mic = p.net?.mic;
+      if (!mic) return h('span', { class: 'muted small' }, '—');
+      if (!mic.on) return h('span', { class: 'muted small' }, 'desligado');
+      const silent = mic.peak !== null && mic.peak < 0.003;
+      return h('span', { class: `small ${silent ? 'error' : ''}`, title: 'Volume = o maior captado nos últimos 10 s' },
+        `${mic.kbps ?? '?'} kbps · volume ${mic.peak === null ? '?' : `${Math.round(mic.peak * 100)}%`}`, silent ? h('div', {}, 'captando silêncio (permissão do sistema? microfone errado?)') : null);
+    } },
     { label: 'Enviando', get: (p) => (p.net?.pub?.length ? h('div', {}, p.net.pub.map((x) => h('div', { class: 'small' },
       x.src === 'screen' ? '🔴 live ' : '📷 câmera ', h('b', {}, x.w ? `${x.w}×${x.h}` : '?'), ` · ${x.fps} fps${x.kbps != null ? ` · ${mbpsText(x.kbps)}` : ''}${x.rtt != null ? ` · ${x.rtt} ms` : ''}`,
       x.limit ? h('div', { class: 'error small' }, `limitado pelo ${LIMIT[x.limit]}`) : null))) : h('span', { class: 'muted small' }, p.streaming || p.camera ? 'sem dados ainda' : 'só voz')) },
     { label: 'Recebendo', get: (p) => (p.net?.rx ? h('span', { class: `small ${p.net.rx.loss >= 5 ? 'error' : ''}` },
-      `${mbpsText(p.net.rx.kbps)} · perda ${String(p.net.rx.loss ?? 0).replace('.', ',')}%${p.net.rx.jitter != null ? ` · oscilação ${p.net.rx.jitter} ms` : ''}`) : '—') },
+      `${mbpsText(p.net.rx.kbps)} · perda ${String(p.net.rx.loss ?? 0).replace('.', ',')}%${p.net.rx.jitter != null ? ` · oscilação ${p.net.rx.jitter} ms` : ''}${p.net.heard != null ? ` · volume ouvido ${Math.round(p.net.heard * 100)}%` : ''}`) : '—') },
   ], people));
 }
 const mbpsText = (kbps) => (kbps == null ? '?' : kbps >= 1000 ? `${(kbps / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} Mbps` : `${kbps} kbps`);
