@@ -254,6 +254,33 @@ export function openDb(file) {
     );
     CREATE INDEX IF NOT EXISTS xp_events_by_time ON xp_events(at);
 
+    -- Canal privado: quais cargos enxergam (o dono e os administradores sempre veem)
+    CREATE TABLE IF NOT EXISTS channel_roles (
+      channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+      role_id    TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+      PRIMARY KEY (channel_id, role_id)
+    );
+
+    -- Eventos agendados do servidor ("Jogatina sexta 21h") e quem vai
+    CREATE TABLE IF NOT EXISTS events (
+      id          TEXT    PRIMARY KEY,
+      server_id   TEXT    NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+      title       TEXT    NOT NULL,
+      description TEXT,
+      starts_at   INTEGER NOT NULL,
+      channel_id  TEXT    REFERENCES channels(id) ON DELETE SET NULL,
+      created_by  INTEGER,
+      created_at  INTEGER NOT NULL,
+      reminded    INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS events_by_server ON events(server_id, starts_at);
+    CREATE TABLE IF NOT EXISTS event_rsvps (
+      event_id TEXT    NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+      user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      at       INTEGER NOT NULL,
+      PRIMARY KEY (event_id, user_id)
+    );
+
     -- IPs bloqueados pelo painel administrativo (não acessam nada do Muvuca)
     CREATE TABLE IF NOT EXISTS blocked_ips (
       ip         TEXT    PRIMARY KEY,
@@ -335,6 +362,11 @@ function migrate(db) {
   if (!userCols.includes('banner_image')) db.exec('ALTER TABLE users ADD COLUMN banner_image TEXT');
   // Qualidade do áudio por canal de voz (kbps; NULL = padrão)
   if (!db.prepare('PRAGMA table_info(channels)').all().some((c) => c.name === 'user_limit')) db.exec('ALTER TABLE channels ADD COLUMN user_limit INTEGER');
+  // Canal privado (só cargos escolhidos) e modo lento (segundos entre mensagens de cada pessoa)
+  if (!db.prepare('PRAGMA table_info(channels)').all().some((c) => c.name === 'private')) db.exec('ALTER TABLE channels ADD COLUMN private INTEGER NOT NULL DEFAULT 0');
+  if (!db.prepare('PRAGMA table_info(channels)').all().some((c) => c.name === 'slowmode')) db.exec('ALTER TABLE channels ADD COLUMN slowmode INTEGER');
+  // Filtro de palavras do servidor: { words: [...], mode: 'block' | 'mask' }
+  if (!db.prepare('PRAGMA table_info(servers)').all().some((c) => c.name === 'word_filter')) db.exec('ALTER TABLE servers ADD COLUMN word_filter TEXT');
   if (!db.prepare('PRAGMA table_info(channels)').all().some((c) => c.name === 'bitrate')) {
     db.exec('ALTER TABLE channels ADD COLUMN bitrate INTEGER');
   }
@@ -435,7 +467,7 @@ const publicUser = (row) => row && {
 // Conversa direta: mensagens, fixar e ligar (voz, câmera e tela)
 const DM_PERMS = PERMS.SEND_MESSAGES | PERMS.PIN_MESSAGES | PERMS.CONNECT | PERMS.SPEAK | PERMS.VIDEO;
 
-export const SYSTEM = { music: 1, join: 2, leave: 3, game: 4, call: 5, rename: 6 };
+export const SYSTEM = { music: 1, join: 2, leave: 3, game: 4, call: 5, rename: 6, event: 7 };
 const SYSTEM_KIND = Object.fromEntries(Object.entries(SYSTEM).map(([k, v]) => [v, k]));
 
 // Textos padrão dos avisos ({user} = quem chegou/saiu, {server} = nome do servidor)
@@ -861,6 +893,17 @@ class Store {
       if (!rolesByUser.has(r.user_id)) rolesByUser.set(r.user_id, []);
       rolesByUser.get(r.user_id).push(r.role_id);
     }
+    const channelRoles = new Map();
+    for (const r of this.db.prepare('SELECT cr.channel_id, cr.role_id FROM channel_roles cr JOIN channels c ON c.id = cr.channel_id WHERE c.server_id = ?').all(serverId)) {
+      if (!channelRoles.has(r.channel_id)) channelRoles.set(r.channel_id, []);
+      channelRoles.get(r.channel_id).push(r.role_id);
+    }
+    const events = this.db.prepare('SELECT * FROM events WHERE server_id = ? AND starts_at > ? ORDER BY starts_at LIMIT 20').all(serverId, Date.now() - 3 * 3_600_000);
+    const going = new Map();
+    for (const r of events.length ? this.db.prepare(`SELECT event_id, user_id FROM event_rsvps WHERE event_id IN (${events.map(() => '?').join(',')}) ORDER BY at`).all(...events.map((e) => e.id)) : []) {
+      if (!going.has(r.event_id)) going.set(r.event_id, []);
+      going.get(r.event_id).push(uid(r.user_id));
+    }
     return {
       id: s.id,
       name: s.name,
@@ -875,9 +918,16 @@ class Store {
         joinText: s.welcome_text ?? WELCOME_DEFAULTS.join, leaveText: s.leave_text ?? WELCOME_DEFAULTS.leave,
         gameAnnounce: s.game_announce === 1,
       },
+      filter: (() => { try { return s.word_filter ? JSON.parse(s.word_filter) : null; } catch { return null; } })(),
+      events: events.map((e) => ({
+        id: e.id, title: e.title, description: e.description ?? '', startsAt: e.starts_at, channelId: e.channel_id ?? null,
+        by: e.created_by ? uid(e.created_by) : null, going: going.get(e.id) ?? [],
+      })),
       categories: this.q.categories.all(serverId).map((k) => ({ id: k.id, name: k.name })),
       channels: this.q.channels.all(serverId).map((c) => ({
         id: c.id, type: c.type, name: c.name, categoryId: c.category_id, topic: c.topic ?? '',
+        ...(c.private ? { private: true, roles: channelRoles.get(c.id) ?? [] } : {}),
+        ...(c.slowmode ? { slowmode: c.slowmode } : {}),
         ...(c.type === 'voice' ? { bitrate: c.bitrate ?? VOICE_BITRATE.default, userLimit: c.user_limit ?? 0 } : {}),
       })),
       roles: this.q.roles.all(serverId).map((r) => ({
@@ -987,6 +1037,35 @@ class Store {
   renameChannel(id, name) { this.q.renameChannel.run(name, id); }
   setChannelBitrate(id, kbps) { this.q.setChannelBitrate.run(kbps, id); }
   setChannelLimit(id, limit) { this.db.prepare('UPDATE channels SET user_limit = ? WHERE id = ?').run(limit || null, id); }
+  setChannelPrivacy(id, isPrivate, roleIds) {
+    this.transaction(() => {
+      this.db.prepare('UPDATE channels SET private = ? WHERE id = ?').run(isPrivate ? 1 : 0, id);
+      this.db.prepare('DELETE FROM channel_roles WHERE channel_id = ?').run(id);
+      if (isPrivate) for (const r of roleIds) this.db.prepare('INSERT OR IGNORE INTO channel_roles (channel_id, role_id) VALUES (?, ?)').run(id, r);
+    });
+  }
+  setChannelSlowmode(id, seconds) { this.db.prepare('UPDATE channels SET slowmode = ? WHERE id = ?').run(seconds || null, id); }
+  setWordFilter(serverId, filter) { this.db.prepare('UPDATE servers SET word_filter = ? WHERE id = ?').run(filter ? JSON.stringify(filter) : null, serverId); }
+  // ---------- Eventos ----------
+  event(id) { return this.db.prepare('SELECT * FROM events WHERE id = ?').get(String(id)); }
+  addEvent({ serverId, title, description, startsAt, channelId, userId }) {
+    const id = randomId('ev');
+    this.db.prepare('INSERT INTO events (id, server_id, title, description, starts_at, channel_id, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, serverId, title, description || null, startsAt, channelId || null, unum(userId), Date.now());
+    this.db.prepare('INSERT OR IGNORE INTO event_rsvps (event_id, user_id, at) VALUES (?, ?, ?)').run(id, unum(userId), Date.now()); // quem marcou já vai
+    return id;
+  }
+  deleteEvent(id) { this.db.prepare('DELETE FROM events WHERE id = ?').run(String(id)); }
+  rsvp(eventId, userId, on) {
+    if (on) this.db.prepare('INSERT OR IGNORE INTO event_rsvps (event_id, user_id, at) VALUES (?, ?, ?)').run(eventId, unum(userId), Date.now());
+    else this.db.prepare('DELETE FROM event_rsvps WHERE event_id = ? AND user_id = ?').run(eventId, unum(userId));
+  }
+  // Eventos que começam em até `ms` e ainda não tiveram lembrete
+  eventsToRemind(ms) {
+    return this.db.prepare('SELECT * FROM events WHERE reminded = 0 AND starts_at <= ? AND starts_at > ?').all(Date.now() + ms, Date.now() - 60_000);
+  }
+  markReminded(id) { this.db.prepare('UPDATE events SET reminded = 1 WHERE id = ?').run(id); }
+  eventGoing(id) { return this.db.prepare('SELECT user_id FROM event_rsvps WHERE event_id = ?').all(id).map((r) => uid(r.user_id)); }
   deleteChannel(id) { this.q.deleteChannel.run(id); } // as mensagens vão junto (ON DELETE CASCADE)
 
   // ---------- Anexos do chat ----------

@@ -48,6 +48,13 @@ export const AUDIT_LABELS = {
   'msg:purge': 'Limpou mensagens do canal (/limpar)',
   'voice:move': 'Moveu alguém para outra call',
   'spam:timeout': 'Travado pelo anti-spam',
+  'filter:block': 'Mensagem barrada pelo filtro de palavras',
+  'filter:mask': 'Palavra escondida pelo filtro de palavras',
+  'channel:privacy': 'Mudou quem vê um canal (privado)',
+  'channel:slowmode': 'Mudou o modo lento do canal',
+  'server:filter': 'Mudou o filtro de palavras',
+  'event:create': 'Marcou um evento',
+  'event:delete': 'Apagou um evento',
   'emoji:rename': 'Renomeou emoji',
   'emoji:delete': 'Apagou emoji',
   'sound:delete': 'Apagou som',
@@ -91,7 +98,7 @@ export const AUDIT_LABELS = {
 export const AUDIT_GROUPS = {
   seguranca: ['auth:login:fail', 'auth:login:blocked', 'painel:user:block', 'painel:user:unblock', 'painel:ip:block', 'painel:ip:unblock', 'painel:user:disconnect', 'auth:register:fail', 'auth:password', 'auth:password:fail', 'painel:login', 'painel:login:fail', 'painel:logout'],
   contas: ['auth:login', 'auth:register', 'auth:logout', 'auth:password', 'voice:join'],
-  moderacao: ['member:nick', 'voice:move', 'spam:timeout', 'painel:msg:delete', 'painel:file:delete', 'msg:purge', 'member:kick', 'member:roles', 'msg:delete:other', 'msg:pin', 'music:kick', 'emoji:delete', 'sound:delete', 'invite:revoke'],
+  moderacao: ['filter:block', 'filter:mask', 'server:filter', 'channel:privacy', 'channel:slowmode', 'member:nick', 'voice:move', 'spam:timeout', 'painel:msg:delete', 'painel:file:delete', 'msg:purge', 'member:kick', 'member:roles', 'msg:delete:other', 'msg:pin', 'music:kick', 'emoji:delete', 'sound:delete', 'invite:revoke'],
   painel: ['painel:login', 'painel:login:fail', 'painel:logout', 'painel:restart', 'painel:backup', 'painel:speedtest', 'painel:user:disconnect', 'painel:user:block', 'painel:user:unblock', 'painel:ip:block', 'painel:ip:unblock', 'painel:maintenance', 'painel:deploy', 'painel:rollback', 'painel:xp', 'painel:msg:delete', 'painel:file:delete'],
   minecraft: ['painel:mc:start', 'painel:mc:stop', 'painel:mc:restart', 'painel:mc:autostop', 'painel:mc:wake', 'painel:mc:backup', 'painel:mc:cmd', 'painel:mc:settings'],
 };

@@ -5,9 +5,9 @@ import { scheduleVoicePoll, voiceChannelOf, grantMove } from '../voice.js';
 import { sendToUser } from '../realtime.js';
 import { music, requireMusicChannel } from '../music-rooms.js';
 import { createGifs } from '../../gifs.js';
-import { requirePerm, requireServer } from '../guards.js';
+import { requirePerm, requireServer, requireChannelView } from '../guards.js';
 import { fail, underLimit } from '../util.js';
-import { PERMS, can } from '../../public/js/permissions.js';
+import { PERMS, can, canSeeChannel } from '../../public/js/permissions.js';
 
 const gifs = createGifs(GIPHY_API_KEY);
 const musicSearchTimes = new Map(); // userId -> últimas buscas de música
@@ -31,6 +31,8 @@ export default {
     const from = voiceChannelOf(target);
     if (!from || db.channel(from)?.server_id !== to.server_id) fail('Essa pessoa não está numa call deste servidor.');
     if (from === to.id) fail('Essa pessoa já está nesse canal.');
+    requireChannelView(ctx, user.id, to.id, 'Canal de voz não encontrado.');
+    if (!canSeeChannel(ctx.snap, target, ctx.snap.channels.find((c) => c.id === to.id))) fail('Essa pessoa não tem acesso a esse canal privado.');
     grantMove(target, to.id);
     sendToUser(target, { t: 'voice:move', channelId: to.id, by: user.name });
   },

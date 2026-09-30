@@ -1,5 +1,6 @@
 // Conexões abertas (WebSocket) e envio de avisos para quem está online
 import { db } from './store.js';
+import { canSeeChannel, serverViewFor } from '../public/js/permissions.js';
 
 export const sockets = new Map(); // userId -> Set<ws> (a mesma conta pode estar em várias abas)
 
@@ -11,9 +12,12 @@ export function sendToUser(userId, msg) {
   for (const ws of sockets.get(userId) ?? []) send(ws, msg);
 }
 
+// Para todos os membros; se o aviso é de um canal privado, só para quem enxerga o canal
 export function sendToServer(serverId, msg) {
   const snap = db.snapshot(serverId);
-  for (const m of snap?.members ?? []) sendToUser(m.id, msg);
+  const channelId = msg.channel ?? msg.channelId ?? msg.msg?.channel ?? null;
+  const channel = channelId ? snap?.channels.find((c) => c.id === channelId) : null;
+  for (const m of snap?.members ?? []) if (!channel || canSeeChannel(snap, m.id, channel)) sendToUser(m.id, msg);
 }
 
 // Status escolhido (online, ausente, não perturbe, invisível) e ausência automática (sem mexer no site)
@@ -53,7 +57,7 @@ export const isWatching = (userId) => [...(sockets.get(userId) ?? [])].some((ws)
 // Manda o estado novo do servidor para todos os membros conectados
 export function pushServer(serverId) {
   const snap = db.snapshot(serverId);
-  if (snap) for (const m of snap.members) sendToUser(m.id, { t: 'server', server: snap });
+  if (snap) for (const m of snap.members) sendToUser(m.id, { t: 'server', server: serverViewFor(snap, m.id) });
 }
 
 // Mudou algo da pessoa (nome, foto): aparece em todos os servidores dela e no painel dela

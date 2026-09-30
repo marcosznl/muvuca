@@ -5,13 +5,14 @@ import { unum } from '../../db.js';
 import { sendToServer, sendToUser } from '../realtime.js';
 import { notify } from '../push.js';
 import { linkPreview } from '../links.js';
-import { requireServer, requirePerm } from '../guards.js';
+import { requireServer, requirePerm, requireChannelView } from '../guards.js';
 import { claimAttachments, removeFiles } from '../attachments.js';
 import { fail, underLimit } from '../util.js';
 import { xpForMessage } from '../xp.js';
 import { checkSpam, SpamError } from '../antispam.js';
+import { applyFilter } from '../word-filter.js';
 import { audit } from '../audit.js';
-import { PERMS } from '../../public/js/permissions.js';
+import { PERMS, can, canSeeChannel } from '../../public/js/permissions.js';
 
 const MAX_PINS = 50;
 const MAX_REACTION_KINDS = 20;
@@ -34,6 +35,7 @@ function notifyMentions(msg, channel, ctx, user, original) {
   targets.delete(user.id);
   for (const id of targets) {
     if (!ctx.snap.members.some((mem) => mem.id === id) || db.isMuted(id, channel.id, ctx.snap.id)) continue;
+    if (!canSeeChannel(ctx.snap, id, ctx.snap.channels.find((c) => c.id === channel.id))) continue; // canal privado
     notify(id, {
       title: dm ? (ctx.snap.members.length > 2 ? `${user.name} em ${ctx.snap.name}` : user.name) : `${user.name} em #${channel.name}`,
       body: preview(msg.text),
@@ -43,18 +45,45 @@ function notifyMentions(msg, channel, ctx, user, original) {
   }
 }
 
+const slowTimes = new Map(); // "userId:channelId" -> quando mandou a última mensagem (modo lento)
+
+// Modo lento do canal: quem gerencia mensagens ou canais não espera
+function checkSlowmode(ctx, user, channel, now) {
+  const seconds = ctx.snap.channels.find((c) => c.id === channel.id)?.slowmode ?? 0;
+  if (!seconds || can(ctx.perms, PERMS.MANAGE_MESSAGES) || can(ctx.perms, PERMS.MANAGE_CHANNELS)) return () => {};
+  const key = `${user.id}:${channel.id}`;
+  const wait = (slowTimes.get(key) ?? 0) + seconds * 1000 - now;
+  if (wait > 0) fail(`Modo lento: espere ${wait >= 60_000 ? `${Math.ceil(wait / 60_000)} min` : `${Math.ceil(wait / 1000)} s`} para mandar outra mensagem aqui.`);
+  return () => slowTimes.set(key, now); // só conta depois que a mensagem for aceita
+}
+
+// Filtro de palavras do servidor (quem gerencia o servidor fica de fora). Bloqueia ou troca por ***.
+function filterText(ctx, user, channel, text, ws, { block = false } = {}) {
+  if (ctx.snap.kind === 'dm' || !ctx.snap.filter || can(ctx.perms, PERMS.MANAGE_SERVER)) return text;
+  const r = applyFilter(ctx.snap.filter, text);
+  if (!r.hits.length) return text;
+  const blocking = block || ctx.snap.filter.mode !== 'mask';
+  audit(blocking ? 'filter:block' : 'filter:mask', { user, ip: ws?.ip ?? null, serverId: ctx.snap.id, detail: { canal: channel.name, palavras: [...new Set(r.hits)].slice(0, 5).join(', ') } });
+  if (blocking) fail('Sua mensagem tem uma palavra bloqueada neste servidor.');
+  return r.text;
+}
+
 // Canal com chat (texto ou música) de um servidor da pessoa
 function requireChatChannel(user, channelId) {
   const channel = db.channel(channelId);
   if (!channel || channel.type === 'voice') fail('Canal não encontrado.');
-  return { channel, ctx: requireServer(user, channel.server_id) };
+  const ctx = requireServer(user, channel.server_id);
+  requireChannelView(ctx, user.id, channel.id);
+  return { channel, ctx };
 }
 
 // Mensagem (com o servidor dela) que a pessoa consegue ver
 function requireMessage(user, id, { allowSystem = false } = {}) {
   const row = db.messageRow(id);
   if (!row || (row.system && !allowSystem)) fail('Mensagem não encontrada.');
-  return { row, ctx: requireServer(user, row.server_id) };
+  const ctx = requireServer(user, row.server_id);
+  requireChannelView(ctx, user.id, row.channel_id, 'Mensagem não encontrada.');
+  return { row, ctx };
 }
 
 export default {
@@ -67,11 +96,14 @@ export default {
   msg(user, m, ws) {
     const { channel, ctx } = requireChatChannel(user, m.channel);
     requirePerm(ctx, PERMS.SEND_MESSAGES, 'Você não tem permissão para enviar mensagens aqui.');
-    const text = String(m.text ?? '').trim().slice(0, LIMITS.msgLength);
+    let text = String(m.text ?? '').trim().slice(0, LIMITS.msgLength);
+    if (!text && !(m.attachments?.length)) return;
+    const now = Date.now();
+    const slowSent = checkSlowmode(ctx, user, channel, now);
+    text = filterText(ctx, user, channel, text, ws);
     // Anexos já enviados por esta pessoa, para este canal, ainda sem mensagem
     const files = claimAttachments(m.attachments, user, channel.id);
     if (!text && !files.length) return;
-    const now = Date.now();
     try {
       user.sent = (user.sent ?? []).filter((ts) => now - ts < MSG_RATE.windowMs);
       if (user.sent.length >= MSG_RATE.count) fail('Calma! Você está mandando mensagens rápido demais.');
@@ -85,6 +117,7 @@ export default {
       throw err;
     }
     user.sent.push(now);
+    slowSent();
     // Responder: só a uma mensagem do mesmo canal
     const original = m.replyTo ? db.messageRow(m.replyTo) : null;
     const replyTo = original && original.channel_id === channel.id && !original.system ? original.id : null;
@@ -116,6 +149,9 @@ export default {
     const options = (Array.isArray(m.options) ? m.options : []).map((o) => tidy(o, 80)).filter(Boolean).slice(0, 10);
     if (!question) fail('Escreva a pergunta.');
     if (options.length < 2) fail('Coloque pelo menos 2 opções.');
+    const slowSent = checkSlowmode(ctx, user, channel, Date.now());
+    filterText(ctx, user, channel, [question, ...options].join(' \n '), null, { block: true }); // enquete: recusa (não mascara)
+    slowSent();
     const msg = db.addPoll({ channelId: channel.id, user, question, options, multi: !!m.multi });
     db.markRead(user.id, channel.id, msg.id);
     sendToServer(channel.server_id, { t: 'msg', msg });
@@ -155,7 +191,8 @@ export default {
     if (!underLimit(typingTimes, user.id, 1, 2000)) return;
     const { channel, ctx } = requireChatChannel(user, m.channel);
     requirePerm(ctx, PERMS.SEND_MESSAGES);
-    for (const mem of ctx.snap.members) if (mem.id !== user.id) sendToUser(mem.id, { t: 'typing', channel: channel.id, userId: user.id });
+    const ch = ctx.snap.channels.find((c) => c.id === channel.id);
+    for (const mem of ctx.snap.members) if (mem.id !== user.id && canSeeChannel(ctx.snap, mem.id, ch)) sendToUser(mem.id, { t: 'typing', channel: channel.id, userId: user.id });
   },
 
   // Prévia de um link (título, descrição e imagem da página)
@@ -172,20 +209,24 @@ export default {
     const text = String(m.text ?? '').trim().slice(0, 100);
     if (text.length < 2 && !m.from) fail('Digite pelo menos 2 letras.');
     const from = ctx.snap.members.some((x) => x.id === m.from) ? m.from : null;
-    const channel = ctx.snap.channels.find((c) => c.id === m.channel && c.type !== 'voice');
-    return { t: 'search', results: db.search(ctx.snap.id, { text, userId: from, channelId: channel?.id ?? null }) };
+    const visible = new Set(ctx.snap.channels.filter((c) => canSeeChannel(ctx.snap, user.id, c)).map((c) => c.id));
+    const channel = ctx.snap.channels.find((c) => c.id === m.channel && c.type !== 'voice' && visible.has(c.id));
+    // Canal privado sem acesso: as mensagens de lá não aparecem na busca
+    const results = db.search(ctx.snap.id, { text, userId: from, channelId: channel?.id ?? null, limit: 60 }).filter((r) => visible.has(r.channel)).slice(0, 25);
+    return { t: 'search', results };
   },
 
   // Editar a própria mensagem
-  'msg:edit'(user, m) {
+  'msg:edit'(user, m, ws) {
     const { row, ctx } = requireMessage(user, m.id);
     if (row.user_id !== unum(user.id)) fail('Você só pode editar as suas mensagens.');
     if (row.meta && JSON.parse(row.meta).poll) fail('Enquete não dá para editar.');
     requirePerm(ctx, PERMS.SEND_MESSAGES, 'Você não tem permissão para enviar mensagens aqui.');
     const text = String(m.text ?? '').trim().slice(0, LIMITS.msgLength);
     if (!text) fail('A mensagem não pode ficar vazia (para apagar, use Excluir).');
-    if (text === row.text) return;
-    sendToServer(row.server_id, { t: 'msg:edit', msg: db.editMessage(row.id, text) });
+    const clean = filterText(ctx, user, { id: row.channel_id, name: ctx.snap.channels.find((c) => c.id === row.channel_id)?.name }, text, ws);
+    if (clean === row.text) return;
+    sendToServer(row.server_id, { t: 'msg:edit', msg: db.editMessage(row.id, clean) });
   },
 
   // Fixar/desafixar (aparece na lista do pininho no topo do canal)

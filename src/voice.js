@@ -6,7 +6,7 @@ import { sockets, sendToUser } from './realtime.js';
 import { requireUser } from './guards.js';
 import { HttpError, readBody, clientIp } from './util.js';
 import { audit } from './audit.js';
-import { PERMS, computePerms, can } from '../public/js/permissions.js';
+import { PERMS, computePerms, can, canSeeChannel } from '../public/js/permissions.js';
 
 export const roomService = new RoomServiceClient(LIVEKIT_HTTP_URL, API_KEY, API_SECRET);
 
@@ -42,6 +42,8 @@ export async function voiceToken(req) {
     throw new HttpError(404, 'Canal de voz não encontrado.');
   }
   const snap = db.snapshot(channel.server_id);
+  // Canal privado sem acesso: nem existe (vale também para quem foi movido)
+  if (!canSeeChannel(snap, user.id, snap.channels.find((c) => c.id === channel.id))) throw new HttpError(404, 'Canal de voz não encontrado.');
   const perms = computePerms(snap, user.id);
   // Movido por alguém com "Mover membros": entra mesmo sem permissão de conectar ou com o canal cheio (como no Discord)
   const moved = !second && takeMoveTicket(user.id, channel.id);
@@ -84,10 +86,15 @@ export function voiceChannelOf(userId) {
 export const voicePeople = (channelId) => voiceState[channelId] ?? [];
 export const voiceAll = () => voiceState;
 
-export function voiceFor(userId) {
-  const allowed = new Set(db.serverIdsOf({ id: userId }));
+// cache: os servidores já montados nesta rodada (o aviso vai para todo mundo de uma vez)
+export function voiceFor(userId, cache = new Map()) {
   const out = {};
-  for (const c of db.voiceChannels()) if (allowed.has(c.server_id)) out[c.id] = voiceState[c.id] ?? [];
+  for (const serverId of db.serverIdsOf({ id: userId })) {
+    if (!cache.has(serverId)) cache.set(serverId, db.snapshot(serverId));
+    const snap = cache.get(serverId);
+    // Canal de voz privado sem acesso: nem aparece quem está lá dentro
+    for (const c of snap?.channels ?? []) if (c.type === 'voice' && canSeeChannel(snap, userId, c)) out[c.id] = voiceState[c.id] ?? [];
+  }
   return out;
 }
 
@@ -128,7 +135,8 @@ export async function pollVoice() {
     }
     if (JSON.stringify(next) !== JSON.stringify(voiceState)) {
       voiceState = next;
-      for (const id of sockets.keys()) sendToUser(id, { t: 'voice', voice: voiceFor(id) });
+      const cache = new Map();
+      for (const id of sockets.keys()) sendToUser(id, { t: 'voice', voice: voiceFor(id, cache) });
     }
     voiceErrorLogged = false;
   } catch (err) {

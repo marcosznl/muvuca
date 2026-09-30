@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { DATA_DIR } from './config.js';
 import { db } from './store.js';
 import { unum } from '../db.js';
-import { requireServer, requirePerm, requireUser } from './guards.js';
+import { requireServer, requirePerm, requireUser, requireChannelView } from './guards.js';
 import { receiveUpload, sniffMedia, sniffAudio, documentKind, removeStored } from './uploads.js';
 import { HttpError, asHttp, json, fail, clean, underLimit } from './util.js';
 import { PERMS } from '../public/js/permissions.js';
@@ -29,6 +29,7 @@ export async function uploadAttachment(req, url) {
   asHttp(() => {
     if (!channel || channel.type === 'voice') fail('Canal não encontrado.');
     const ctx = requireServer(user, channel.server_id);
+    requireChannelView(ctx, user.id, channel.id);
     requirePerm(ctx, PERMS.SEND_MESSAGES, 'Você não tem permissão para enviar mensagens aqui.');
   });
   if (!underLimit(attachTimes, user.id, 30, 60_000)) throw new HttpError(429, 'Muitos arquivos seguidos. Espere um minuto.');

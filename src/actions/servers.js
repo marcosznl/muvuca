@@ -10,15 +10,16 @@ import { removeImage } from '../images.js';
 import { removeSoundFile } from '../soundboard.js';
 import { fail, clean, validColor } from '../util.js';
 import { announceJoin, announceLeave } from '../welcome.js';
-import { PERMS, can } from '../../public/js/permissions.js';
+import { serverViewFor, PERMS, can } from '../../public/js/permissions.js';
 import { SYSTEM } from '../../db.js';
+import { cleanFilter } from '../word-filter.js';
 
 const HOUR = 3_600_000;
 export const INVITE_EXPIRY = [HOUR / 2, HOUR, 24 * HOUR, 7 * 24 * HOUR, null]; // null = nunca vence
 
 // Manda um servidor recém-aberto para a pessoa (e já seleciona ele)
 function openServerFor(userId, serverId) {
-  sendToUser(userId, { t: 'server', server: db.snapshot(serverId), select: true });
+  sendToUser(userId, { t: 'server', server: serverViewFor(db.snapshot(serverId), userId), select: true });
   sendToUser(userId, { t: 'voice', voice: voiceFor(userId) });
 }
 
@@ -36,6 +37,15 @@ export default {
     const name = clean(m.name, LIMITS.serverName) || ctx.snap.name;
     const color = validColor(m.color) ?? ctx.snap.color;
     db.updateServer(ctx.snap.id, { name, color });
+    pushServer(ctx.snap.id);
+  },
+
+  // Filtro de palavras: lista (uma por linha) e o que fazer (bloquear a mensagem ou trocar por ***)
+  'server:filter'(user, m) {
+    const ctx = requireServer(user, m.serverId);
+    if (ctx.snap.kind === 'dm') fail('Conversa privada não tem filtro.');
+    requirePerm(ctx, PERMS.MANAGE_SERVER, 'Você não tem permissão para mudar o filtro de palavras.');
+    db.setWordFilter(ctx.snap.id, cleanFilter(m.words, m.mode));
     pushServer(ctx.snap.id);
   },
 

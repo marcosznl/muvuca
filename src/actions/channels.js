@@ -3,11 +3,11 @@ import { LIMITS } from '../config.js';
 import { db } from '../store.js';
 import { VOICE_BITRATE, VOICE_LIMIT_MAX } from '../../db.js';
 import { pushServer } from '../realtime.js';
-import { requireServer, requirePerm, requireCategory } from '../guards.js';
-import { closeVoiceRoom } from '../voice.js';
+import { requireServer, requirePerm, requireCategory, requireChannelView } from '../guards.js';
+import { closeVoiceRoom, voicePeople, roomService, baseUserId } from '../voice.js';
 import { music } from '../music-rooms.js';
 import { fail, clean, textChannelName } from '../util.js';
-import { PERMS } from '../../public/js/permissions.js';
+import { PERMS, canSeeChannel } from '../../public/js/permissions.js';
 
 const channelName = (type, raw) => (type === 'text' ? textChannelName(raw) : clean(raw, LIMITS.channelName));
 
@@ -16,9 +16,12 @@ function manageChannel(user, channelId, message) {
   const channel = db.channel(channelId);
   if (!channel) fail('Canal não encontrado.');
   const ctx = requireServer(user, channel.server_id);
+  requireChannelView(ctx, user.id, channel.id);
   requirePerm(ctx, PERMS.MANAGE_CHANNELS, message);
   return { channel, ctx };
 }
+
+export const SLOWMODE_CHOICES = [0, 5, 10, 30, 60, 120, 300, 600, 900, 3600];
 
 function manageCategory(user, categoryId, message) {
   const cat = db.category(categoryId);
@@ -78,6 +81,34 @@ export default {
     db.renameChannel(channel.id, name);
     db.setChannelBitrate(channel.id, kbps);
     if (limit !== null) db.setChannelLimit(channel.id, limit);
+    pushServer(ctx.snap.id);
+  },
+
+  // Canal privado: só os cargos escolhidos enxergam e entram (dono e administradores sempre).
+  // Quem perdeu o acesso sai na hora da voz e da música daquele canal.
+  async 'channel:privacy'(user, m) {
+    const { channel, ctx } = manageChannel(user, m.channelId, 'Você não tem permissão para editar canais.');
+    if (ctx.snap.kind === 'dm') fail('Conversa privada já é privada.');
+    const isPrivate = m.private === true;
+    const roleIds = isPrivate ? [...new Set((Array.isArray(m.roleIds) ? m.roleIds : []).map(String))].filter((id) => ctx.snap.roles.some((r) => r.id === id && !r.isDefault)) : [];
+    db.setChannelPrivacy(channel.id, isPrivate, roleIds);
+    pushServer(ctx.snap.id);
+    if (!isPrivate) return;
+    const snap = db.snapshot(ctx.snap.id);
+    const ch = snap.channels.find((c) => c.id === channel.id);
+    if (channel.type === 'voice') {
+      for (const p of voicePeople(channel.id)) if (!canSeeChannel(snap, baseUserId(p.id), ch)) await roomService.removeParticipant(channel.id, p.id).catch(() => {});
+    }
+    if (channel.type === 'music') for (const id of music.listenersOf(channel.id)) if (!canSeeChannel(snap, id, ch)) music.leave(channel.id, id);
+  },
+
+  // Modo lento: cada pessoa manda 1 mensagem a cada N segundos (0 desliga). Quem gerencia mensagens não espera.
+  'channel:slowmode'(user, m) {
+    const { channel, ctx } = manageChannel(user, m.channelId, 'Você não tem permissão para editar canais.');
+    if (channel.type === 'voice') fail('Modo lento é só para canais com chat.');
+    const seconds = Number(m.seconds);
+    if (!SLOWMODE_CHOICES.includes(seconds)) fail('Tempo inválido.');
+    db.setChannelSlowmode(channel.id, seconds);
     pushServer(ctx.snap.id);
   },
 

@@ -6,6 +6,7 @@ import { db } from './src/store.js';
 import { sockets, send, broadcastPresence, presenceMessage, presencePref, autoIdle } from './src/realtime.js';
 import { register, login, cleanupAuthFails, changePassword } from './src/auth.js';
 import { voiceToken, voiceFor, pollVoice } from './src/voice.js';
+import { serverViewFor } from './public/js/permissions.js';
 import { music, musicFor } from './src/music-rooms.js';
 import { uploadEmoji, serveEmoji } from './src/emojis.js';
 import { uploadImage, serveImage } from './src/images.js';
@@ -141,16 +142,18 @@ function welcome(ws, token) {
   presencePref.set(user.id, user.presence);
   db.touchUser(user.id);
   const presence = presenceMessage();
+  const servers = db.serverIdsOf(user).map((id) => serverViewFor(db.snapshot(id), user.id));
+  const visible = new Set(servers.flatMap((sv) => sv.channels.map((c) => c.id))); // canais privados sem acesso ficam de fora
   send(ws, {
     t: 'welcome',
     you: user,
-    servers: db.serverIdsOf(user).map((id) => db.snapshot(id)),
+    servers,
     online: presence.online,
     status: presence.status,
     activity: presence.activity,
     voice: voiceFor(user.id),
     music: musicFor(user.id),
-    unread: db.unread(user.id),
+    unread: Object.fromEntries(Object.entries(db.unread(user.id)).filter(([id]) => visible.has(id))),
     mutes: db.mutes(user.id),
     friends: db.friendsOf(user.id),
     readState: db.readState(user.id),
