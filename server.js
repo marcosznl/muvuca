@@ -7,6 +7,7 @@ import { sockets, send, broadcastPresence, presenceMessage, presencePref, autoId
 import { register, login, cleanupAuthFails, changePassword } from './src/auth.js';
 import { voiceToken, voiceFor, pollVoice } from './src/voice.js';
 import { serverViewFor } from './public/js/permissions.js';
+import { INVITE_EXPIRY } from './src/actions/servers.js';
 import { music, musicFor } from './src/music-rooms.js';
 import { uploadEmoji, serveEmoji } from './src/emojis.js';
 import { uploadImage, serveImage } from './src/images.js';
@@ -84,6 +85,21 @@ const internalActions = {
   '/internal/maintenance': (b) => setMaintenance(b),
   '/internal/xp/adjust': (b) => adjustXp(String(b.userId), b.amount, { reset: b.reset === true }),
   '/internal/message/delete': (b) => adminDeleteMessage(b.id),
+  // Convites pelo painel: criados em nome do dono do servidor
+  '/internal/invite/create': (b) => {
+    const srv = db.server(String(b.serverId ?? ''));
+    if (!srv || srv.kind === 'dm') throw new Error('Servidor não encontrado.');
+    const expiresIn = INVITE_EXPIRY.includes(b.expiresIn) ? b.expiresIn : INVITE_EXPIRY[3];
+    const maxUses = Number.isInteger(b.maxUses) && b.maxUses >= 1 && b.maxUses <= 100 ? b.maxUses : null;
+    const code = db.createInvite(srv.id, { id: `u${srv.owner_id}` }, { expiresIn, maxUses });
+    return { ok: true, code };
+  },
+  '/internal/invite/revoke': (b) => {
+    const row = db.inviteRow(String(b.code ?? ''));
+    if (!row) throw new Error('Convite não encontrado.');
+    db.deleteInvite(row.code);
+    return { ok: true };
+  },
   '/internal/file/delete': (b) => adminDeleteFile(String(b.id ?? '')),
 };
 

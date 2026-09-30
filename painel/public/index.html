@@ -6,6 +6,11 @@
 <meta name="robots" content="noindex, nofollow">
 <title>Painel do Muvuca</title>
 <link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Painel">
+<meta name="theme-color" content="#1e1f22">
 <link rel="stylesheet" href="style.css">
 <script src="app.js" defer></script>
 </head>
@@ -19,6 +24,7 @@
       <label>Senha <input id="login-pass" name="password" type="password" autocomplete="current-password" required></label>
       <p id="login-error" class="error" role="alert"></p>
       <button type="submit" class="btn primary">Entrar</button>
+      <button type="button" id="login-passkey" class="btn" hidden>Entrar com Face ID / Touch ID</button>
     </form>
   </main>
 
@@ -39,6 +45,10 @@
       <button data-tab="atualizar">Atualizar</button>
       <button data-tab="minecraft">Minecraft</button>
       <button data-tab="internet">Internet</button>
+      <button data-tab="alertas">Alertas</button>
+      <button data-tab="quedas">Quedas</button>
+      <button data-tab="convites">Convites</button>
+      <button data-tab="seguranca">Segurança</button>
       <button data-tab="sistema">Sistema</button>
       <div class="side-foot">
         <span id="updated" class="muted small"></span>

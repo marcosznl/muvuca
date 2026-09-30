@@ -155,3 +155,16 @@ input.narrow { max-width: 160px; }
 .legend .wb { width: 10px; height: 10px; border-radius: 3px; }
 .good-text { color: var(--good, #3ba55d); }
 .bad-text { color: var(--bad); }
+
+/* Alertas, quedas, convites e passkeys */
+.check { display: flex; align-items: center; gap: 10px; padding: 6px 0; cursor: pointer; }
+.check input { width: 18px; height: 18px; accent-color: var(--accent); }
+.steps { margin: 8px 0 0 18px; display: grid; gap: 4px; }
+.bad-card { border-color: var(--bad); background: var(--bad-soft); }
+.queda { border-top: 1px solid var(--line); padding: 10px 0; }
+.queda summary { cursor: pointer; }
+.queda.planned summary { color: var(--muted); }
+.queda pre, .bad-card pre { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; background: var(--side); padding: 8px; border-radius: 8px; }
+.invite-result { margin-top: 10px; }
+.invite-link { flex: 1; min-width: 260px; }
+#login-passkey { margin-top: 8px; width: 100%; }

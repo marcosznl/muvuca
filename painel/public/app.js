@@ -77,7 +77,27 @@ function showLogin() {
   $('#app').hidden = true;
   $('#login').hidden = false;
   $('#login-user').focus();
+  // Tem passkey cadastrada e o aparelho aceita: mostra "Entrar com Face ID / Touch ID"
+  if (window.PublicKeyCredential) {
+    fetch('/api/passkey/available').then((r) => r.json()).then((d) => { $('#login-passkey').hidden = !d.available; }).catch(() => {});
+  }
 }
+$('#login-passkey').addEventListener('click', async () => {
+  const btn = $('#login-passkey');
+  btn.disabled = true;
+  $('#login-error').textContent = '';
+  try {
+    const opts = await api('/api/passkey/login-options', { method: 'POST', body: {} });
+    const cred = await navigator.credentials.get({ publicKey: { challenge: fromB64u(opts.challenge), rpId: opts.rpId, timeout: opts.timeout, userVerification: 'required', allowCredentials: [] } });
+    await api('/api/passkey/login', { method: 'POST', body: {
+      id: toB64u(cred.rawId), clientDataJSON: toB64u(cred.response.clientDataJSON),
+      authenticatorData: toB64u(cred.response.authenticatorData), signature: toB64u(cred.response.signature),
+    } });
+    start();
+  } catch (err) {
+    $('#login-error').textContent = err.name === 'NotAllowedError' ? 'Cancelado.' : err.message;
+  } finally { btn.disabled = false; }
+});
 $('#login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const btn = e.submitter ?? $('#login-form button');
@@ -114,6 +134,10 @@ const TABS = {
   atualizar: ['Atualizar o Muvuca', viewAtualizar, 4000],
   minecraft: ['Minecraft', viewMinecraft, 5000],
   internet: ['Internet', viewInternet, 4000],
+  alertas: ['Alertas no celular', viewAlertas, 0],
+  quedas: ['Histórico de quedas', viewQuedas, 30000],
+  convites: ['Convites', viewConvites, 60000],
+  seguranca: ['Segurança do painel', viewSeguranca, 0],
   sistema: ['Sistema', viewSistema, 30000],
 };
 let tab = 'geral';
@@ -161,6 +185,8 @@ async function start() {
   $('#app').hidden = false;
   let saved = 'geral';
   try { saved = localStorage.getItem('painel-tab') || 'geral'; } catch { /* sem armazenamento */ }
+  const fromLink = location.hash.slice(1); // alerta tocado no celular: abre a aba certa (#quedas, #backups…)
+  if (TABS[fromLink]) { saved = fromLink; history.replaceState(null, '', '/'); }
   openTab(saved);
   refreshTop();
   setInterval(refreshTop, 15000);
@@ -1267,6 +1293,187 @@ async function viewXp() {
         { label: 'XP total', num: true, get: (c) => num(c.total) },
         { label: 'Só esse nível', num: true, get: (c) => num(c.step) },
       ], d.curve))));
+}
+
+// ---------- Passkey (Face ID / Touch ID) e alertas: utilidades ----------
+const toB64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+function fromB64u(s) {
+  const b = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4));
+  return Uint8Array.from(b, (c) => c.charCodeAt(0));
+}
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const installed = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const deviceName = () => {
+  const u = navigator.userAgent;
+  return /iPhone/.test(u) ? 'iPhone' : /iPad/.test(u) || isIOS() ? 'iPad' : /Android/.test(u) ? 'Android' : /Mac/.test(u) ? 'Mac' : /Windows/.test(u) ? 'Windows' : 'Aparelho';
+};
+let swReg = null;
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').then((r) => { swReg = r; }).catch(() => {});
+
+// ---------- Alertas no celular ----------
+async function viewAlertas() {
+  const d = await api('/api/alerts');
+  const box = h('div', {});
+  // Este aparelho
+  const here = h('div', { class: 'card' }, h('h2', {}, 'Este aparelho'));
+  const pushOk = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  let mySub = null;
+  // Sem esperar para sempre: em navegador sem service worker, a tela abre do mesmo jeito
+  try { mySub = await (swReg ?? await navigator.serviceWorker?.getRegistration())?.pushManager.getSubscription(); } catch { /* sem service worker */ }
+  const subscribed = !!mySub && d.devices.some((x) => x.endpoint === mySub.endpoint);
+  if (isIOS() && !installed()) {
+    here.append(h('p', {}, 'No iPhone, os alertas só funcionam com o painel instalado como app:'),
+      h('ol', { class: 'steps' }, h('li', {}, 'Toque em Compartilhar (o quadrado com a seta) no Safari.'), h('li', {}, 'Escolha "Adicionar à Tela de Início".'), h('li', {}, 'Abra o Painel pelo ícone novo, entre e volte nesta aba.')));
+  } else if (!pushOk) {
+    here.append(h('p', { class: 'muted' }, 'Este navegador não aceita notificações.'));
+  } else if (subscribed) {
+    here.append(h('p', {}, h('span', { class: 'pill good' }, h('span', { class: 'dot' }), 'Recebendo alertas')),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn', onclick: () => act('/api/alerts/test', {}, { reload: 'alertas' }) }, 'Enviar um teste'),
+        h('button', { class: 'btn ghost', onclick: async () => { await mySub.unsubscribe().catch(() => {}); act('/api/alerts/unsubscribe', { endpoint: mySub.endpoint }, { reload: 'alertas' }); } }, 'Parar neste aparelho')));
+  } else {
+    here.append(h('p', {}, 'Receba um aviso no celular quando o Muvuca cair, o disco encher, o backup falhar e mais.'),
+      h('button', { class: 'btn primary', onclick: subscribeHere }, 'Receber alertas neste aparelho'));
+  }
+  box.append(here);
+  // O que avisar
+  const prefs = h('div', { class: 'section card' }, h('h2', {}, 'O que avisar'));
+  for (const [k, label] of Object.entries(d.kinds)) {
+    const cb = h('input', { type: 'checkbox', checked: d.prefs[k] });
+    cb.addEventListener('change', () => api('/api/alerts/prefs', { method: 'POST', body: { [k]: cb.checked } }).then(() => toast('Salvo.')).catch((e) => toast(e.message)));
+    prefs.append(h('label', { class: 'check' }, cb, label));
+  }
+  prefs.append(h('p', { class: 'muted small' }, 'Reinícios feitos pelo painel (botão Reiniciar ou Atualizar) não viram alerta de queda. Cada tipo de aviso repete no máximo uma vez por hora ou por dia.'));
+  box.append(prefs);
+  // Aparelhos inscritos
+  box.append(h('div', { class: 'section card' }, h('h2', {}, `Aparelhos inscritos — ${d.devices.length}`),
+    table([
+      { label: 'Aparelho', get: (x) => h('span', {}, x.name, mySub?.endpoint === x.endpoint ? h('span', { class: 'muted small' }, ' (este)') : null) },
+      { label: 'Desde', get: (x) => when(x.at) },
+      { label: '', get: (x) => h('button', { class: 'btn small ghost', onclick: () => act('/api/alerts/unsubscribe', { endpoint: x.endpoint }, { confirmText: `Parar os alertas em "${x.name}"?`, reload: 'alertas' }) }, 'Remover') },
+    ], d.devices, { empty: 'Nenhum aparelho recebendo alertas ainda.' })));
+  return box;
+
+  async function subscribeHere() {
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') return toast('Notificações bloqueadas. Libere nas configurações do aparelho.', 6000);
+      const reg = swReg ?? await navigator.serviceWorker.getRegistration() ?? await navigator.serviceWorker.register('/sw.js');
+      const sub = await reg.pushManager.getSubscription() ?? await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: fromB64u(d.key) });
+      await act('/api/alerts/subscribe', { sub: sub.toJSON(), name: deviceName() }, { reload: 'alertas' });
+    } catch (err) { toast(`Não deu para ativar: ${err.message}`, 6000); }
+  }
+}
+
+// ---------- Histórico de quedas ----------
+function durFmt(ms) {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} s`;
+  const m = Math.round(s / 60);
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+async function viewQuedas() {
+  const d = await api('/api/quedas');
+  const box = h('div', {});
+  if (d.now) {
+    box.append(h('div', { class: 'card bad-card' }, h('h2', {}, `🔴 Fora do ar agora (há ${durFmt(d.now.forMs)})`),
+      h('p', {}, d.now.planned ? 'Reinício feito pelo painel: deve voltar em segundos.' : `Motivo: ${d.now.reason}`),
+      d.now.log?.length ? h('pre', { class: 'log small' }, d.now.log.join('\n')) : null));
+  }
+  box.append(h('div', { class: 'grid cards' },
+    stat('No ar (30 dias)', `${d.uptime30.toLocaleString('pt-BR', { maximumFractionDigits: d.uptime30 < 100 ? 3 : 0 })}%`, 'sem contar reinícios do painel'),
+    stat('Quedas (30 dias)', num(d.total30), d.total30 ? `${num(d.minutes30)} min fora no total` : 'nenhuma, que beleza'),
+    stat('Reinícios planejados', num(d.list.filter((q) => q.planned).length), 'atualizações e botão Reiniciar')));
+  const list = h('div', { class: 'section card' }, h('h2', {}, 'Últimos 30 dias'));
+  if (!d.list.length) list.append(h('p', { class: 'empty' }, 'Nenhuma queda registrada. O histórico começa a contar a partir de agora.'));
+  for (const q of d.list) {
+    const row = h('details', { class: `queda${q.planned ? ' planned' : ''}` },
+      h('summary', {}, h('b', {}, q.planned ? '🔧 Reinício planejado' : '🔴 Queda'), ` · ${when(q.start)} · ficou fora ${durFmt(q.end - q.start)}`,
+        q.planned ? null : h('span', { class: 'muted small' }, ` · ${q.reason}`)),
+      q.log?.length ? h('pre', { class: 'log small' }, q.log.join('\n')) : h('p', { class: 'muted small' }, 'Sem linhas de log guardadas.'));
+    list.append(row);
+  }
+  box.append(list);
+  return box;
+}
+
+// ---------- Convites ----------
+const EXPIRY = [[1800000, '30 minutos'], [3600000, '1 hora'], [86400000, '1 dia'], [604800000, '7 dias'], [null, 'Nunca']];
+async function viewConvites() {
+  const d = await api('/api/invites');
+  const server = h('select', {}, d.servers.map((x) => h('option', { value: x.id }, x.name)));
+  const expiry = h('select', {}, EXPIRY.map(([v, l]) => h('option', { value: v ?? '', selected: v === 604800000 }, l)));
+  const uses = h('select', {}, [['', 'Sem limite'], [1, '1 uso'], [5, '5 usos'], [10, '10 usos'], [25, '25 usos'], [100, '100 usos']].map(([v, l]) => h('option', { value: v }, l)));
+  const result = h('div', { class: 'invite-result' });
+  const create = h('button', { class: 'btn primary', onclick: async () => {
+    try {
+      const r = await api('/api/invites/create', { method: 'POST', body: { serverId: server.value, expiresIn: expiry.value ? Number(expiry.value) : null, maxUses: uses.value ? Number(uses.value) : null } });
+      const input = h('input', { value: r.link, readonly: true, class: 'invite-link' });
+      const copy = h('button', { class: 'btn small', onclick: () => navigator.clipboard?.writeText(r.link).then(() => toast('Link copiado!')) }, 'Copiar link');
+      result.replaceChildren(h('div', { class: 'row' }, input, copy));
+      input.select();
+      setTimeout(() => openTab('convites'), 15000);
+    } catch (err) { toast(err.message, 6000); }
+  } }, 'Criar convite');
+  const box = h('div', {},
+    h('div', { class: 'card' }, h('h2', {}, 'Novo convite'),
+      h('div', { class: 'row' }, h('label', {}, 'Servidor ', server), h('label', {}, 'Vale por ', expiry), h('label', {}, 'Usos ', uses), create),
+      result),
+    h('div', { class: 'section card' }, h('h2', {}, `Convites valendo — ${d.active.length}`),
+      table([
+        { label: 'Código', get: (i) => h('code', {}, i.code) },
+        { label: 'Servidor', get: (i) => i.server },
+        { label: 'Criado por', get: (i) => (i.by ? `@${i.by}` : '—') },
+        { label: 'Usos', num: true, get: (i) => `${i.uses}${i.maxUses ? ` / ${i.maxUses}` : ''}` },
+        { label: 'Vence', get: (i) => (i.expiresAt ? when(i.expiresAt) : 'nunca') },
+        { label: 'Quem entrou', get: (i) => (i.joined.length ? i.joined.map((u) => `@${u}`).join(', ') : h('span', { class: 'muted' }, '—')) },
+        { label: '', get: (i) => h('span', { class: 'row' },
+          h('button', { class: 'btn small ghost', onclick: () => navigator.clipboard?.writeText(`https://${d.domain}/?convite=${i.code}`).then(() => toast('Link copiado!')) }, 'Copiar'),
+          h('button', { class: 'btn small ghost', onclick: () => act('/api/invites/revoke', { code: i.code }, { confirmText: `Cancelar o convite ${i.code}? Quem tiver o link não entra mais.`, reload: 'convites' }) }, 'Cancelar')) },
+      ], d.active, { empty: 'Nenhum convite valendo.' })),
+    h('div', { class: 'section card' }, h('h2', {}, 'Quem entrou (e por onde)'),
+      table([
+        { label: 'Quando', get: (j) => when(j.at) },
+        { label: 'Pessoa', get: (j) => `@${j.user}` },
+        { label: 'Como', get: (j) => (j.kind === 'cadastro' ? 'Criou a conta' : 'Já tinha conta') },
+        { label: 'Por', get: (j) => (j.code ? h('code', {}, j.code) : j.via ?? '—') },
+        { label: 'Servidor', get: (j) => j.server ?? '—' },
+      ], d.joins, { empty: 'Ninguém entrou por convite ainda.' })));
+  return box;
+}
+
+// ---------- Segurança: passkeys ----------
+async function viewSeguranca() {
+  const list = await api('/api/passkeys');
+  const supported = !!window.PublicKeyCredential;
+  const add = h('button', { class: 'btn primary', disabled: !supported, onclick: async () => {
+    const name = prompt('Nome deste aparelho (para você reconhecer depois):', deviceName());
+    if (name === null) return;
+    try {
+      const o = await api('/api/passkey/register-options', { method: 'POST', body: {} });
+      const cred = await navigator.credentials.create({ publicKey: {
+        challenge: fromB64u(o.challenge), rp: o.rp, user: { ...o.user, id: fromB64u(o.user.id) },
+        pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+        authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
+        excludeCredentials: o.excludeCredentials.map((c) => ({ type: 'public-key', id: fromB64u(c.id) })),
+        attestation: 'none', timeout: o.timeout,
+      } });
+      await act('/api/passkey/register', { name, clientDataJSON: toB64u(cred.response.clientDataJSON), attestationObject: toB64u(cred.response.attestationObject) }, { reload: 'seguranca' });
+    } catch (err) { toast(err.name === 'NotAllowedError' ? 'Cancelado.' : err.name === 'InvalidStateError' ? 'Este aparelho já tem passkey cadastrada.' : err.message, 6000); }
+  } }, 'Cadastrar este aparelho');
+  return h('div', {},
+    h('div', { class: 'card' }, h('h2', {}, 'Entrar com Face ID / Touch ID'),
+      h('p', {}, 'Cadastre este aparelho e, na próxima vez, entre no painel só com Face ID, Touch ID, digital ou o PIN do aparelho, sem digitar a senha. A senha continua valendo como reserva.'),
+      supported ? add : h('p', { class: 'muted' }, 'Este navegador não aceita passkeys.'),
+      h('p', { class: 'muted small' }, 'A chave fica guardada no seu aparelho (e sincroniza pelo iCloud/Google, se estiver ligado); o painel guarda só a parte pública para conferir.')),
+    h('div', { class: 'section card' }, h('h2', {}, `Passkeys cadastradas — ${list.length}`),
+      table([
+        { label: 'Aparelho', get: (c) => c.name },
+        { label: 'Cadastrada', get: (c) => when(c.created) },
+        { label: 'Último uso', get: (c) => (c.lastUsed ? ago(c.lastUsed) : 'nunca') },
+        { label: '', get: (c) => h('button', { class: 'btn small ghost', onclick: () => act('/api/passkey/delete', { id: c.id }, { confirmText: `Apagar a passkey "${c.name}"? Esse aparelho vai precisar da senha de novo.`, reload: 'seguranca' }) }, 'Apagar') },
+      ], list, { empty: 'Nenhuma passkey ainda.' })),
+    h('p', { class: 'muted small section' }, 'As sessões abertas (e o botão para tirar os outros aparelhos) ficam na aba Sistema.'));
 }
 
 start();

@@ -17,7 +17,9 @@ import { DatabaseSync } from 'node:sqlite';
 import { AUDIT_LABELS, AUDIT_GROUPS } from '../src/audit-labels.js';
 import { mcRoutes, startMinecraft, mcSummary } from './minecraft.js';
 import { speedRoutes } from './speedtest.js';
-import { deployRoutes } from './deploy.js';
+import { deployRoutes, deploying } from './deploy.js';
+import { startAlerts, alertRoutes, markPlanned } from './alerts.js';
+import { startPasskeys, passkeyRoutes } from './passkey.js';
 import { xpInfo, xpToNext, XP_RULES } from '../src/xp-curve.js';
 
 const run = promisify(execFile);
@@ -151,9 +153,17 @@ async function login(req, res) {
     return json(res, 401, { error: 'Usuário ou senha incorretos.' });
   }
   ipFails.delete(ip);
+  return startSession(req, res);
+}
+
+// Sessão nova (senha ou passkey): cookie só deste site, que o JavaScript da página não lê
+function startSession(req, res, { via = 'senha' } = {}) {
+  if (!loadAuth()) return json(res, 503, { error: 'O painel está sem senha (ou o login temporário venceu). No Mac, rode: ./painel.sh senha' });
+  const now = Date.now();
+  const ip = clientIp(req);
   const token = crypto.randomBytes(32).toString('hex');
   sessions.set(hashToken(token), { created: now, last: now, ip, ua: ua(req), stamp: authStamp(loadAuth()) });
-  audit('painel:login', { ip, detail: { aparelho: ua(req) } });
+  audit('painel:login', { ip, detail: { aparelho: ua(req), ...(via !== 'senha' ? { via } : {}) } });
   res.setHeader('Set-Cookie', `${cookieName}=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${SESSION_MAX_MS / 1000}`);
   return json(res, 200, { ok: true });
 }
@@ -732,6 +742,7 @@ async function doRestart(req, body) {
   const inVoice = (latest.main?.voice ?? []).reduce((n, v) => n + v.count, 0);
   if (inVoice > 0 && !body.force) return { ok: false, needsForce: true, output: `Tem ${inVoice} ${inVoice === 1 ? 'pessoa' : 'pessoas'} em call agora: a call cai por alguns segundos.` };
   busy = 'reinício';
+  markPlanned(); // a queda de agora é esperada (não vira alerta)
   audit('painel:restart', { ip: clientIp(req), detail: { pessoasEmCall: inVoice } });
   // Fora deste processo (o painel continua no ar enquanto o Muvuca reinicia)
   const child = spawn('/bin/zsh', ['./malegna-service.sh', 'reiniciar'], { cwd: ROOT, detached: true, stdio: 'ignore' });
@@ -757,10 +768,10 @@ function readBody(req, limit = 10_000) {
   });
 }
 
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
 async function serveStatic(res, pathname) {
   const name = pathname === '/' ? 'index.html' : pathname.slice(1);
-  if (!/^[a-z0-9-]+\.(html|js|css|svg|png)$/.test(name)) return json(res, 404, { error: 'Não encontrado' });
+  if (!/^[a-z0-9-]+\.(html|js|css|svg|png|webmanifest)$/.test(name)) return json(res, 404, { error: 'Não encontrado' });
   try {
     const data = await fsp.readFile(path.join(PUBLIC, name));
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(name)], 'Cache-Control': 'no-cache' });
@@ -796,6 +807,45 @@ const activityNow = () => ({
   lives: (latest.main?.voice ?? []).reduce((n, v) => n + (v.people ?? []).filter((p) => p.streaming).length, 0),
   minecraft: mcSummary().reduce((n, s) => n + (s.phase === 'running' ? s.players : 0), 0),
 });
+
+// Convites: os que valem agora (de cada servidor) e quem entrou por qual convite (pela auditoria)
+function invitesOverview() {
+  const now = Date.now();
+  const servers = all("SELECT id, name FROM servers WHERE kind != 'dm' ORDER BY created_at");
+  const active = all(`SELECT i.code, i.server_id, i.created_at, i.expires_at, i.uses, i.max_uses, u.username, u.display_name
+    FROM invites i LEFT JOIN users u ON u.id = i.created_by
+    WHERE (i.expires_at IS NULL OR i.expires_at > ?) AND (i.max_uses IS NULL OR i.uses < i.max_uses) ORDER BY i.created_at DESC`, now);
+  // Entradas por convite: cadastro ("convite ABC") ou quem já tinha conta e aceitou (código na auditoria)
+  const joins = [];
+  try {
+    for (const r of all("SELECT at, user_name, action, detail, server_id FROM audit_log WHERE action IN ('auth:register', 'invite:accept') ORDER BY id DESC LIMIT 300")) {
+      let d = {};
+      try { d = JSON.parse(r.detail ?? '{}'); } catch { /* sem detalhe */ }
+      const code = r.action === 'auth:register' ? (/convite (\S+)/.exec(d.via ?? '')?.[1] ?? null) : d.code ?? null;
+      joins.push({ at: r.at, user: r.user_name, kind: r.action === 'auth:register' ? 'cadastro' : 'entrou', code, via: d.via === 'código de acesso' ? 'código de acesso' : null, server: servers.find((x) => x.id === r.server_id)?.name ?? null });
+    }
+  } catch { /* auditoria ainda vazia */ }
+  const byCode = new Map();
+  for (const j of joins) if (j.code) { if (!byCode.has(j.code)) byCode.set(j.code, []); byCode.get(j.code).push(j.user); }
+  return {
+    domain: DOMAIN,
+    servers,
+    active: active.map((i) => ({
+      code: i.code, server: servers.find((x) => x.id === i.server_id)?.name ?? '?', serverId: i.server_id, by: i.username ?? null, byName: i.display_name ?? null,
+      createdAt: i.created_at, expiresAt: i.expires_at, uses: i.uses, maxUses: i.max_uses, joined: byCode.get(i.code) ?? [],
+    })),
+    joins: joins.slice(0, 60),
+  };
+}
+
+// Passkeys: os endereços em que o painel responde (o nome, sem porta)
+const passkeyAll = passkeyRoutes({
+  json, readBody, audit, clientIp,
+  allowedHosts: [`painel.${DOMAIN}`, 'localhost'],
+  startSession,
+  userName: () => loadAuth()?.user ?? 'admin',
+});
+const { public: passkeyPublic, ...passkeyApi } = passkeyAll;
 
 const api = {
   'GET /api/me': (req, res, s) => json(res, 200, { ok: true, since: s.created, ip: s.ip, domain: DOMAIN }),
@@ -902,6 +952,28 @@ const api = {
   'POST /api/restart': async (req, res) => json(res, 200, await doRestart(req, await readBody(req))),
   ...mcRoutes({ json, readBody, clientIp, domain: DOMAIN }),
   ...speedRoutes({ json, readBody, clientIp, audit, dataDir: path.dirname(DB_FILE), activity: activityNow }),
+  // ---------- Convites ----------
+  'GET /api/invites': (req, res) => json(res, 200, invitesOverview()),
+  'POST /api/invites/create': async (req, res) => {
+    const b = await readBody(req);
+    const srv = one("SELECT id, name FROM servers WHERE id = ? AND kind != 'dm'", String(b.serverId ?? ''));
+    if (!srv) return json(res, 404, { error: 'Servidor não encontrado.' });
+    const expiresIn = b.expiresIn === null ? null : Number(b.expiresIn);
+    const maxUses = b.maxUses ? Number(b.maxUses) : null;
+    const r = await mainPost('/internal/invite/create', { serverId: srv.id, expiresIn, maxUses });
+    audit('painel:invite:create', { ip: clientIp(req), detail: { servidor: srv.name, codigo: r.code, ...(maxUses ? { usos: maxUses } : {}) } });
+    json(res, 200, { ok: true, code: r.code, link: `https://${DOMAIN}/?convite=${r.code}`, message: 'Convite criado.' });
+  },
+  'POST /api/invites/revoke': async (req, res) => {
+    const b = await readBody(req);
+    const row = one('SELECT i.code, s.name FROM invites i JOIN servers s ON s.id = i.server_id WHERE i.code = ?', String(b.code ?? ''));
+    if (!row) return json(res, 404, { error: 'Convite não encontrado.' });
+    await mainPost('/internal/invite/revoke', { code: row.code });
+    audit('painel:invite:revoke', { ip: clientIp(req), detail: { servidor: row.name, codigo: row.code } });
+    json(res, 200, { ok: true, message: `Convite ${row.code} cancelado.` });
+  },
+  ...alertRoutes({ json, readBody, audit, clientIp }),
+  ...passkeyApi,
   ...deployRoutes({
     json, readBody, clientIp, root: ROOT, mainUrl: MAIN_URL, auditFn: audit, activityFn: activityNow,
     noticeFn: (b) => mainPost('/internal/maintenance', b),
@@ -911,6 +983,23 @@ const api = {
 // Minecraft: as ações vindas do painel (e o desligar sozinho) entram na auditoria
 startMinecraft({ root: ROOT, auditFn: (action, opts) => audit(action, opts) });
 
+// Passkeys e alertas no celular (+ histórico de quedas)
+startPasskeys(path.dirname(DB_FILE)); // ao lado do banco (o painel de teste usa a pasta dele)
+startAlerts({
+  dataDir: path.dirname(DB_FILE), domain: DOMAIN, one,
+  latest: () => latest,
+  deploying,
+  certificates,
+  weekly: () => weeklySummary(new URL('http://x/?week=0')),
+  // Últimas linhas do log do Muvuca quando ele cai (o motivo costuma estar ali)
+  lastLog: async () => (await tail(path.join(LOGS, 'malegna.log'), 20_000)).filter(Boolean).slice(-15).map(scrub),
+  lastBackup: async () => {
+    const line = (await tail(path.join(LOGS, 'backup.log'), 20_000)).filter((l) => l.startsWith('[backup')).pop();
+    const m = line && /^\[backup (\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\]/.exec(line);
+    return m ? { line, at: new Date(m[1].replace(' ', 'T')).getTime() } : null;
+  },
+});
+
 const server = http.createServer(async (req, res) => {
   securityHeaders(req, res);
   const url = new URL(req.url, 'http://x');
@@ -918,6 +1007,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/login') {
       if (!sameOrigin(req)) return json(res, 403, { error: 'Origem não permitida.' });
       return await login(req, res);
+    }
+    const pub = passkeyPublic[`${req.method} ${url.pathname}`]; // entrar com passkey (sem sessão ainda)
+    if (pub) {
+      if (req.method !== 'GET' && !sameOrigin(req)) return json(res, 403, { error: 'Origem não permitida.' });
+      return await pub(req, res);
     }
     if (url.pathname.startsWith('/api/')) {
       const s = sessionOf(req);

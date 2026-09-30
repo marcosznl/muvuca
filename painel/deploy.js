@@ -31,6 +31,8 @@ let audit = () => {};
 let activity = () => ({});
 let setNotice = async () => {};
 let job = null; // { kind, startedAt, step, log: [], done, ok }
+// Atualização em andamento (o Muvuca pode reiniciar: a queda não é uma queda de verdade)
+export const deploying = () => !!job && (!job.done || Date.now() - (job.endedAt ?? 0) < 30_000);
 
 function loadIndex() {
   try { return JSON.parse(fs.readFileSync(INDEX, 'utf8')); } catch { return { live: null, releases: [] }; }
