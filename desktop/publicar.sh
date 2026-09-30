@@ -45,5 +45,10 @@ fs.writeFileSync('$out/latest.json', JSON.stringify({ version: '$version', date:
 for old in "$out"/Muvuca-*.dmg(N) "$out"/Muvuca-*-mac.zip(N) "$out"/Muvuca-*-windows.exe(N); do
   [[ "$old" == *"-$version-"* ]] || rm -f -- "$old"
 done
+# Apaga a montagem (dist/): os apps de lá apareciam no Launchpad/Spotlight como "outros Muvucas" e ocupam ~2 GB.
+# Os instaladores já estão em ../downloads. Só apaga a pasta dist deste projeto, pelo caminho exato.
+dist_dir="$PWD/dist"
+[[ -d "$dist_dir" && "$dist_dir" == */desktop/dist ]] && rm -rf -- "$dist_dir"
+
 echo "Pronto: $out"
 ls -la "$out"
