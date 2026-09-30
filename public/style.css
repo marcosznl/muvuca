@@ -954,13 +954,15 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .profile-sub-label { margin-top: 10px; }
 .profile-banner.with-image + .profile-card-avatar { top: calc(300px * 6 / 17 - 44px); }
 .profile-card-avatar { position: absolute; top: 20px; left: 14px; border: 6px solid var(--bg-dark); box-sizing: content-box; }
-.profile-card-body { padding: 56px 14px 14px; display: grid; gap: 2px; }
-.profile-card-name { color: var(--text-strong); font-size: 20px; font-weight: 700; overflow-wrap: anywhere; }
-.profile-card-section { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.07); display: grid; gap: 6px; }
-.profile-card-title { font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--muted); }
-.profile-card-bio { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
-.profile-card-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-.profile-card-actions .btn { flex: 1; padding: 8px 10px; }
+.profile-card-body { padding: 52px 14px 12px; display: grid; gap: 1px; font-size: 13px; }
+.profile-card-body > .muted { font-size: 13px; }
+.profile-card-name { color: var(--text-strong); font-size: 18px; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+.profile-card-section { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.07); display: grid; gap: 4px; }
+.profile-card-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; color: var(--muted); }
+.profile-card-bio { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.35; }
+.profile-card-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+.profile-card-actions .btn { padding: 6px 8px; font-size: 13px; font-weight: 500; line-height: 1.2; min-height: 32px; }
+.profile-card-actions .btn:only-child, .profile-card-actions .btn.primary { grid-column: 1 / -1; } /* o principal (ex.: Enviar mensagem) ocupa a linha toda */
 .profile-editor { display: grid; grid-template-columns: 1fr 300px; gap: 24px; align-items: start; text-align: left; }
 .profile-preview { display: grid; gap: 8px; position: sticky; top: 0; }
 .profile-form .field p { margin: 6px 0 0; }
@@ -1276,7 +1278,7 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .avatar.with-status.status-invisible::after { background: #80848e; }
 .member .sub.status-text { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .me-name { cursor: pointer; }
-.profile-card-status { margin-top: 6px; font-size: 13px; color: var(--text); }
+.profile-card-status { margin-top: 4px; font-size: 12px; color: var(--text); }
 
 /* Falando na voz: o anel verde pulsa */
 .tile.speaking { animation: speak-pulse 1.1s ease-in-out infinite; }
@@ -1632,11 +1634,11 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .member .sub.playing strong, .profile-playing strong { font-weight: 600; }
 .member .sub.playing strong { margin-left: .28em; }
 .member .sub.playing:hover { color: var(--text); }
-.profile-playing { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; color: var(--muted); font-size: 13px; }
-.profile-playing .btn { padding: 5px 10px; font-size: 12px; }
+.profile-playing { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; color: var(--muted); font-size: 12px; }
+.profile-playing .btn { padding: 4px 8px; font-size: 12px; }
 .profile-games { margin-top: 10px; display: grid; gap: 6px; }
 .achievements { display: flex; flex-wrap: wrap; gap: 4px; }
-.achievement { background: var(--bg-dark); border-radius: 10px; padding: 3px 8px; font-size: 12px; color: var(--text-strong); }
+.achievement { background: var(--bg-dark); border-radius: 10px; padding: 2px 7px; font-size: 11px; color: var(--text-strong); }
 
 /* Desenha aí */
 .game-dom:has(.draw-main) { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 10px; align-content: start; }
@@ -1982,6 +1984,6 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .me-xp { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(128,128,128,.25); cursor: help; }
 .me-xp-fill { height: 100%; background: linear-gradient(90deg, #5865f2, #eb459e); transition: width .6s; }
 .xp-level { display: flex; align-items: baseline; gap: 8px; }
-.xp-level b { font-size: 18px; color: var(--text-strong); }
-.xp-bar { height: 8px; margin: 6px 0 4px; border-radius: 4px; background: var(--bg-dark, #1e1f22); overflow: hidden; }
+.xp-level b { font-size: 14px; color: var(--text-strong); }
+.xp-bar { height: 6px; margin: 4px 0 2px; border-radius: 4px; background: var(--bg-dark, #1e1f22); overflow: hidden; }
 .xp-bar > div { height: 100%; background: linear-gradient(90deg, #5865f2, #eb459e); }

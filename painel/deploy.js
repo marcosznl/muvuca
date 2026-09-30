@@ -230,7 +230,10 @@ async function deploy(log, { notify, skipTests, ip }) {
   }
   log('Copiando o site novo (public_next → public)…');
   await run('rsync', ['-a', '--delete', `${path.join(ROOT, 'public_next')}/`, `${path.join(ROOT, 'public')}/`], { env: ENV });
-  if (await restartAndCheck(log)) {
+  // Só o site mudou: o servidor entrega os arquivos novos direto do disco, sem reiniciar (ninguém cai da call)
+  const siteOnly = pend.hasBaseline && !pend.server.length;
+  if (siteOnly) log('Só o site mudou: sem reiniciar (quem recarregar a página já pega a versão nova).');
+  if (siteOnly || await restartAndCheck(log)) {
     const rel = await snapshot({ kind: 'publicada', note: `${pend.site.length} arquivo(s) do site, ${pend.server.length} do servidor` });
     const ix = loadIndex();
     ix.live = rel.id;
@@ -297,7 +300,9 @@ export function deployRoutes({ json, readBody, clientIp, root, mainUrl, auditFn,
     'POST /api/deploy': async (req, res) => {
       const b = await readBody(req);
       const busy = inUse();
-      if (busy.length && !b.force) return json(res, 200, { ok: false, needsForce: true, message: `Tem gente usando agora (${busy.join(', ')}): a call cai por uns 10 segundos durante o reinício.` });
+      const p = await pending();
+      const needsRestart = !p.hasBaseline || p.server.length > 0; // só site: publica sem reiniciar
+      if (needsRestart && busy.length && !b.force) return json(res, 200, { ok: false, needsForce: true, message: `Tem gente usando agora (${busy.join(', ')}): a call cai por uns 10 segundos durante o reinício.` });
       startJob('publicar', (log) => deploy(log, { notify: b.notify === true, skipTests: false, ip: clientIp(req) }));
       json(res, 200, { ok: true, message: 'Atualização começou: acompanhe abaixo.' });
     },

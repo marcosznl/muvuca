@@ -1035,7 +1035,8 @@ async function viewAtualizar() {
     items.length > 40 ? h('div', { class: 'muted' }, `… e mais ${items.length - 40}`) : null) : h('p', { class: 'empty' }, empty));
   const top = h('div', { class: 'card' },
     h('div', { class: 'row' }, h('h2', {}, 'O que vai ao ar'), h('span', { class: 'spacer' }), h('label', { class: 'row small' }, notify, 'Avisar o pessoal 1 minuto antes'), publish),
-    d.inUse.length ? h('div', { class: 'alert warn' }, `Agora tem gente usando: ${d.inUse.join(', ')}. A atualização derruba a call por uns 10 segundos.`) : null,
+    d.inUse.length && (p.server.length || !p.hasBaseline) ? h('div', { class: 'alert warn' }, `Agora tem gente usando: ${d.inUse.join(', ')}. A atualização derruba a call por uns 10 segundos.`) : null,
+    p.hasBaseline && p.site.length && !p.server.length ? h('div', { class: 'alert good' }, 'Só o site mudou: publica sem reiniciar o Muvuca (ninguém cai da call).') : null,
     !p.hasBaseline ? h('p', { class: 'muted small' }, 'Primeira atualização pelo painel: a versão que está no ar hoje será guardada a partir do último commit do git, e tudo que mudou depois dele entra como novidade.') : null,
     h('div', { class: 'grid two section' },
       h('div', {}, h('b', {}, `Site (${p.site.length})`), h('p', { class: 'muted small' }, 'Diferenças entre public_next (preparado) e public (no ar)'), fileList(p.site, 'Nada novo no site.')),
