@@ -489,17 +489,38 @@ async function viewUsuarios() {
       { label: 'Senha errada (7 d)', num: true, get: (u) => (u.fails7 ? h('span', { class: `pill ${u.fails7 >= 5 ? 'bad' : 'warn'}` }, u.fails7) : '0') },
       { label: '', get: (u) => h('div', { class: 'row', style: 'flex-wrap:nowrap' },
         u.blocked_at ? h('span', { class: 'pill bad', title: u.blocked_reason ?? '' }, 'bloqueada') : null,
+        u.must_change ? h('span', { class: 'pill warn', title: 'Entrou com senha temporária ainda não trocada' }, 'senha temporária') : null,
         h('button', { class: 'btn small ghost', onclick: () => { auditFilters = { user: u.username }; openTab('auditoria'); } }, 'Auditoria'),
         !u.blocked_at && (u.sessions || u.online) ? h('button', { class: 'btn small ghost', onclick: () => act('/api/users/disconnect', { id: u.id }, { confirmText: `Desconectar @${u.username} de todos os aparelhos? Ela precisa entrar de novo com a senha.`, reload: 'usuarios' }) }, 'Desconectar') : null,
         u.blocked_at
           ? h('button', { class: 'btn small', onclick: () => act('/api/users/block', { id: u.id, block: false }, { confirmText: `Desbloquear @${u.username}?`, reload: 'usuarios' }) }, 'Desbloquear')
-          : h('button', { class: 'btn small ghost', onclick: () => act('/api/users/block', { id: u.id, block: true }, { confirmText: `Bloquear @${u.username}? A conta sai de todos os aparelhos e não consegue mais entrar até ser desbloqueada.`, askReason: 'Motivo (opcional, fica na auditoria):', reload: 'usuarios' }) }, 'Bloquear')) },
+          : h('button', { class: 'btn small ghost', onclick: () => act('/api/users/block', { id: u.id, block: true }, { confirmText: `Bloquear @${u.username}? A conta sai de todos os aparelhos e não consegue mais entrar até ser desbloqueada.`, askReason: 'Motivo (opcional, fica na auditoria):', reload: 'usuarios' }) }, 'Bloquear'),
+        h('button', { class: 'btn small ghost', onclick: () => resetPasswordFor(u) }, 'Nova senha'),
+        u.home_owner ? null : h('button', { class: 'btn small danger-ghost', onclick: () => deleteAccountOf(u) }, 'Excluir')) },
     ], rows, { empty: 'Nenhuma conta encontrada.', rowClass: (u) => (u.blocked_at ? 'fail' : null) }));
   };
   input.addEventListener('input', () => { userFilter = input.value; render(); });
   render();
   box.append(h('div', { class: 'row' }, h('h2', {}, `${users.length} contas`), h('span', { class: 'spacer' }), input), body);
   return h('div', {}, box, h('div', { class: 'section' }, await ipsCard()));
+}
+
+// Senha temporária: você escolhe (ou usa a sugerida), passa para a pessoa, e ela troca no primeiro login
+function resetPasswordFor(u) {
+  const words = ['sol', 'lua', 'mar', 'rio', 'gato', 'bola', 'pipa', 'vento', 'nuvem', 'festa', 'jogo', 'som'];
+  const pick = () => words[crypto.getRandomValues(new Uint32Array(1))[0] % words.length];
+  const suggestion = `${pick()}-${pick()}-${String(crypto.getRandomValues(new Uint32Array(1))[0] % 900 + 100)}`;
+  const password = prompt(`Senha temporária para @${u.username} (pelo menos 6 caracteres).\n\nA pessoa sai de todos os aparelhos agora, entra com esta senha e escolhe a nova na hora.`, suggestion);
+  if (password === null) return;
+  if (password.trim().length < 6) return toast('A senha temporária precisa ter pelo menos 6 caracteres.', 5000);
+  act('/api/users/reset-password', { id: u.id, password: password.trim() }, { reload: 'usuarios' });
+}
+
+// Excluir a conta: pede o @ de novo (não dá para desfazer)
+function deleteAccountOf(u) {
+  const typed = prompt(`EXCLUIR a conta @${u.username} (${u.name})?\n\nApaga para sempre: as mensagens dela (em servidores e conversas privadas), anexos, foto, banner, XP e amizades. Servidores que ela criou passam para o membro mais antigo (ou somem, se só ela estava lá). Não dá para desfazer (só voltando um backup).\n\nPara confirmar, digite o usuário dela:`, '');
+  if (typed === null) return;
+  act('/api/users/delete', { id: u.id, confirm: typed }, { reload: 'usuarios' });
 }
 
 // ---------- Auditoria ----------

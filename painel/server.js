@@ -392,6 +392,8 @@ function usersList() {
   let blockCols = '';
   try { one('SELECT blocked_at FROM users LIMIT 1'); blockCols = 'u.blocked_at, u.blocked_reason,'; } catch { /* Muvuca ainda sem a coluna */ }
   try { one('SELECT xp FROM users LIMIT 1'); blockCols += ' u.xp,'; } catch { /* Muvuca ainda sem XP */ }
+  try { one('SELECT must_change FROM users LIMIT 1'); blockCols += ' u.must_change,'; } catch { /* Muvuca ainda sem senha temporária */ }
+  blockCols += " (u.id = (SELECT owner_id FROM servers WHERE id = (SELECT value FROM meta WHERE key = 'home_server'))) home_owner,";
   const rows = all(`SELECT u.id, u.username, u.display_name name, u.created_at, u.last_seen, ${blockCols}
       (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.expires_at > ?) sessions,
       (SELECT COUNT(*) FROM messages m WHERE m.user_id = u.id) messages,
@@ -915,6 +917,28 @@ const api = {
     await mainPost('/internal/user/block', { userId: `u${u.id}`, block, reason });
     audit(block ? 'painel:user:block' : 'painel:user:unblock', { ip: clientIp(req), detail: { conta: u.username, ...(reason ? { motivo: reason } : {}) } });
     json(res, 200, { ok: true, message: block ? `@${u.username} bloqueada e desconectada.` : `@${u.username} desbloqueada.` });
+  },
+  // Senha temporária: a pessoa entra com ela uma vez e escolhe a nova na hora
+  'POST /api/users/reset-password': async (req, res) => {
+    const b = await readBody(req);
+    const u = one('SELECT id, username FROM users WHERE id = ?', Number(b.id));
+    if (!u) return json(res, 404, { error: 'Conta não encontrada.' });
+    const password = String(b.password ?? '');
+    if (password.length < 6) return json(res, 400, { error: 'A senha temporária precisa ter pelo menos 6 caracteres.' });
+    const r = await mainPost('/internal/user/reset-password', { userId: `u${u.id}`, password });
+    audit('painel:user:reset-password', { ip: clientIp(req), detail: { conta: u.username, sessoesEncerradas: r.sessions } }); // a senha nunca vai para a auditoria
+    json(res, 200, { ok: true, message: `Senha de @${u.username} trocada. Passe a senha temporária para a pessoa: no primeiro login ela escolhe a nova.` });
+  },
+  // Excluir a conta e tudo dela (pede o @ digitado de novo, para não apagar a conta errada)
+  'POST /api/users/delete': async (req, res) => {
+    const b = await readBody(req);
+    const u = one('SELECT id, username, display_name FROM users WHERE id = ?', Number(b.id));
+    if (!u) return json(res, 404, { error: 'Conta não encontrada.' });
+    if (String(b.confirm ?? '').trim().replace(/^@/, '').toLowerCase() !== u.username.toLowerCase()) return json(res, 400, { error: 'O nome de usuário digitado não confere.' });
+    const r = await mainPost('/internal/user/delete', { userId: `u${u.id}` });
+    audit('painel:user:delete', { ip: clientIp(req), detail: { conta: u.username, nome: u.display_name, mensagens: r.messages, anexos: r.files, ...(r.transferred.length ? { servidoresPassados: r.transferred.length } : {}), ...(r.deletedServers ? { servidoresApagados: r.deletedServers } : {}) } });
+    const extra = [r.transferred.length ? `${r.transferred.length} servidor(es) dela passaram para o membro mais antigo` : null, r.deletedServers ? `${r.deletedServers} servidor(es) vazios apagados` : null].filter(Boolean).join('; ');
+    json(res, 200, { ok: true, message: `Conta @${u.username} excluída: ${r.messages} mensagens e ${r.files} anexos apagados${extra ? `; ${extra}` : ''}.` });
   },
   'GET /api/ips': (req, res) => {
     let rows = [];

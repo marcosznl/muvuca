@@ -1,7 +1,11 @@
 // Ações do painel administrativo sobre quem usa o Muvuca: desconectar ou bloquear uma conta, bloquear um IP
 // e o modo manutenção (aviso para todo mundo e, se quiser, acesso travado para todos menos o dono).
 import { db, HOME_SERVER } from './store.js';
-import { sockets, send, broadcastPresence, sendToServer } from './realtime.js';
+import { sockets, send, sendToUser, broadcastPresence, sendToServer, pushServer } from './realtime.js';
+import { leaveMusicOf } from './music-rooms.js';
+import { removeImage } from './images.js';
+import { removeEmojiFile } from './emojis.js';
+import { removeSoundFile } from './soundboard.js';
 import { removeFiles } from './attachments.js';
 import { roomService, voiceAll, baseUserId } from './voice.js';
 import { uid } from '../db.js';
@@ -135,4 +139,45 @@ export async function adminDeleteFile(fileId) {
   await removeFiles([f.id]);
   sendToServer(row.server_id, { t: 'msg:edit', msg });
   return { ok: true, message: 'edited' };
+}
+
+// ---------- Conta (painel): senha temporária e exclusão ----------
+
+// Senha temporária: vale para entrar uma vez; no primeiro login a pessoa escolhe a nova antes de usar o Muvuca.
+// Todas as sessões caem na hora.
+export async function resetPassword(userId, password) {
+  if (!db.userById(userId)) throw new Error('Conta não encontrada.');
+  const pw = String(password ?? '');
+  if (pw.length < 6 || pw.length > 200) throw new Error('A senha temporária precisa ter pelo menos 6 caracteres.');
+  await db.setPassword(userId, pw);
+  db.setMustChange(userId, true);
+  const sessions = db.deleteUserSessions(userId);
+  kick(userId, 'auth', 'Sua senha foi trocada pelo administrador. Entre com a senha temporária que ele te passou.');
+  broadcastPresence();
+  return { ok: true, sessions };
+}
+
+// Exclui a conta e tudo dela (ver db.deleteAccount). O dono do servidor principal não pode ser excluído.
+export async function deleteAccount(userId) {
+  if (!db.userById(userId)) throw new Error('Conta não encontrada.');
+  if (userId === ownerId()) throw new Error('A conta do dono do servidor principal não pode ser excluída.');
+  kick(userId, 'auth', 'Sua conta foi excluída.');
+  for (const sid of db.serverIdsOf({ id: userId })) leaveMusicOf(sid, userId);
+  const r = db.deleteAccount(userId);
+  // Arquivos no disco (anexos, foto, banner, e o que era dos servidores que sumiram)
+  await removeFiles(r.files).catch(() => {});
+  for (const id of [...r.images, ...r.icons]) await removeImage(id).catch(() => {});
+  for (const id of r.emojis) await removeEmojiFile(id);
+  for (const id of r.sounds) await removeSoundFile(id);
+  // Quem ficou vê na hora: membro some, mensagens dela somem, conversas encerradas fecham
+  for (const sid of r.affected) {
+    pushServer(sid);
+    sendToServer(sid, { t: 'user:purged', userId });
+  }
+  for (const d of r.deletedServers) {
+    for (const m of d.members) sendToUser(m, { t: 'server:removed', serverId: d.id, reason: d.kind === 'dm' ? 'A conversa foi encerrada: a outra conta foi excluída.' : 'O servidor foi excluído.' });
+  }
+  for (const f of r.friends) sendToUser(f, { t: 'friends', friends: db.friendsOf(f) });
+  broadcastPresence();
+  return { ok: true, username: r.username, messages: r.messages, files: r.files.length, transferred: r.transferred, deletedServers: r.deletedServers.filter((d) => d.kind !== 'dm').length };
 }

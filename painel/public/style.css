@@ -168,3 +168,6 @@ input.narrow { max-width: 160px; }
 .invite-result { margin-top: 10px; }
 .invite-link { flex: 1; min-width: 260px; }
 #login-passkey { margin-top: 8px; width: 100%; }
+.btn.danger-ghost { background: transparent; color: var(--bad); border-color: var(--bad); }
+.btn.danger-ghost:hover { background: var(--bad); color: #fff; }
+.table-wrap td .btn { white-space: nowrap; }

@@ -18,7 +18,7 @@ import { leaveRoom } from './src/games/lobby.js';
 import { publicKey } from './src/push.js';
 import { uploadSound, serveSound } from './src/soundboard.js';
 import { HttpError, ActionError, json, bearer, clientIp, readBody } from './src/util.js';
-import { ipBlocked, lockedOut, maintenance, disconnectUser, blockUser, blockIp, setMaintenance, adminDeleteMessage, adminDeleteFile } from './src/moderation.js';
+import { ipBlocked, lockedOut, maintenance, disconnectUser, blockUser, blockIp, setMaintenance, adminDeleteMessage, adminDeleteFile, resetPassword, deleteAccount } from './src/moderation.js';
 import { adjustXp } from './src/xp.js';
 import { auditAction, audit, purgeAudit } from './src/audit.js';
 import { internalStats, isInternal } from './src/internal.js';
@@ -85,6 +85,8 @@ const internalActions = {
   '/internal/maintenance': (b) => setMaintenance(b),
   '/internal/xp/adjust': (b) => adjustXp(String(b.userId), b.amount, { reset: b.reset === true }),
   '/internal/message/delete': (b) => adminDeleteMessage(b.id),
+  '/internal/user/reset-password': (b) => resetPassword(String(b.userId ?? ''), b.password),
+  '/internal/user/delete': (b) => deleteAccount(String(b.userId ?? '')),
   // Convites pelo painel: criados em nome do dono do servidor
   '/internal/invite/create': (b) => {
     const srv = db.server(String(b.serverId ?? ''));
@@ -143,6 +145,12 @@ function welcome(ws, token) {
   ws.sessionToken = String(token ?? ''); // para a troca de senha saber qual aba manter conectada
   if (!user) {
     send(ws, { t: 'error', code: 'auth', message: 'Sua sessão expirou. Entre de novo.' });
+    ws.close();
+    return null;
+  }
+  // Senha temporária (dada pelo painel): primeiro troca a senha, depois entra
+  if (db.mustChange(user.id)) {
+    send(ws, { t: 'error', code: 'must_change', message: 'Escolha uma senha nova para continuar.' });
     ws.close();
     return null;
   }

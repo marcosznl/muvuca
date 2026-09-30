@@ -421,6 +421,8 @@ function migrate(db) {
   // XP da conta (ver src/xp.js)
   if (!uCols.includes('xp')) db.exec('ALTER TABLE users ADD COLUMN xp INTEGER NOT NULL DEFAULT 0');
   if (!uCols.includes('blocked_at')) db.exec('ALTER TABLE users ADD COLUMN blocked_at INTEGER; ALTER TABLE users ADD COLUMN blocked_reason TEXT;');
+  // Senha temporária dada pelo painel: a pessoa troca no primeiro login
+  if (!uCols.includes('must_change')) db.exec('ALTER TABLE users ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0');
   // Apelido dentro de um servidor (moderação: quem gerencia apelidos muda o nome que aparece ali)
   if (!db.prepare('PRAGMA table_info(members)').all().some((c) => c.name === 'nick')) db.exec('ALTER TABLE members ADD COLUMN nick TEXT');
   // Não lidas: quem já existia começa com tudo lido (senão o histórico inteiro viraria "novo")
@@ -876,6 +878,50 @@ class Store {
   server(id) { return this.q.server.get(String(id)); }
   updateServer(id, { name, color }) { this.q.updateServer.run(name, color, id); }
   deleteServer(id) { this.q.deleteServer.run(id); }
+  // ---------- Conta: senha temporária e exclusão (painel administrativo) ----------
+  mustChange(userId) { return this.db.prepare('SELECT must_change FROM users WHERE id = ?').get(unum(userId))?.must_change === 1; }
+  setMustChange(userId, on) { this.db.prepare('UPDATE users SET must_change = ? WHERE id = ?').run(on ? 1 : 0, unum(userId)); }
+
+  // Apaga a conta e tudo dela. Servidores criados por ela passam para o membro mais antigo (ou somem, se só ela
+  // estava lá); conversas privadas que ficariam com uma pessoa só somem. Emojis e sons enviados ficam (são do servidor).
+  // Devolve o que precisa sair do disco e quem precisa ser avisado.
+  deleteAccount(userId) {
+    const id = unum(userId);
+    const row = this.db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+    if (!row) throw new Error('Conta não encontrada.');
+    return this.transaction(() => {
+      const servers = this.db.prepare('SELECT s.id, s.kind, s.owner_id, s.icon FROM members m JOIN servers s ON s.id = m.server_id WHERE m.user_id = ?').all(id);
+      const friendIds = this.db.prepare('SELECT CASE WHEN a = ? THEN b ELSE a END AS other FROM friends WHERE a = ? OR b = ?').all(id, id, id).map((r) => uid(r.other));
+      const files = this.db.prepare('SELECT id FROM files WHERE owner_id = ?').all(id).map((r) => r.id);
+      const images = [row.avatar, row.banner_image].filter(Boolean);
+      const out = { username: row.username, name: row.display_name, files, images, emojis: [], sounds: [], icons: [], deletedServers: [], transferred: [], affected: [], friends: friendIds };
+      const messages = this.db.prepare('DELETE FROM messages WHERE user_id = ?').run(id).changes;
+      out.messages = messages;
+      this.db.prepare('DELETE FROM files WHERE owner_id = ?').run(id);
+      for (const img of images) this.db.prepare('DELETE FROM images WHERE id = ?').run(img);
+      this.db.prepare('DELETE FROM xp_events WHERE user_id = ?').run(id);
+      this.db.prepare('UPDATE events SET created_by = NULL WHERE created_by = ?').run(id);
+      for (const s of servers) {
+        const others = this.db.prepare('SELECT user_id FROM members WHERE server_id = ? AND user_id != ? ORDER BY joined_at').all(s.id, id);
+        const gone = s.kind === 'dm' ? others.length <= 1 : s.owner_id === id && others.length === 0;
+        if (gone) {
+          out.emojis.push(...this.emojiIds(s.id));
+          out.sounds.push(...this.soundIds(s.id));
+          if (s.icon) out.icons.push(s.icon);
+          this.q.deleteServer.run(s.id);
+          out.deletedServers.push({ id: s.id, kind: s.kind, members: others.map((o) => uid(o.user_id)) });
+          continue;
+        }
+        if (s.kind !== 'dm' && s.owner_id === id) {
+          this.q.setOwner.run(others[0].user_id, s.id);
+          out.transferred.push({ id: s.id, to: uid(others[0].user_id) });
+        }
+        out.affected.push(s.id);
+      }
+      this.db.prepare('DELETE FROM users WHERE id = ?').run(id);
+      return out;
+    });
+  }
   setOwner(serverId, user) { this.q.setOwner.run(unum(user.id), serverId); }
   ownedCount(user) { return this.q.ownedCount.get(unum(user.id)).n; }
 

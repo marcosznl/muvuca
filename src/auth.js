@@ -103,6 +103,7 @@ export async function changePassword(req) {
     await authFailed(ip, 'A senha atual está incorreta.');
   }
   await db.setPassword(user.id, password);
+  db.setMustChange(user.id, false); // era senha temporária: agora a conta volta ao normal
   const others = db.deleteOtherSessions(user.id, token);
   audit('auth:password', { user, ip, detail: { outrosAparelhosDesconectados: others } });
   // Abas e aparelhos que estavam conectados com outra sessão: saem agora (voltam para a tela de login)
@@ -131,5 +132,6 @@ export async function login(req) {
   audit('auth:login', { user, ip, detail: { aparelho: String(req.headers['user-agent'] ?? '').slice(0, 160) } });
   authFails.delete(ip);
   accountFails.delete(username);
-  return { token: db.createSession(user) };
+  // Senha temporária dada pelo painel: o site pede a nova antes de abrir
+  return { token: db.createSession(user), ...(db.mustChange(user.id) ? { mustChange: true } : {}) };
 }

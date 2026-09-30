@@ -76,6 +76,8 @@ export const AUDIT_LABELS = {
   'painel:user:disconnect': 'Desconectou conta de todos os aparelhos',
   'painel:user:block': 'Bloqueou conta',
   'painel:user:unblock': 'Desbloqueou conta',
+  'painel:user:reset-password': 'Deu senha temporária para uma conta',
+  'painel:user:delete': 'Excluiu uma conta (e tudo dela)',
   'painel:ip:block': 'Bloqueou IP',
   'painel:ip:unblock': 'Desbloqueou IP',
   'painel:maintenance': 'Modo manutenção',
@@ -102,9 +104,9 @@ export const AUDIT_LABELS = {
 
 // Grupos para o filtro do painel
 export const AUDIT_GROUPS = {
-  seguranca: ['painel:passkey:add', 'painel:passkey:remove', 'auth:login:fail', 'auth:login:blocked', 'painel:user:block', 'painel:user:unblock', 'painel:ip:block', 'painel:ip:unblock', 'painel:user:disconnect', 'auth:register:fail', 'auth:password', 'auth:password:fail', 'painel:login', 'painel:login:fail', 'painel:logout'],
+  seguranca: ['painel:user:reset-password', 'painel:user:delete', 'painel:passkey:add', 'painel:passkey:remove', 'auth:login:fail', 'auth:login:blocked', 'painel:user:block', 'painel:user:unblock', 'painel:ip:block', 'painel:ip:unblock', 'painel:user:disconnect', 'auth:register:fail', 'auth:password', 'auth:password:fail', 'painel:login', 'painel:login:fail', 'painel:logout'],
   contas: ['auth:login', 'auth:register', 'auth:logout', 'auth:password', 'voice:join'],
   moderacao: ['filter:block', 'filter:mask', 'server:filter', 'channel:privacy', 'channel:slowmode', 'member:nick', 'voice:move', 'spam:timeout', 'painel:msg:delete', 'painel:file:delete', 'msg:purge', 'member:kick', 'member:roles', 'msg:delete:other', 'msg:pin', 'music:kick', 'emoji:delete', 'sound:delete', 'invite:revoke'],
-  painel: ['painel:login', 'painel:login:fail', 'painel:logout', 'painel:restart', 'painel:backup', 'painel:speedtest', 'painel:user:disconnect', 'painel:user:block', 'painel:user:unblock', 'painel:ip:block', 'painel:ip:unblock', 'painel:maintenance', 'painel:deploy', 'painel:rollback', 'painel:xp', 'painel:msg:delete', 'painel:file:delete', 'painel:invite:create', 'painel:invite:revoke', 'painel:alerts', 'painel:passkey:add', 'painel:passkey:remove'],
+  painel: ['painel:user:reset-password', 'painel:user:delete', 'painel:login', 'painel:login:fail', 'painel:logout', 'painel:restart', 'painel:backup', 'painel:speedtest', 'painel:user:disconnect', 'painel:user:block', 'painel:user:unblock', 'painel:ip:block', 'painel:ip:unblock', 'painel:maintenance', 'painel:deploy', 'painel:rollback', 'painel:xp', 'painel:msg:delete', 'painel:file:delete', 'painel:invite:create', 'painel:invite:revoke', 'painel:alerts', 'painel:passkey:add', 'painel:passkey:remove'],
   minecraft: ['painel:mc:start', 'painel:mc:stop', 'painel:mc:restart', 'painel:mc:autostop', 'painel:mc:wake', 'painel:mc:backup', 'painel:mc:cmd', 'painel:mc:settings'],
 };
