@@ -1,10 +1,11 @@
 // Ações de voz, música (cabine de DJ, fila, busca no YouTube) e GIFs
 import { GIPHY_API_KEY } from '../config.js';
 import { db } from '../store.js';
-import { scheduleVoicePoll } from '../voice.js';
+import { scheduleVoicePoll, voiceChannelOf, grantMove } from '../voice.js';
+import { sendToUser } from '../realtime.js';
 import { music, requireMusicChannel } from '../music-rooms.js';
 import { createGifs } from '../../gifs.js';
-import { requirePerm } from '../guards.js';
+import { requirePerm, requireServer } from '../guards.js';
 import { fail, underLimit } from '../util.js';
 import { PERMS, can } from '../../public/js/permissions.js';
 
@@ -16,6 +17,22 @@ export default {
   // O site avisa que mudou algo na voz: consulta o LiveKit já, sem esperar a próxima rodada
   'voice:poke'() {
     scheduleVoicePoll(100);
+  },
+
+  // Mover alguém que está numa call para outro canal de voz do mesmo servidor (só aquela pessoa).
+  // O aparelho dela troca de canal sozinho; o 2º aparelho da conta (se tiver) fica onde está.
+  'voice:move'(user, m) {
+    const to = db.channel(m.channelId);
+    if (!to || to.type !== 'voice') fail('Canal de voz não encontrado.');
+    const ctx = requireServer(user, to.server_id);
+    if (ctx.snap.kind === 'dm') fail('Não dá para mover pessoas numa ligação de mensagem direta.');
+    requirePerm(ctx, PERMS.MOVE_MEMBERS, 'Você não tem permissão para mover pessoas entre canais de voz.');
+    const target = String(m.userId ?? '');
+    const from = voiceChannelOf(target);
+    if (!from || db.channel(from)?.server_id !== to.server_id) fail('Essa pessoa não está numa call deste servidor.');
+    if (from === to.id) fail('Essa pessoa já está nesse canal.');
+    grantMove(target, to.id);
+    sendToUser(target, { t: 'voice:move', channelId: to.id, by: user.name });
   },
 
   // Relógio do servidor: o site mede a diferença para sincronizar a música

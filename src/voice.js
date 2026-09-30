@@ -23,6 +23,16 @@ function publishGrant(perms, { companion = false } = {}) {
 }
 
 // POST /token: só membros com permissão de conectar; microfone/vídeo conforme os cargos
+// Passe de "foi movido": vale 30 s, uma vez, só para aquele canal
+const moveTickets = new Map(); // userId -> { channelId, until }
+export function grantMove(userId, channelId) { moveTickets.set(userId, { channelId, until: Date.now() + 30_000 }); }
+function takeMoveTicket(userId, channelId) {
+  const t = moveTickets.get(userId);
+  if (!t || t.channelId !== channelId || t.until < Date.now()) return false;
+  moveTickets.delete(userId);
+  return true;
+}
+
 export async function voiceToken(req) {
   const user = requireUser(req);
   const body = await readBody(req);
@@ -33,16 +43,18 @@ export async function voiceToken(req) {
   }
   const snap = db.snapshot(channel.server_id);
   const perms = computePerms(snap, user.id);
-  if (!can(perms, PERMS.CONNECT)) throw new HttpError(403, 'Você não tem permissão para entrar neste canal.');
+  // Movido por alguém com "Mover membros": entra mesmo sem permissão de conectar ou com o canal cheio (como no Discord)
+  const moved = !second && takeMoveTicket(user.id, channel.id);
+  if (!moved && !can(perms, PERMS.CONNECT)) throw new HttpError(403, 'Você não tem permissão para entrar neste canal.');
   // Limite de pessoas do canal (quem pode gerenciar canais entra mesmo cheio, como no Discord)
   const limit = snap.channels.find((c) => c.id === channel.id)?.userLimit ?? 0;
-  if (limit > 0 && !can(perms, PERMS.MANAGE_CHANNELS)) {
+  if (limit > 0 && !moved && !can(perms, PERMS.MANAGE_CHANNELS)) {
     const inside = await roomService.listParticipants(channel.id).then((ps) => ps.map((p) => p.identity)).catch(() => voicePeople(channel.id).map((p) => p.id));
     if (inside.filter((id) => baseUserId(id) !== user.id).length >= limit) throw new HttpError(403, `Esse canal está cheio (máximo de ${limit} ${limit === 1 ? 'pessoa' : 'pessoas'}).`);
   }
 
   // Entrada em canal de voz fica na auditoria (menos nas ligações das mensagens diretas)
-  if (snap.kind !== 'dm') audit('voice:join', { user, ip: clientIp(req), serverId: snap.id, detail: { servidor: snap.name, canal: channel.name, ...(second ? { aparelho: '2º aparelho' } : {}) } });
+  if (snap.kind !== 'dm') audit('voice:join', { user, ip: clientIp(req), serverId: snap.id, detail: { servidor: snap.name, canal: channel.name, ...(second ? { aparelho: '2º aparelho' } : {}), ...(moved ? { movido: true } : {}) } });
   const at = new AccessToken(API_KEY, API_SECRET, {
     identity: second ? `${user.id}:2` : user.id, name: second ? `${user.name} (2º aparelho)` : user.name, ttl: '6h',
     attributes: second ? { companion: '1' } : undefined,

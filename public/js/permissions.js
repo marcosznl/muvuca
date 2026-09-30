@@ -16,6 +16,7 @@ export const PERMS = {
   MANAGE_EMOJIS: 1 << 12,  // enviar, renomear e excluir os emojis do servidor
   MANAGE_MESSAGES: 1 << 13, // apagar mensagens de outras pessoas
   PIN_MESSAGES: 1 << 14,    // fixar e desafixar mensagens
+  MOVE_MEMBERS: 1 << 15,    // mover alguém de um canal de voz para outro
 };
 
 export const ALL_PERMS = Object.values(PERMS).reduce((a, b) => a | b, 0);
@@ -40,6 +41,7 @@ export const PERM_INFO = [
   ['MANAGE_EMOJIS', 'Gerenciar emojis', 'Enviar, renomear e excluir os emojis personalizados do servidor.'],
   ['MANAGE_MESSAGES', 'Gerenciar mensagens', 'Apagar mensagens de outras pessoas nos canais de texto.'],
   ['PIN_MESSAGES', 'Fixar mensagens', 'Fixar e desafixar mensagens no topo do canal.'],
+  ['MOVE_MEMBERS', 'Mover membros', 'Levar alguém que está numa call para outro canal de voz do servidor.'],
 ];
 
 // Permissões efetivas de um usuário num servidor (snapshot enviado pelo servidor)

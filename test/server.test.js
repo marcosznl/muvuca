@@ -615,3 +615,13 @@ test('2º aparelho na call: identidade "conta:2", sem microfone, nome avisando',
   assert.ok(!sources(second).some((x) => x.includes('microphone') || x === '2'));
   assert.ok(sources(second).some((x) => x.includes('camera') || x === '1'));
 });
+
+test('mover da call: só com "Mover membros", só quem está numa call do servidor', async () => {
+  const semPermissao = await ana.request({ t: 'voice:move', userId: dono.me.id, channelId: 'sala-1' });
+  assert.equal(semPermissao.t, 'error');
+  assert.match(semPermissao.message, /permissão para mover/);
+  // O dono pode, mas a Ana não está em nenhuma call (sem LiveKit no teste)
+  const foraDaCall = await dono.request({ t: 'voice:move', userId: ana.me.id, channelId: 'sala-1' });
+  assert.match(foraDaCall.message, /não está numa call/);
+  assert.match((await dono.request({ t: 'voice:move', userId: ana.me.id, channelId: 'geral' })).message, /não encontrado/);
+});
