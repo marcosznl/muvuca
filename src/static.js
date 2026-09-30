@@ -78,7 +78,34 @@ async function serveDownload(req, res, name) {
   createReadStream(file).pipe(res);
 }
 
+// Versão do site (/build.json): muda quando qualquer arquivo publicado muda. O service worker do site
+// guarda os arquivos no aparelho e só busca de novo quando a versão muda (abre quase na hora no celular).
+let build = { at: 0, v: null };
+async function walkStats(dir, base = '') {
+  const out = [];
+  for (const e of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    const rel = `${base}/${e.name}`;
+    if (e.isDirectory()) out.push(...await walkStats(path.join(dir, e.name), rel));
+    else { const st = await fs.stat(path.join(dir, e.name)).catch(() => null); if (st) out.push(`${rel}:${st.size}:${Math.floor(st.mtimeMs)}`); }
+  }
+  return out;
+}
+export async function buildVersion() {
+  if (Date.now() - build.at < 5000 && build.v) return build.v; // uma conta a cada 5 s basta
+  const parts = await walkStats(PUBLIC_DIR);
+  for (const f of ['node_modules/livekit-client/dist/livekit-client.umd.js', 'node_modules/@sapphi-red/web-noise-suppressor/dist/index.js']) {
+    const st = await fs.stat(path.join(ROOT, f)).catch(() => null);
+    if (st) parts.push(`${f}:${st.size}:${Math.floor(st.mtimeMs)}`);
+  }
+  build = { at: Date.now(), v: crypto.createHash('sha1').update(parts.sort().join('\n')).digest('hex').slice(0, 16) };
+  return build.v;
+}
+
 export async function serveStatic(req, res, pathname) {
+  if (pathname === '/build.json') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    return res.end(JSON.stringify({ v: await buildVersion() }));
+  }
   if (pathname === '/baixar') return sendFile(req, res, path.join(PUBLIC_DIR, 'baixar.html'), TYPES['.html']).catch(() => json(res, 404, { error: 'Não encontrado' }));
   if (pathname.startsWith('/downloads/')) return serveDownload(req, res, pathname.slice('/downloads/'.length));
   // Supressão de ruído (RNNoise): só estes arquivos da biblioteca
