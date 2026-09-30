@@ -57,7 +57,7 @@ export function selectServer(serverId) {
 
 // Ícone fixo de jogos: sai do servidor aberto (a voz e a música continuam tocando)
 export function selectGames() {
-  state.view = { serverId: null, channelId: null, games: true };
+  state.view = { serverId: null, channelId: null, games: true, dms: true }; // os jogos ficam dentro do início (mensagens diretas)
   showChannel();
   openGames();
 }

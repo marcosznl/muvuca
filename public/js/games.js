@@ -4,6 +4,7 @@
 import { $, h, showBanner, makeAvatar } from './util.js';
 import { icon } from './icons.js';
 import { state } from './state.js';
+import { renderDmSidebar } from './dms.js';
 import { request, send } from './net.js';
 import { colorOf } from './games/common.js';
 import { confetti } from './confetti.js';
@@ -191,29 +192,23 @@ function closeDrawer() {
   $('scrim').hidden = true;
 }
 
-function categoryTitle(text) {
-  const row = h('div', 'category');
-  row.append(h('span', '', text));
-  return row;
-}
+// A coluna da esquerda nos jogos é a mesma das mensagens diretas (Amigos, Jogos, conversas)
+export function renderGamesSidebar() { if (inGames()) renderDmSidebar(); }
 
-export function renderGamesSidebar() {
-  const header = $('server-name');
-  header.replaceChildren(h('span', 'server-title', 'Jogos'));
-  header.onclick = null;
-  const box = $('channel-list');
-  box.replaceChildren();
-  // Um item só para a lista de jogos; o resto da coluna é das salas
-  const list = h('ul', 'channel-list');
-  const lobby = h('button', 'channel');
-  lobby.classList.toggle('active', !games.room);
-  lobby.append(h('span', 'game-emoji', '🎮'), h('span', 'name', 'Todos os jogos'));
-  lobby.onclick = () => { closeDrawer(); if (games.room) leaveRoom(); else renderGamesView(); };
-  const li = h('li');
-  li.append(lobby);
-  list.append(li);
-  box.append(h('div', 'games-gap'), list, categoryTitle(`Salas abertas — ${games.rooms.length}`));
-  const rooms = h('ul', 'channel-list');
+// Item "Jogos" (abaixo de Amigos) e, dentro dos jogos, as salas abertas logo embaixo dele
+export function gamesNav() {
+  const here = inGames();
+  const btn = h('button', 'channel dm-item dm-friends');
+  btn.classList.toggle('active', here && !games.room);
+  btn.append(icon('gamepad', 22), h('span', 'dm-info name', 'Jogos'));
+  if (here && games.rooms.length) btn.append(h('span', 'count', String(games.rooms.length)));
+  btn.onclick = () => {
+    closeDrawer();
+    if (!here) return import('./app.js').then(({ selectGames }) => selectGames());
+    if (games.room) leaveRoom(); else renderGamesView();
+  };
+  if (!here) return [btn];
+  const rooms = h('ul', 'channel-list game-rooms-nav');
   for (const r of games.rooms) {
     const b = h('button', 'channel');
     b.classList.toggle('active', games.room?.id === r.id);
@@ -227,7 +222,7 @@ export function renderGamesSidebar() {
     rooms.append(li);
   }
   if (!games.rooms.length) rooms.append(h('li', 'muted small games-empty', 'Nenhuma sala aberta. Crie uma!'));
-  box.append(rooms);
+  return [btn, rooms];
 }
 
 // ---------- Área principal ----------

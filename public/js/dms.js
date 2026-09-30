@@ -7,6 +7,7 @@ import { request } from './net.js';
 import { openModal, button, promptText, contextMenu } from './dialogs.js';
 import { selectServer } from './app.js';
 import { incomingCount } from './friends.js';
+import { gamesNav } from './games.js';
 
 export const isDm = (s) => s?.kind === 'dm';
 export const dmServers = () => state.servers.filter(isDm);
@@ -56,13 +57,13 @@ export function renderDmSidebar() {
   section.append(h('span', '', 'Mensagens diretas'), plus);
   // "Amigos": abre a página de amigos (com o número de pedidos esperando resposta)
   const friendsBtn = h('button', 'channel dm-item dm-friends');
-  friendsBtn.classList.toggle('active', !state.view.serverId);
+  friendsBtn.classList.toggle('active', !state.view.serverId && !state.view.games);
   friendsBtn.append(icon('users', 22), h('span', 'dm-info name', 'Amigos'));
   const pending = incomingCount();
   if (pending) friendsBtn.append(h('span', 'badge', String(pending)));
   friendsBtn.onclick = selectDmHome;
   const nav = h('div', 'dm-nav');
-  nav.append(friendsBtn);
+  nav.append(friendsBtn, ...gamesNav()); // Jogos logo abaixo de Amigos (com as salas abertas embaixo)
   box.append(newBtn, nav, section);
   const list = h('ul', 'channel-list dm-list');
   const hide = hidden();
@@ -187,8 +188,8 @@ export function dmRailItem() {
   const item = h('div', 'rail-item');
   item.classList.toggle('active', !!state.view.dms || isDm(serverById(state.view.serverId)));
   const btn = h('button', 'server-icon dm-icon');
-  btn.title = 'Mensagens diretas';
-  btn.append(icon('chat', 26));
+  btn.title = 'Muvuca: mensagens diretas, amigos e jogos';
+  btn.append(icon('muvuca', 26));
   btn.onclick = () => {
     const last = serverById(store.get('lastDm'));
     if (isDm(last) && !incomingCount()) selectServer(last.id);

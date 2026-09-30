@@ -4,7 +4,7 @@ import { startDm } from './dms.js';
 import { friendStatus, addFriend } from './friends.js';
 import { selectGames } from './app.js';
 import { enterRoom } from './games.js';
-import { state, serverById, permsIn, PERMS, profileOf } from './state.js';
+import { state, serverById, permsIn, PERMS, profileOf, statusOf } from './state.js';
 import { can, topPosition, nameColor } from './permissions.js';
 import { request, upload, api, send } from './net.js';
 import { openModal, button, contextMenu } from './dialogs.js';
@@ -69,7 +69,7 @@ const bannerColor = (p) => p.banner || `hsl(${hue(p.name)} 45% 38%)`;
 const fmtDate = (ts) => new Date(ts).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', year: 'numeric' });
 
 // Monta o cartão (usado no clique em alguém e na prévia do editor)
-function profileCard(p, { server = null, preview = false, editRoles = false } = {}) {
+function profileCard(p, { server = null, preview = false, editRoles = false, selfCard = false } = {}) {
   const card = h('div', 'profile-card');
   const banner = h('div', p.bannerImage ? 'profile-banner with-image' : 'profile-banner');
   banner.style.background = bannerColor(p);
@@ -81,12 +81,17 @@ function profileCard(p, { server = null, preview = false, editRoles = false } = 
     avatar.style.backgroundImage = `url("/img/${p.avatar}")`;
   }
   avatar.classList.add('profile-card-avatar');
+  if (!preview) { // bolinha de status na foto (verde, lua, não perturbe; offline sem bolinha)
+    const st = statusOf(p.id);
+    if (st && st !== 'offline') avatar.classList.add('with-status', `status-${st}`);
+  }
   const body = h('div', 'profile-card-body');
   const name = h('div', 'profile-card-name', p.name || '…');
   const color = server && nameColor(server, p.id);
   if (color) name.style.color = color;
   body.append(name, h('div', 'muted', `@${p.username}`));
-  if (p.statusText && !preview) body.append(h('div', 'profile-card-status', p.statusText));
+  // Balão de pensamento (o status personalizado) ao lado da foto; no seu cartão dá para escrever nele
+  if (!preview && (p.statusText || (selfCard && p.id === state.me?.id))) card.append(thoughtBubble(p, selfCard));
 
   const section = (title, content) => {
     const box = h('div', 'profile-card-section');
@@ -113,8 +118,56 @@ function profileCard(p, { server = null, preview = false, editRoles = false } = 
     const chips = roleChips(server, p, { editable: editRoles });
     if (chips) section('Cargos', chips);
   }
-  card.append(banner, avatar, body);
+  card.prepend(banner, avatar);
+  card.append(body);
   return { card, body };
+}
+
+const BUBBLE_MAX = 60;
+function thoughtBubble(p, editable) {
+  const bubble = h('div', p.statusText ? 'thought-bubble' : 'thought-bubble empty');
+  const show = () => {
+    bubble.replaceChildren();
+    if (p.statusText) bubble.append(h('span', 'thought-text', p.statusText));
+    else bubble.append(icon('plus', 14), h('span', 'thought-text', 'No que você está pensando?'));
+    bubble.title = editable ? 'Clique para mudar (aparece para todo mundo)' : p.statusText;
+  };
+  show();
+  if (!editable) return bubble;
+  bubble.classList.add('editable');
+  bubble.tabIndex = 0;
+  bubble.setAttribute('role', 'button');
+  const edit = () => {
+    if (bubble.querySelector('input')) return;
+    const input = h('input');
+    Object.assign(input, { value: p.statusText ?? '', maxLength: BUBBLE_MAX, placeholder: 'No que você está pensando?' });
+    input.setAttribute('aria-label', 'Balão de pensamento');
+    bubble.classList.remove('empty');
+    bubble.replaceChildren(input);
+    input.focus();
+    let done = false;
+    const finish = async (save) => {
+      if (done) return;
+      done = true;
+      const text = input.value.replace(/\s+/g, ' ').trim();
+      if (save && text !== (p.statusText ?? '')) {
+        try {
+          await request({ t: 'status:text', text });
+          p.statusText = text || null;
+        } catch (err) { showBanner(err.message, { timeout: 4000 }); }
+      }
+      bubble.classList.toggle('empty', !p.statusText);
+      show();
+    };
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); }
+    };
+    input.onblur = () => finish(true);
+  };
+  bubble.onclick = edit;
+  bubble.onkeydown = (e) => { if (e.key === 'Enter' && e.target === bubble) edit(); };
+  return bubble;
 }
 
 // Cargos como etiquetas (cor + nome). Quem gerencia cargos tira no × e põe no + (só os abaixo do seu)
@@ -193,7 +246,10 @@ function cardIcon(name, title, onClick, { text = null, on = false } = {}) {
 
 let openCard = null;
 let cardObserver = null;
+let openCardCleanup = null;
 export function closeProfileCard() {
+  openCardCleanup?.();
+  openCardCleanup = null;
   cardObserver?.disconnect(); // para de acompanhar o tamanho do cartão fechado
   cardObserver = null;
   openCard?.remove();
@@ -201,7 +257,11 @@ export function closeProfileCard() {
   document.removeEventListener('mousedown', outsideCard, true);
 }
 // Clique fora fecha; o menu que o próprio cartão abriu ("…", + dos cargos) não conta como fora
-function outsideCard(e) { if (openCard && !openCard.contains(e.target) && !e.target.closest?.('.context-menu')) closeProfileCard(); }
+function outsideCard(e) {
+  if (!openCard || openCard.contains(e.target) || e.target.closest?.('.context-menu, .status-submenu')) return;
+  if (openCard.classList.contains('me-popout') && e.target.closest?.('#me-avatar, #me-name')) return; // o clique na foto fecha (sem reabrir)
+  closeProfileCard();
+}
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeProfileCard(); });
 
 // Clique em alguém (lista de membros, nome ou foto no chat): mostra o perfil perto do clique
@@ -215,7 +275,7 @@ export function openProfileCard(userId, x, y, serverId = state.view.serverId) {
   const perms = inServer ? permsIn(s) : 0;
   const manageRoles = !me && inServer && can(perms, PERMS.MANAGE_ROLES) && canManageMember(s, p);
   const canKick = !me && inServer && can(perms, PERMS.KICK_MEMBERS) && p.id !== s.ownerId && topPosition(s, p.id) < myTop(s);
-  const { card, body } = profileCard(p, { server: s, editRoles: manageRoles });
+  const { card, body } = profileCard(p, { server: s, editRoles: manageRoles, selfCard: me });
 
   // Ícones no topo (como no Discord): amizade, editar o próprio perfil e o menu "…"
   const top = h('div', 'profile-card-top');
@@ -313,6 +373,91 @@ export function openProfileCard(userId, x, y, serverId = state.view.serverId) {
   cardObserver = new ResizeObserver(place);
   cardObserver.observe(card);
   openCard = card;
+  setTimeout(() => document.addEventListener('mousedown', outsideCard, true), 0);
+}
+
+// ---------- Você (clique na sua foto lá embaixo) ----------
+// Seu cartão com o balão de pensamento e, embaixo, os atalhos: editar perfil, status e mais opções
+const PRESENCE_INFO = {
+  online: { label: 'Disponível' },
+  idle: { label: 'Ausente', desc: 'Aparece com a lua para os outros' },
+  dnd: { label: 'Não perturbe', desc: 'Sem sons e sem notificações' },
+  invisible: { label: 'Invisível', desc: 'Você aparece offline' },
+};
+export function openMePopout(anchor, { onMore, onPassword }) {
+  if (openCard?.classList.contains('me-popout')) return closeProfileCard(); // clicar de novo na foto fecha
+  closeProfileCard();
+  const me = state.me;
+  const p = profileOf(me.id, null) ?? me;
+  const { card, body } = profileCard({ ...p, statusText: me.statusText }, { selfCard: true });
+  card.classList.add('me-popout');
+
+  const row = (iconName, label, onClick, { chevron = false, dot = null } = {}) => {
+    const b = h('button', 'me-row');
+    b.type = 'button';
+    if (dot) b.append(h('span', `me-dot status-${dot}`));
+    else b.append(icon(iconName, 18));
+    b.append(h('span', 'me-row-label', label));
+    if (chevron) b.append(h('span', 'me-chevron', '›'));
+    b.onclick = (e) => { e.stopPropagation(); onClick(b); };
+    return b;
+  };
+  const presence = me.presence ?? 'online';
+  let sub = null;
+  const closeSub = () => { sub?.remove(); sub = null; };
+  const statusRow = row(null, PRESENCE_INFO[presence].label, (b) => {
+    if (sub) return closeSub();
+    sub = h('div', 'status-submenu');
+    for (const key of ['online', 'idle', 'dnd', 'invisible']) {
+      const item = h('button', key === presence ? 'status-item on' : 'status-item');
+      item.type = 'button';
+      const text = h('span', 'status-item-text');
+      text.append(h('span', 'status-item-label', PRESENCE_INFO[key].label));
+      if (PRESENCE_INFO[key].desc) text.append(h('span', 'status-item-desc', PRESENCE_INFO[key].desc));
+      item.append(h('span', `me-dot status-${key}`), text);
+      item.onclick = () => {
+        request({ t: 'presence:set', presence: key }).catch((err) => showBanner(err.message, { timeout: 4000 }));
+        closeProfileCard();
+      };
+      sub.append(item);
+      if (key === 'online') sub.append(h('div', 'menu-sep'));
+    }
+    document.getElementById('overlay-layer').append(sub);
+    const r = b.getBoundingClientRect();
+    const w = sub.offsetWidth;
+    sub.style.left = `${r.right + 8 + w > innerWidth ? Math.max(8, r.left - w - 8) : r.right + 8}px`;
+    sub.style.top = `${Math.max(8, Math.min(r.top - 8, innerHeight - sub.offsetHeight - 8))}px`;
+  }, { chevron: true, dot: presence });
+
+  const group1 = h('div', 'me-group');
+  group1.append(
+    row('pencil', 'Editar perfil', () => { closeProfileCard(); openProfileEditor(); }),
+    h('div', 'me-sep'),
+    statusRow,
+  );
+  const group2 = h('div', 'me-group');
+  group2.append(
+    row('shield', 'Trocar senha', () => { closeProfileCard(); onPassword(); }),
+    h('div', 'me-sep'),
+    row('settings', 'Mais opções', (b) => { const r = b.getBoundingClientRect(); closeSub(); onMore(r.right + 8, r.top); }, { chevron: true }),
+    h('div', 'me-sep'),
+    row('link', 'Copiar nome de usuário', () => navigator.clipboard?.writeText(`@${me.username}`).then(() => toast('Copiado!')).catch(() => {})),
+  );
+  body.append(group1, group2);
+
+  card.classList.add('floating');
+  document.getElementById('overlay-layer').append(card);
+  const place = () => {
+    if (!card.isConnected) return;
+    card.style.left = `${Math.max(8, Math.min(anchor.left - 4, innerWidth - card.offsetWidth - 8))}px`;
+    card.style.top = `${Math.max(8, anchor.top - card.offsetHeight - 8)}px`;
+  };
+  place();
+  cardObserver?.disconnect();
+  cardObserver = new ResizeObserver(place);
+  cardObserver.observe(card);
+  openCard = card;
+  openCardCleanup = closeSub;
   setTimeout(() => document.addEventListener('mousedown', outsideCard, true), 0);
 }
 

@@ -1,13 +1,13 @@
 // Coluna de servidores, lista de canais, painel "Voz conectada" e painel do usuário
 import { $, h, makeAvatar, paintServerIcon, toast, showBanner, store } from './util.js';
-import { openProfileEditor, openChangePassword, openProfileCard } from './profile.js';
+import { openChangePassword, openProfileCard, openMePopout } from './profile.js';
 import { icon } from './icons.js';
 import { state, currentServer, canIn, PERMS, serverUnread, serverMentions, statusOf, STATUS_LABEL, isMuted } from './state.js';
 import { soundsOn, setSounds } from './sounds.js';
 import { enablePush, disablePush, pushEnabled } from './push.js';
 import { request } from './net.js';
 import { contextMenu, promptText, confirmDialog, openModal, button } from './dialogs.js';
-import { selectServer, selectChannel, selectGames } from './app.js';
+import { selectServer, selectChannel } from './app.js';
 import { joinVoice, leaveVoice, watchStream, voiceChannelId, speakingNow, openUserVolumeMenu } from './voice.js';
 import { musicChannelId } from './music.js';
 import { openServerSettings, openInviteDialog } from './settings.js';
@@ -20,15 +20,7 @@ import { openQuickSwitch } from './quick-switch.js';
 export function renderRail() {
   const rail = $('server-rail');
   rail.replaceChildren();
-  // Área de jogos: fixa no topo, igual para todo mundo
-  const gamesItem = h('div', 'rail-item');
-  gamesItem.classList.toggle('active', !!state.view.games);
-  const gamesBtn = h('button', 'server-icon games-icon');
-  gamesBtn.title = 'Jogos';
-  gamesBtn.append(icon('gamepad', 28));
-  gamesBtn.onclick = selectGames;
-  gamesItem.append(h('span', 'rail-pill'), gamesBtn);
-  rail.append(dmRailItem(), gamesItem, h('div', 'rail-sep'));
+  rail.append(dmRailItem(), h('div', 'rail-sep')); // o M: mensagens diretas, amigos e jogos
   for (const s of state.servers.filter((x) => x.kind !== 'dm')) {
     const item = h('div', 'rail-item');
     item.classList.toggle('active', s.id === state.view.serverId);
@@ -600,7 +592,6 @@ function channelItem(s, c, canManage) {
 
 export function renderChannels() {
   if (drag) { renderPending = true; return; }
-  if (state.view.games) return; // na área de jogos a coluna mostra as salas (não pode ser apagada)
   if (state.view.dms) return renderDmSidebar();
   const s = currentServer();
   const box = $('channel-list');
@@ -639,7 +630,7 @@ export function renderUserPanel() {
   const avatar = Object.assign(makeAvatar(state.me.name, 'sm', state.me.id), { id: 'me-avatar', title: 'Status e perfil' });
   avatar.classList.add('with-status', `status-${status === 'offline' ? 'online' : status}`);
   $('me-avatar').replaceWith(avatar);
-  const openMenu = (e) => { e.stopPropagation(); const r = $('me-avatar').getBoundingClientRect(); statusMenu(r.left, r.top - 8); };
+  const openMenu = (e) => { e.stopPropagation(); openMePopout(document.querySelector('.user-panel').getBoundingClientRect(), { onMore: prefsMenu, onPassword: openChangePassword }); };
   $('me-avatar').onclick = openMenu;
   $('me-name').onclick = openMenu;
   const micOff = !state.micOn || state.deafened;
@@ -674,20 +665,9 @@ export function syncDesktopVoiceState() {
   window.muvucaDesktop?.setVoiceState({ muted: !state.micOn || state.deafened, inCall: !!voiceChannelId() || !!musicChannelId() });
 }
 
-// Menu do seu status (clique na sua foto lá embaixo)
-function statusMenu(x, y) {
-  const current = state.me.presence ?? 'online';
-  const pick = (presence) => ({
-    label: `${{ online: '🟢', idle: '🌙', dnd: '⛔', invisible: '⚪' }[presence]} ${STATUS_LABEL[presence]}${current === presence ? '  ✓' : ''}`,
-    onClick: () => request({ t: 'presence:set', presence }).catch((err) => showBanner(err.message, { timeout: 4000 })),
-  });
+// "Mais opções" do seu cartão (clique na sua foto lá embaixo): sons, notificações, atalhos e tema
+function prefsMenu(x, y) {
   contextMenu(x, y, [
-    pick('online'), pick('idle'), pick('dnd'), pick('invisible'),
-    'sep',
-    { label: state.me.statusText ? 'Mudar status personalizado…' : 'Definir status personalizado…', icon: 'pencil', onClick: setCustomStatus },
-    { label: 'Editar perfil', icon: 'user-plus', onClick: openProfileEditor },
-    { label: 'Trocar senha', icon: 'shield', onClick: openChangePassword },
-    'sep',
     { label: soundsOn() ? 'Sons: ligados' : 'Sons: desligados', icon: soundsOn() ? 'volume-low' : 'volume-off', onClick: () => { setSounds(!soundsOn()); toast(soundsOn() ? 'Sons ligados.' : 'Sons desligados.'); } },
     // No app do Mac as notificações são do próprio sistema (não precisa ativar)
     !window.muvucaDesktop && (pushEnabled()
@@ -700,15 +680,6 @@ function statusMenu(x, y) {
     'sep',
     ...THEMES.map(([id, label]) => ({ label: `Tema: ${label}${currentTheme() === id ? '  ✓' : ''}`, onClick: () => setTheme(id) })),
   ]);
-}
-
-async function setCustomStatus() {
-  const text = await promptText({
-    title: 'Status personalizado', subtitle: 'Aparece embaixo do seu nome para todo mundo. Deixe vazio para tirar.',
-    label: 'O que você está fazendo?', value: state.me.statusText ?? '', placeholder: 'Jogando Tron, estudando, ouvindo música…', confirm: 'Salvar', maxLength: 60, allowEmpty: true,
-  });
-  if (text === null || text === undefined) return;
-  request({ t: 'status:text', text }).catch((err) => showBanner(err.message, { timeout: 4000 }));
 }
 
 export function renderVoicePanel() {
