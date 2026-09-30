@@ -960,9 +960,30 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .profile-card-section { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.07); display: grid; gap: 4px; }
 .profile-card-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; color: var(--muted); }
 .profile-card-bio { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.35; }
-.profile-card-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
-.profile-card-actions .btn { padding: 6px 8px; font-size: 13px; font-weight: 500; line-height: 1.2; min-height: 32px; }
-.profile-card-actions .btn:only-child, .profile-card-actions .btn.primary { grid-column: 1 / -1; } /* o principal (ex.: Enviar mensagem) ocupa a linha toda */
+/* Ícones redondos no topo do cartão (amizade, editar, "…"), em cima do banner */
+.profile-card-top { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; z-index: 2; }
+.profile-icon-btn {
+  width: 32px; height: 32px; border-radius: 50%; border: 0; display: grid; place-items: center; cursor: pointer;
+  background: rgba(0,0,0,.55); color: #fff; transition: background .12s;
+}
+.profile-icon-btn:hover:not(:disabled) { background: rgba(0,0,0,.8); }
+.profile-icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.profile-icon-btn.on { background: var(--accent); }
+.profile-icon-btn.done { cursor: default; color: #b5f5c8; }
+.profile-icon-btn:disabled { opacity: .6; cursor: wait; }
+.profile-icon-text { font-size: 18px; line-height: 1; margin-top: -6px; letter-spacing: 1px; }
+/* Cargos: etiquetas com × para tirar e + para dar (quem gerencia cargos) */
+.role-chip .role-x { border: 0; background: none; color: var(--muted); padding: 0; margin-left: 2px; display: grid; place-items: center; cursor: pointer; border-radius: 50%; }
+.role-chip .role-x:hover { color: var(--text-strong); }
+.role-add { border: 0; color: var(--muted); cursor: pointer; padding: 2px 6px; }
+.role-add:hover { color: var(--text-strong); background: var(--bg-hover); }
+/* Conversar direto do cartão */
+.profile-dm { margin-top: 10px; }
+.profile-dm input {
+  width: 100%; box-sizing: border-box; border: 1px solid rgba(255,255,255,.08); border-radius: 8px; padding: 10px 12px;
+  background: var(--bg-side); color: var(--text); font: inherit; font-size: 13px;
+}
+.profile-dm input:focus { outline: none; border-color: var(--accent); }
 .profile-editor { display: grid; grid-template-columns: 1fr 300px; gap: 24px; align-items: start; text-align: left; }
 .profile-preview { display: grid; gap: 8px; position: sticky; top: 0; }
 .profile-form .field p { margin: 6px 0 0; }

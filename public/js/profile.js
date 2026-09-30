@@ -6,8 +6,9 @@ import { selectGames } from './app.js';
 import { enterRoom } from './games.js';
 import { state, serverById, permsIn, PERMS, profileOf } from './state.js';
 import { can, topPosition, nameColor } from './permissions.js';
-import { request, upload, api } from './net.js';
-import { openModal, button } from './dialogs.js';
+import { request, upload, api, send } from './net.js';
+import { openModal, button, contextMenu } from './dialogs.js';
+import { icon } from './icons.js';
 import { colorPicker, kickMember, openMemberRoles, canManageMember, myTop } from './settings.js';
 
 const BIO_MAX = 190;
@@ -68,7 +69,7 @@ const bannerColor = (p) => p.banner || `hsl(${hue(p.name)} 45% 38%)`;
 const fmtDate = (ts) => new Date(ts).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', year: 'numeric' });
 
 // Monta o cartão (usado no clique em alguém e na prévia do editor)
-function profileCard(p, { server = null, preview = false } = {}) {
+function profileCard(p, { server = null, preview = false, editRoles = false } = {}) {
   const card = h('div', 'profile-card');
   const banner = h('div', p.bannerImage ? 'profile-banner with-image' : 'profile-banner');
   banner.style.background = bannerColor(p);
@@ -109,21 +110,85 @@ function profileCard(p, { server = null, preview = false } = {}) {
   }
   if (server && p.joinedAt) section(`Membro de ${server.name} desde`, h('div', 'small', fmtDate(p.joinedAt)));
   if (server) {
-    const roles = server.roles.filter((r) => !r.isDefault && p.roles?.includes(r.id)).sort((a, b) => b.position - a.position);
-    if (roles.length) {
-      const chips = h('div', 'role-chips');
-      for (const r of roles) {
-        const chip = h('span', 'role-chip');
-        const dot = h('span', 'role-dot');
-        dot.style.background = r.color || '#99aab5';
-        chip.append(dot, r.name);
-        chips.append(chip);
-      }
-      section('Cargos', chips);
-    }
+    const chips = roleChips(server, p, { editable: editRoles });
+    if (chips) section('Cargos', chips);
   }
   card.append(banner, avatar, body);
   return { card, body };
+}
+
+// Cargos como etiquetas (cor + nome). Quem gerencia cargos tira no × e põe no + (só os abaixo do seu)
+function roleChips(server, p, { editable = false } = {}) {
+  let current = [...(p.roles ?? [])];
+  const top = editable ? myTop(server) : 0;
+  const chips = h('div', 'role-chips');
+  const save = async (next) => {
+    const before = current;
+    current = next;
+    paint();
+    try {
+      await request({ t: 'member:roles', serverId: server.id, userId: p.id, roleIds: next });
+    } catch (err) {
+      current = before;
+      paint();
+      showBanner(err.message, { timeout: 4000 });
+    }
+  };
+  const paint = () => {
+    chips.replaceChildren();
+    const mine = server.roles.filter((r) => !r.isDefault && current.includes(r.id)).sort((a, b) => b.position - a.position);
+    for (const r of mine) {
+      const chip = h('span', 'role-chip');
+      const dot = h('span', 'role-dot');
+      dot.style.background = r.color || '#99aab5';
+      chip.append(dot, r.name);
+      if (editable && r.position < top) {
+        const x = h('button', 'role-x');
+        x.type = 'button';
+        x.title = `Tirar o cargo ${r.name}`;
+        x.append(icon('close', 12));
+        x.onclick = () => save(current.filter((id) => id !== r.id));
+        chip.append(x);
+      }
+      chips.append(chip);
+    }
+    const addable = editable ? server.roles.filter((r) => !r.isDefault && !current.includes(r.id) && r.position < top).sort((a, b) => b.position - a.position) : [];
+    if (addable.length) {
+      const add = h('button', 'role-chip role-add');
+      add.type = 'button';
+      add.title = 'Dar um cargo';
+      add.append(icon('plus', 14));
+      add.onclick = (e) => {
+        const r0 = e.currentTarget.getBoundingClientRect();
+        contextMenu(r0.left, r0.bottom + 4, addable.map((r) => ({ label: r.name, onClick: () => save([...current, r.id]) })));
+      };
+      chips.append(add);
+    }
+  };
+  paint();
+  return chips.children.length ? chips : null;
+}
+
+// Mensagem direta sem sair do cartão: abre (ou cria) a conversa, manda o texto e vai para ela
+async function sendDmTo(userId, text) {
+  await request({ t: 'dm:open', userIds: [userId] });
+  const findDm = () => state.servers.find((x) => x.kind === 'dm' && x.members.length === 2 && x.members.some((m) => m.id === userId));
+  for (let i = 0; i < 40 && !findDm(); i++) await new Promise((r) => setTimeout(r, 50));
+  const channel = findDm()?.channels.find((c) => c.type === 'text');
+  if (!channel) throw new Error('Não consegui abrir a conversa.');
+  send({ t: 'msg', channel: channel.id, text });
+}
+
+// Botão redondo do topo do cartão (em cima do banner)
+function cardIcon(name, title, onClick, { text = null, on = false } = {}) {
+  const b = h('button', on ? 'profile-icon-btn on' : 'profile-icon-btn');
+  b.type = 'button';
+  b.title = title;
+  b.setAttribute('aria-label', title);
+  if (text) b.append(h('span', 'profile-icon-text', text));
+  else b.append(icon(name, 18));
+  b.onclick = (e) => { e.stopPropagation(); onClick(e); };
+  return b;
 }
 
 let openCard = null;
@@ -135,7 +200,8 @@ export function closeProfileCard() {
   openCard = null;
   document.removeEventListener('mousedown', outsideCard, true);
 }
-function outsideCard(e) { if (openCard && !openCard.contains(e.target)) closeProfileCard(); }
+// Clique fora fecha; o menu que o próprio cartão abriu ("…", + dos cargos) não conta como fora
+function outsideCard(e) { if (openCard && !openCard.contains(e.target) && !e.target.closest?.('.context-menu')) closeProfileCard(); }
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeProfileCard(); });
 
 // Clique em alguém (lista de membros, nome ou foto no chat): mostra o perfil perto do clique
@@ -144,44 +210,42 @@ export function openProfileCard(userId, x, y, serverId = state.view.serverId) {
   const s = serverById(serverId);
   const p = profileOf(userId, s);
   if (!p) return;
-  const { card, body } = profileCard(p, { server: s });
+  const me = userId === state.me?.id;
+  const inServer = s && s.kind !== 'dm';
+  const perms = inServer ? permsIn(s) : 0;
+  const manageRoles = !me && inServer && can(perms, PERMS.MANAGE_ROLES) && canManageMember(s, p);
+  const canKick = !me && inServer && can(perms, PERMS.KICK_MEMBERS) && p.id !== s.ownerId && topPosition(s, p.id) < myTop(s);
+  const { card, body } = profileCard(p, { server: s, editRoles: manageRoles });
 
-  const actions = h('div', 'profile-card-actions');
-  if (userId === state.me?.id) {
-    const edit = button('Editar perfil', { kind: 'secondary' });
-    edit.onclick = () => { closeProfileCard(); openProfileEditor(); };
-    actions.append(edit);
+  // Ícones no topo (como no Discord): amizade, editar o próprio perfil e o menu "…"
+  const top = h('div', 'profile-card-top');
+  if (me) {
+    top.append(cardIcon('pencil', 'Editar perfil', () => { closeProfileCard(); openProfileEditor(); }));
   } else {
-    // Conversa privada com a pessoa
-    const dm = button('Enviar mensagem');
-    dm.onclick = () => { closeProfileCard(); startDm([userId]); };
-    actions.append(dm);
-    // Amizade: adicionar, aceitar ou só mostrar que já são amigos / que o pedido foi enviado
     const fs = friendStatus(userId);
-    const friend = button({ friend: 'Amigos ✓', outgoing: 'Pedido enviado', incoming: 'Aceitar amizade' }[fs] ?? 'Adicionar amigo', { kind: fs === 'incoming' ? 'primary' : 'secondary' });
-    friend.disabled = fs === 'friend' || fs === 'outgoing';
-    friend.onclick = async () => {
+    const label = { friend: 'Vocês são amigos', outgoing: 'Pedido de amizade enviado', incoming: 'Aceitar pedido de amizade' }[fs] ?? 'Adicionar amigo';
+    const friend = cardIcon(fs === 'friend' || fs === 'outgoing' ? 'check' : 'user-plus', label, async () => {
+      if (fs === 'friend' || fs === 'outgoing') return;
       friend.disabled = true;
       if (fs === 'incoming') await request({ t: 'friend:accept', userId }).catch((err) => showBanner(err.message, { timeout: 4000 }));
-      else if (await addFriend({ userId })) friend.textContent = 'Pedido enviado';
-      else friend.disabled = false;
-    };
-    actions.append(friend);
+      else if (await addFriend({ userId })) { friend.replaceChildren(icon('check', 18)); friend.title = 'Pedido de amizade enviado'; return; }
+      friend.disabled = false;
+    }, { on: fs === 'incoming' });
+    if (fs === 'friend' || fs === 'outgoing') friend.classList.add('done');
+    top.append(friend);
   }
-  if (userId !== state.me?.id && s && s.kind !== 'dm') {
-    const perms = permsIn(s);
-    if (can(perms, PERMS.MANAGE_ROLES) && canManageMember(s, p)) {
-      const roles = button('Cargos…', { kind: 'secondary' });
-      roles.onclick = () => { closeProfileCard(); openMemberRoles(s.id, p.id); };
-      actions.append(roles);
-    }
-    if (can(perms, PERMS.KICK_MEMBERS) && p.id !== s.ownerId && topPosition(s, p.id) < myTop(s)) {
-      const kick = button('Expulsar', { kind: 'danger-outline' });
-      kick.onclick = () => { closeProfileCard(); kickMember(s, p); };
-      actions.append(kick);
-    }
-  }
-  if (actions.children.length) body.append(actions);
+  const more = [
+    manageRoles && { label: 'Gerenciar cargos', icon: 'shield', onClick: () => { closeProfileCard(); openMemberRoles(s.id, p.id); } },
+    { label: 'Copiar nome de usuário', icon: 'link', onClick: () => navigator.clipboard?.writeText(`@${p.username}`).then(() => toast('Copiado!')).catch(() => {}) },
+    canKick && 'sep',
+    canKick && { label: `Expulsar ${p.name}`, icon: 'door-out', danger: true, onClick: () => { closeProfileCard(); kickMember(s, p); } },
+  ].filter(Boolean);
+  top.append(cardIcon(null, 'Mais opções', (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    contextMenu(r.left, r.bottom + 4, more);
+  }, { text: '⋯' }));
+  card.append(top);
+
   // Jogando agora + números e conquistas nos jogos (chega um instante depois)
   const act = state.activity[userId];
   if (act) {
@@ -207,6 +271,29 @@ export function openProfileCard(userId, x, y, serverId = state.view.serverId) {
       games.append(badges);
     }
   }).catch(() => {});
+
+  // Conversar direto: escreve aqui e a mensagem vai para a conversa privada (e abre ela)
+  if (!me) {
+    const form = h('form', 'profile-dm');
+    const input = h('input');
+    Object.assign(input, { type: 'text', placeholder: `Conversar com @${p.username}`, maxLength: 2000, autocomplete: 'off' });
+    input.setAttribute('aria-label', `Mensagem para ${p.name}`);
+    form.append(input);
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text) { closeProfileCard(); return startDm([userId]); }
+      input.disabled = true;
+      try {
+        await sendDmTo(userId, text);
+        closeProfileCard();
+      } catch (err) {
+        input.disabled = false;
+        showBanner(err.message, { timeout: 4000 });
+      }
+    };
+    body.append(form);
+  }
 
   card.classList.add('floating');
   document.getElementById('overlay-layer').append(card);

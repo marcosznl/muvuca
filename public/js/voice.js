@@ -310,6 +310,7 @@ export async function leaveVoice({ keepView = false } = {}) {
 
 function onVoiceClosed({ keepView = false } = {}) {
   for (const id of [...meters.keys()]) detachMeter(id);
+  resetMicWatch();
   speakingSet = new Set();
   room = null;
   roomChannel = null;
@@ -1057,6 +1058,73 @@ setInterval(() => {
   speakingSet = next;
   if (changed) updateSpeaking();
 }, 50);
+
+// Vigia do microfone: avisa a própria pessoa quando ninguém está ouvindo ela.
+// Compara o que o microfone capta (raw) com o que de fato sai para a call (sent, depois dos filtros):
+// - microfone com som, mas saindo silêncio → o filtro travou (foi o caso do WebAssembly bloqueado): desliga o filtro
+// - microfone em silêncio absoluto (zero, nem ruído de fundo) → sem permissão do sistema ou microfone errado
+const MIC_WATCH_MS = 500;
+const micWatch = { raw: null, sent: null, silentSent: 0, zeroRaw: 0, warned: false, fixed: false };
+const rmsOf = (w) => {
+  w.analyser.getFloatTimeDomainData(w.data);
+  let sum = 0;
+  for (const v of w.data) sum += v * v;
+  return Math.sqrt(sum / w.data.length);
+};
+function watchTrack(slot, mediaStreamTrack) {
+  const cur = micWatch[slot];
+  if (cur?.track === mediaStreamTrack) return cur;
+  cur?.src.disconnect();
+  micWatch[slot] = null;
+  if (!mediaStreamTrack || !meterCtx) return null;
+  const src = meterCtx.createMediaStreamSource(new MediaStream([mediaStreamTrack]));
+  const analyser = meterCtx.createAnalyser();
+  analyser.fftSize = 1024;
+  src.connect(analyser);
+  micWatch[slot] = { track: mediaStreamTrack, src, analyser, data: new Float32Array(analyser.fftSize) };
+  return micWatch[slot];
+}
+export function resetMicWatch() {
+  for (const slot of ['raw', 'sent']) { micWatch[slot]?.src.disconnect(); micWatch[slot] = null; }
+  Object.assign(micWatch, { silentSent: 0, zeroRaw: 0, warned: false, fixed: false });
+}
+function micWarn(text) {
+  if (micWatch.warned) return;
+  micWatch.warned = true;
+  showBanner(text, { timeout: 15000, onClick: () => openVoiceSettings() });
+}
+setInterval(() => {
+  const pub = room?.localParticipant.getTrackPublication(Track.Source.Microphone);
+  const track = pub?.track;
+  if (!room || secondDevice || !track || pub.isMuted || !state.micOn || state.deafened || meterCtx?.state !== 'running') {
+    micWatch.silentSent = 0; micWatch.zeroRaw = 0;
+    return;
+  }
+  if (track.mediaStreamTrack?.readyState === 'ended') return micWarn('Seu microfone foi desconectado: ninguém está te ouvindo. Clique aqui para escolher outro.');
+  const raw = watchTrack('raw', track.mediaStreamTrack);
+  const sent = watchTrack('sent', track.sender?.track ?? null);
+  if (!raw) return;
+  const rawRms = rmsOf(raw);
+  const sentRms = sent && sent.track !== raw.track ? rmsOf(sent) : rawRms;
+  micWatch.zeroRaw = rawRms === 0 ? micWatch.zeroRaw + MIC_WATCH_MS : 0;
+  micWatch.silentSent = rawRms > 0.003 && sentRms < 1e-5 ? micWatch.silentSent + MIC_WATCH_MS : Math.max(0, micWatch.silentSent - MIC_WATCH_MS);
+  if (sentRms > 0.003) micWatch.warned = false; // voltou a sair som: pode avisar de novo se parar
+  // O filtro engoliu a voz por uns segundos: tira o filtro nesta call (o som passa direto)
+  if (micWatch.silentSent >= 4000 && !micWatch.fixed && track.getProcessor?.()) {
+    micWatch.fixed = true;
+    micWatch.silentSent = 0;
+    track.stopProcessor().catch(() => {});
+    liveGain = null;
+    showBanner('A supressão de ruído travou e estava deixando seu microfone mudo. Desliguei ela nesta call para você voltar a ser ouvido.', { timeout: 10000 });
+  } else if (micWatch.silentSent >= 8000) {
+    micWarn('Seu microfone está captando som, mas nada está saindo para a call. Clique aqui para trocar o microfone ou sair e entrar de novo.');
+  }
+  if (micWatch.zeroRaw >= 12000) {
+    const where = /Mac/.test(navigator.userAgent) ? 'Ajustes do Sistema → Privacidade e Segurança → Microfone'
+      : /Windows/.test(navigator.userAgent) ? 'Configurações → Privacidade → Microfone' : 'as permissões do navegador';
+    micWarn(`Seu microfone está mandando silêncio total: ninguém está te ouvindo. Veja se o Muvuca tem permissão em ${where}, ou clique aqui para escolher outro microfone.`);
+  }
+}, MIC_WATCH_MS);
 
 // ---------- Ping da conexão de voz ----------
 
