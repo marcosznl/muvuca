@@ -918,6 +918,13 @@ const api = {
     audit(block ? 'painel:user:block' : 'painel:user:unblock', { ip: clientIp(req), detail: { conta: u.username, ...(reason ? { motivo: reason } : {}) } });
     json(res, 200, { ok: true, message: block ? `@${u.username} bloqueada e desconectada.` : `@${u.username} desbloqueada.` });
   },
+  // Trava de velocidade dos arquivos que saem do Mac (anexos, instaladores do app, fotos)
+  'POST /api/bandwidth': async (req, res) => {
+    const b = await readBody(req);
+    const r = await mainPost('/internal/bandwidth', { perMbps: Number(b.perMbps), totalMbps: Number(b.totalMbps), smart: b.smart === true });
+    audit('painel:bandwidth', { ip: clientIp(req), detail: { porArquivo: `${r.perMbps} Mbps`, total: `${r.totalMbps} Mbps`, esperta: r.smart } });
+    json(res, 200, { ok: true, message: `Trava salva: ${r.perMbps} Mbps por arquivo, ${r.totalMbps} Mbps no total${r.smart ? ', só com gente na call' : ', sempre ligada'}.` });
+  },
   // Senha temporária: a pessoa entra com ela uma vez e escolhe a nova na hora
   'POST /api/users/reset-password': async (req, res) => {
     const b = await readBody(req);

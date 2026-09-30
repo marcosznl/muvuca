@@ -1,6 +1,7 @@
 // Soundboard: sons curtos que todo mundo da call ouve (cada um toca no próprio navegador).
 // Os sons prontos ("builtin:…") são gerados no site; os do servidor são arquivos enviados por quem gerencia emojis.
 import fs from 'node:fs/promises';
+import { sendThrottled } from './throttle.js';
 import path from 'node:path';
 import { DATA_DIR } from './config.js';
 import { db } from './store.js';
@@ -62,7 +63,7 @@ export async function serveSound(req, res, id) {
   try {
     const data = await fs.readFile(path.join(SOUND_DIR, s.id));
     res.writeHead(200, { 'Content-Type': s.mime, 'Cache-Control': 'public, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
-    res.end(data);
+    await sendThrottled(res, data);
   } catch {
     json(res, 404, { error: 'Som não encontrado' });
   }

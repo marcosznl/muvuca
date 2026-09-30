@@ -12,6 +12,7 @@ import { voiceAll } from './voice.js';
 import { music } from './music-rooms.js';
 import { listRooms } from './games/lobby.js';
 import { statsOf } from './voice-stats.js';
+import { bandwidthStats } from './throttle.js';
 
 const KEY_FILE = path.join(DATA_DIR, 'painel-key');
 let key = '';
@@ -75,6 +76,7 @@ export function internalStats(startedAt) {
     loopDelayMaxMs: Math.max(0, Math.round(loopDelay.max / 1e6 - 20)),
     connections: [...sockets.values()].reduce((n, s) => n + s.size, 0),
     users, voice, music: musicRooms, games,
+    bandwidth: bandwidthStats(),
   };
 }
 // A média do atraso vale por janela: zera a cada consulta de 10 min

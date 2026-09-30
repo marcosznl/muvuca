@@ -73,6 +73,7 @@ export const AUDIT_LABELS = {
   'painel:backup': 'Fez backup pelo painel',
   'painel:restore-test': 'Teste de restauração do backup',
   'painel:speedtest': 'Teste de velocidade da internet',
+  'painel:bandwidth': 'Mudou a trava de velocidade dos arquivos',
   'painel:user:disconnect': 'Desconectou conta de todos os aparelhos',
   'painel:user:block': 'Bloqueou conta',
   'painel:user:unblock': 'Desbloqueou conta',

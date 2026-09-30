@@ -5,8 +5,9 @@ import { PORT, HOST, ACTION_RATE } from './src/config.js';
 import { db } from './src/store.js';
 import { sockets, send, broadcastPresence, presenceMessage, presencePref, autoIdle } from './src/realtime.js';
 import { register, login, cleanupAuthFails, changePassword } from './src/auth.js';
-import { voiceToken, voiceFor, pollVoice } from './src/voice.js';
+import { voiceToken, voiceFor, pollVoice, voiceAll } from './src/voice.js';
 import { serverViewFor } from './public/js/permissions.js';
+import { setBusyCheck, setBandwidth } from './src/throttle.js';
 import { INVITE_EXPIRY } from './src/actions/servers.js';
 import { music, musicFor } from './src/music-rooms.js';
 import { uploadEmoji, serveEmoji } from './src/emojis.js';
@@ -78,6 +79,9 @@ function securityHeaders(req, res) {
 }
 
 // Ordens do painel administrativo (só de dentro do Mac, com a chave do painel)
+// Trava de velocidade dos arquivos: "esperta" aperta só quando tem gente na voz
+setBusyCheck(() => Object.values(voiceAll()).some((people) => people.length > 0));
+
 const internalActions = {
   '/internal/user/disconnect': (b) => disconnectUser(String(b.userId)),
   '/internal/user/block': (b) => blockUser(String(b.userId), b.block === true, b.reason),
@@ -85,6 +89,7 @@ const internalActions = {
   '/internal/maintenance': (b) => setMaintenance(b),
   '/internal/xp/adjust': (b) => adjustXp(String(b.userId), b.amount, { reset: b.reset === true }),
   '/internal/message/delete': (b) => adminDeleteMessage(b.id),
+  '/internal/bandwidth': (b) => setBandwidth(b),
   '/internal/user/reset-password': (b) => resetPassword(String(b.userId ?? ''), b.password),
   '/internal/user/delete': (b) => deleteAccount(String(b.userId ?? '')),
   // Convites pelo painel: criados em nome do dono do servidor

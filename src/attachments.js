@@ -1,5 +1,6 @@
 // Anexos do chat (imagens, vídeos e documentos): envio antes da mensagem, entrega com Range e limpeza
 import fs from 'node:fs/promises';
+import { pipeThrottled } from './throttle.js';
 import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -95,10 +96,10 @@ export async function serveFile(req, res, id) {
     end = Math.min(end, size - 1);
     if (start > end) { res.writeHead(416, { 'Content-Range': `bytes */${size}` }); return res.end(); }
     res.writeHead(206, { ...headers, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': end - start + 1 });
-    return createReadStream(file, { start, end }).pipe(res);
+    return pipeThrottled(createReadStream(file, { start, end }), res); // trava de velocidade (ver throttle.js)
   }
   res.writeHead(200, { ...headers, 'Content-Length': size });
-  createReadStream(file).pipe(res);
+  return pipeThrottled(createReadStream(file), res);
 }
 
 export async function removeFiles(ids) {

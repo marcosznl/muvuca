@@ -989,6 +989,27 @@ async function startSpeedtest(mode, btns) {
   openTab('internet');
 }
 
+// Trava de velocidade dos arquivos que saem do Mac: protege a call e a live quando alguém baixa algo grande
+async function bandwidthCard() {
+  const st = await api('/api/status').catch(() => null);
+  const bw = st?.main?.bandwidth;
+  if (!bw) return h('div', { class: 'section card' }, h('h2', {}, 'Trava de velocidade dos arquivos'), h('p', { class: 'muted small' }, 'Reinicie o Muvuca para ativar.'));
+  const per = h('input', { type: 'number', min: 5, max: 1000, step: 5, value: bw.perMbps, style: 'width:90px' });
+  const total = h('input', { type: 'number', min: 10, max: 1000, step: 10, value: bw.totalMbps, style: 'width:90px' });
+  const smart = h('input', { type: 'checkbox', checked: bw.smart });
+  const save = h('button', { class: 'btn primary', onclick: () => act('/api/bandwidth', { perMbps: Number(per.value), totalMbps: Number(total.value), smart: smart.checked }, { reload: 'internet' }) }, 'Salvar');
+  return h('div', { class: 'section card' },
+    h('div', { class: 'row' }, h('h2', {}, 'Trava de velocidade dos arquivos'), h('span', { class: 'spacer' }),
+      h('span', { class: `pill ${bw.limiting ? 'warn' : 'good'}` }, h('span', { class: 'dot' }), bw.limiting ? 'travando agora' : 'solta agora (ninguém na call)')),
+    h('p', { class: 'muted small' }, 'Anexos, instaladores do app, fotos e sons que saem do Mac não podem ocupar o upload todo: a call e a live ficam com o resto. Voz e live não passam por esta trava.'),
+    h('div', { class: 'row' },
+      h('label', { class: 'row small' }, 'Por arquivo, até ', per, ' Mbps'),
+      h('label', { class: 'row small' }, 'Todos juntos, até ', total, ' Mbps'),
+      h('label', { class: 'row small' }, smart, 'Só com gente na call (sem ninguém, vai no máximo)'),
+      h('span', { class: 'spacer' }), save),
+    h('p', { class: 'muted small' }, `Agora: ${bw.streams} ${bw.streams === 1 ? 'download' : 'downloads'} em andamento · ${bw.mbpsNow.toLocaleString('pt-BR')} Mbps saindo em arquivos.`));
+}
+
 async function viewInternet() {
   const d = await api('/api/speedtest');
   const last = d.lastOk;
@@ -1044,7 +1065,7 @@ async function viewInternet() {
     { label: 'Resultado', get: (r) => (r.ok ? h('span', { class: 'muted small' }, `${r.iface ?? ''} · ${bytes(r.bytes)}`) : h('span', { class: 'error small' }, r.error)) },
   ], [...d.history].reverse(), { empty: 'Nenhum teste ainda.', rowClass: (r) => (r.ok ? null : 'fail') }));
 
-  return h('div', {}, top, stats, capCard, chart, list);
+  return h('div', {}, top, await bandwidthCard(), stats, capCard, chart, list);
 }
 
 // ---------- Mensagens (moderação) ----------

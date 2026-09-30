@@ -1,5 +1,6 @@
 // Arquivos do site (pasta public/) e a biblioteca de voz, com cache que confere antes de usar
 import fs from 'node:fs/promises';
+import { pipeThrottled } from './throttle.js';
 import { createReadStream } from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
@@ -75,7 +76,7 @@ async function serveDownload(req, res, name) {
     'X-Content-Type-Options': 'nosniff',
   });
   if (req.method === 'HEAD') return res.end();
-  createReadStream(file).pipe(res);
+  return pipeThrottled(createReadStream(file), res); // instaladores do app: todo mundo baixa junto quando sai versão nova
 }
 
 // Versão do site (/build.json): muda quando qualquer arquivo publicado muda. O service worker do site

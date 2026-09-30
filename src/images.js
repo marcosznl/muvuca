@@ -1,5 +1,6 @@
 // Foto de perfil, banner do perfil e ícone do servidor: envio (HTTP), a imagem, e as ações de remover
 import fs from 'node:fs/promises';
+import { sendThrottled } from './throttle.js';
 import path from 'node:path';
 import { DATA_DIR } from './config.js';
 import { db } from './store.js';
@@ -63,7 +64,7 @@ export async function serveImage(res, id) {
     const data = await fs.readFile(path.join(IMAGE_DIR, img.id));
     // Trocar a foto gera outro id: esta nunca muda, o navegador pode guardar
     res.writeHead(200, { 'Content-Type': img.mime, 'Cache-Control': 'public, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff' });
-    res.end(data);
+    await sendThrottled(res, data); // banner GIF pode ter 10 MB
   } catch {
     json(res, 404, { error: 'Imagem não encontrada' });
   }
