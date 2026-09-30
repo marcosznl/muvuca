@@ -1,5 +1,6 @@
 // Ponto de entrada: conexão, eventos do servidor e navegação entre servidores/canais
 import { $, store, showBanner, toast } from './util.js';
+import { eventsUpdated, onEventReminder } from './events.js';
 import { openUserSettings } from './user-settings.js';
 import { icon, applyStaticIcons } from './icons.js';
 import {
@@ -15,7 +16,7 @@ import { sounds } from './sounds.js';
 import './theme.js';
 import './quick-switch.js';
 import './voice-menus.js';
-import { setupPush } from './push.js';
+import { setupPush, pushAfterLogin } from './push.js';
 import { closeEmojiPanel } from './chat-picker.js';
 import { renderStage, leaveVoice, voiceChannelId, applyAudioState, updateMediaButtons, mergeSelfIntoVoice, onBoardSound, onVoiceMove } from './voice.js';
 import { renderMembers } from './members.js';
@@ -181,6 +182,7 @@ function handle(m) {
       }
       break;
     case 'welcome': {
+      pushAfterLogin(); // notificações: refaz a inscrição perdida e convida no celular (uma vez)
       renderMaintBar(m.maintenance);
       state.me = { ...m.you, xpRank: m.xpRank ?? null };
       state.servers = m.servers;
@@ -221,6 +223,7 @@ function handle(m) {
       const isNew = !serverById(m.server.id);
       upsertServer(m.server);
       refreshSettings(m.server.id);
+      eventsUpdated();
       musicChannelGone();
       if (m.select) return selectServer(m.server.id);
       if (isNew) { renderRail(); if (state.view.dms) renderChannels(); return; } // conversa nova aparece na lista
@@ -296,6 +299,9 @@ function handle(m) {
       break;
     case 'voice:move':
       onVoiceMove(m);
+      break;
+    case 'event:reminder':
+      onEventReminder(m);
       break;
     case 'msg:delete':
       onMessageDelete(m);

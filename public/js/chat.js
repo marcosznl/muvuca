@@ -6,6 +6,7 @@ import { icon } from './icons.js';
 import { state, findChannel, canIn, PERMS, nameOf, isMuted } from './state.js';
 import { openProfileCard } from './profile.js';
 import { nameColor } from './permissions.js';
+import { openEvents } from './events.js';
 import { send, request } from './net.js';
 import { confirmDialog } from './dialogs.js';
 import { renderChannels, renderRail } from './sidebar.js';
@@ -286,7 +287,13 @@ function buildMessage(msg, prev, server = findChannel(msg.channel).server) {
     appendRich(text, msg.text);
     text.classList.remove('jumbo');
     row.append(h('div', 'gutter', hhmm(new Date(msg.ts))),
-      icon({ music: 'headphones', join: 'arrow-right', leave: 'arrow-left', game: 'gamepad', call: 'phone', rename: 'pencil' }[kind] ?? 'headphones', 14), text);
+      icon({ music: 'headphones', join: 'arrow-right', leave: 'arrow-left', game: 'gamepad', call: 'phone', rename: 'pencil', event: 'calendar' }[kind] ?? 'headphones', 14), text);
+    if (kind === 'event' && msg.meta?.eventId) {
+      const see = h('button', 'btn small primary', 'Ver evento');
+      see.type = 'button';
+      see.onclick = () => openEvents(findChannel(msg.channel).server?.id);
+      row.append(see);
+    }
     if (kind === 'game' && msg.meta?.roomId) {
       const join = h('button', 'btn small primary', 'Entrar na sala');
       join.type = 'button';
@@ -608,7 +615,11 @@ export function renderComposer() {
   input.disabled = !allowed;
   const others = server?.kind === 'dm' ? server.members.filter((m) => m.id !== state.me?.id).map((m) => m.name) : null;
   const label = server?.dmName || (others ? others.join(', ') : channel.type === 'music' ? channel.name : `#${channel.name}`);
-  input.placeholder = allowed ? `Conversar ${others && !server.dmName ? 'com' : 'em'} ${label}` : 'Você não tem permissão para enviar mensagens neste canal.';
+  // Modo lento (quem gerencia mensagens ou canais não espera, então não precisa do aviso)
+  const slow = channel.slowmode && !canIn(server, PERMS.MANAGE_MESSAGES) && !canIn(server, PERMS.MANAGE_CHANNELS) ? channel.slowmode : 0;
+  const slowTime = slow < 60 ? `${slow} s` : slow < 3600 ? `${slow / 60} min` : '1 h';
+  const slowText = !slow ? '' : matchMedia('(max-width: 700px)').matches ? ` · ⏱ ${slowTime}` : ` · modo lento: ${slowTime}`; // curto no celular
+  input.placeholder = allowed ? `Conversar ${others && !server.dmName ? 'com' : 'em'} ${label}${slowText}` : 'Você não tem permissão para enviar mensagens neste canal.';
   $('btn-emoji').disabled = $('btn-gif').disabled = $('btn-attach').disabled = $('btn-voice').disabled = !allowed;
 }
 

@@ -176,6 +176,7 @@ function sections(s) {
   return [
     can(p, PERMS.MANAGE_SERVER) && ['overview', 'Visão geral'],
     can(p, PERMS.MANAGE_SERVER) && ['welcome', 'Boas-vindas'],
+    can(p, PERMS.MANAGE_SERVER) && ['filter', 'Filtro de palavras'],
     can(p, PERMS.MANAGE_ROLES) && ['roles', 'Cargos'],
     (can(p, PERMS.MANAGE_ROLES) || can(p, PERMS.KICK_MEMBERS)) && ['members', 'Membros'],
     can(p, PERMS.MANAGE_EMOJIS) && ['emojis', 'Emojis'],
@@ -210,7 +211,7 @@ function renderSettings() {
 
   const content = open.root.querySelector('.settings-content-inner');
   content.replaceChildren();
-  ({ overview: renderOverview, welcome: renderWelcome, roles: renderRoles, members: renderMemberTable, emojis: renderEmojis, sounds: renderSounds, invites: renderInvites })[open.section]?.(s, content);
+  ({ overview: renderOverview, welcome: renderWelcome, filter: renderFilter, roles: renderRoles, members: renderMemberTable, emojis: renderEmojis, sounds: renderSounds, invites: renderInvites })[open.section]?.(s, content);
 }
 
 export function colorPicker(current, { allowNone = false } = {}) {
@@ -240,6 +241,36 @@ export function colorPicker(current, { allowNone = false } = {}) {
   wrap.append(custom);
   select(current);
   return { el: wrap, get value() { return value; } };
+}
+
+// Filtro de palavras: uma por linha; "palavra*" pega também o que começa com ela. Quem gerencia o servidor fica de fora.
+function renderFilter(s, root) {
+  root.append(h('h2', '', 'Filtro de palavras'),
+    h('p', 'muted', 'Mensagens com estas palavras são barradas (ou têm a palavra trocada por ***). Não diferencia maiúsculas nem acentos: "não" pega "nao". Use * no fim para pegar o começo da palavra, ex.: idiot* pega "idiota" e "idiotice". Quem gerencia o servidor não é filtrado. Cada vez que o filtro age, fica na auditoria do painel.'));
+  const form = h('div', 'form');
+  const words = h('textarea', 'filter-words');
+  Object.assign(words, { rows: 10, placeholder: 'uma palavra por linha', value: (s.filter?.words ?? []).join('\n'), spellcheck: false });
+  const wordsField = h('label', 'field');
+  wordsField.append(h('span', 'field-label', 'Palavras'), words, h('span', 'muted small', 'Até 200 palavras.'));
+  const mode = h('div', 'seg');
+  let current = s.filter?.mode ?? 'block';
+  const opts = [['block', 'Barrar a mensagem', 'A pessoa recebe um aviso e a mensagem não é enviada'], ['mask', 'Trocar por ***', 'A mensagem vai, com a palavra escondida']];
+  for (const [id, label, hint] of opts) {
+    const b = h('button', 'seg-btn');
+    b.type = 'button';
+    b.dataset.value = id;
+    b.append(h('strong', '', label), h('span', '', hint));
+    b.onclick = () => { current = id; for (const x of mode.children) x.classList.toggle('selected', x.dataset.value === id); };
+    mode.append(b);
+  }
+  for (const x of mode.children) x.classList.toggle('selected', x.dataset.value === current);
+  const modeField = h('div', 'field');
+  modeField.append(h('span', 'field-label', 'O que fazer'), mode);
+  const save = button('Salvar filtro');
+  save.onclick = () => request({ t: 'server:filter', serverId: s.id, words: words.value, mode: current })
+    .then(() => toast(words.value.trim() ? 'Filtro salvo.' : 'Filtro desligado.')).catch(fail);
+  form.append(wordsField, modeField, save);
+  root.append(form);
 }
 
 function renderOverview(s, root) {

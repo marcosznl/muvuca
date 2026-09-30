@@ -4,6 +4,7 @@ import { h, store } from './util.js';
 import { openModal, button } from './dialogs.js';
 import { THEMES, currentTheme, setTheme } from './theme.js';
 import { openChangePassword } from './profile.js';
+import { enablePush, disablePush, pushEnabled } from './push.js';
 
 // ---------- Layout: servidores na coluna da esquerda (padrão) ou em abas no topo ----------
 export const LAYOUTS = [['side', 'Na lateral', 'Coluna de ícones à esquerda'], ['top', 'No topo', 'Abas com o nome do servidor']];
@@ -45,6 +46,7 @@ const group = (title, ...content) => {
   return g;
 };
 
+let modalRef = null;
 export function openUserSettings() {
   const content = h('div', 'screen-dialog user-settings');
   const THEME_HINT = { dark: 'Padrão', light: 'Fundo claro', auto: 'Segue o sistema' };
@@ -52,12 +54,23 @@ export function openUserSettings() {
     group('Tema', choices(THEMES.map(([id, label]) => [id, label.replace(' (do sistema)', ''), THEME_HINT[id]]), currentTheme(), setTheme)),
     group('Servidores', choices(LAYOUTS, currentLayout(), setLayout)),
   );
+  // Notificações deste aparelho (no app do computador elas já são as do próprio sistema)
+  if (!window.muvucaDesktop) {
+    const row = h('div', 'user-settings-account');
+    const on = pushEnabled();
+    const status = h('span', 'muted small', on ? 'Ativadas: menções, respostas, mensagens diretas e eventos.' : 'Desativadas neste aparelho.');
+    const toggle = button(on ? 'Desativar' : 'Ativar notificações', { kind: on ? 'secondary' : 'primary' });
+    toggle.onclick = async () => { await (on ? disablePush() : enablePush()); modalRef?.close(); };
+    row.append(toggle, status);
+    content.append(group('Notificações neste aparelho', row));
+  }
   const account = h('div', 'user-settings-account');
   const password = button('Trocar senha', { kind: 'secondary' });
   const logoutBtn = button('Sair da conta', { kind: 'danger-outline' });
   account.append(password, logoutBtn);
   content.append(group('Conta', account));
   const modal = openModal({ title: 'Configurações', content });
+  modalRef = modal;
   password.onclick = () => { modal.close(); openChangePassword(); };
   logoutBtn.onclick = async () => {
     modal.close();

@@ -14,6 +14,7 @@ import { openServerSettings, openInviteDialog } from './settings.js';
 import { dmRailItem, renderDmSidebar, dmTitle } from './dms.js';
 import { openUserSettings, currentLayout } from './user-settings.js';
 import { openQuickSwitch } from './quick-switch.js';
+import { eventsStrip, openEvents } from './events.js';
 
 // ---------- Coluna de servidores ----------
 
@@ -107,6 +108,7 @@ export function serverMenu(s, x, y) {
   contextMenu(x, y, [
     canIn(s, PERMS.CREATE_INVITE) && { label: 'Convidar pessoas', icon: 'user-plus', onClick: () => openInviteDialog(s) },
     manage && { label: 'Configurações do servidor', icon: 'settings', onClick: () => openServerSettings(s.id) },
+    { label: 'Eventos', icon: 'calendar', onClick: () => openEvents(s.id) },
     canIn(s, PERMS.MANAGE_CHANNELS) && { label: 'Criar canal', icon: 'plus', onClick: () => createChannel(s, 'text') },
     canIn(s, PERMS.MANAGE_CHANNELS) && { label: 'Criar categoria', icon: 'plus', onClick: () => createCategory(s) },
     state.mutes.has(s.id)
@@ -206,9 +208,69 @@ function channelMenu(s, c, x, y) {
       ? { label: 'Configurações do canal', icon: 'settings', onClick: () => voiceSettings(c) }
       : { label: 'Renomear canal', icon: 'pencil', onClick: () => renameChannel(c) }),
     manage && c.type !== 'voice' && { label: c.topic ? 'Editar tópico' : 'Definir tópico', icon: 'pencil', onClick: () => editTopic(c) },
+    manage && { label: c.private ? 'Quem vê este canal (privado)' : 'Tornar canal privado', icon: 'lock', onClick: () => channelPrivacy(s, c) },
+    manage && c.type !== 'voice' && { label: c.slowmode ? `Modo lento: ${slowLabel(c.slowmode)}` : 'Modo lento', icon: 'clock', onClick: () => channelSlowmode(c) },
     manage && { label: 'Mover para categoria', icon: 'chevron-down', onClick: () => pickCategory(s, c) },
     manage && { label: 'Excluir canal', icon: 'trash', danger: true, onClick: () => deleteChannel(c) },
   ]);
+}
+
+// ---------- Canal privado e modo lento ----------
+const SLOW_CHOICES = [0, 5, 10, 30, 60, 120, 300, 600, 900, 3600];
+export const slowLabel = (sec) => (!sec ? 'desligado' : sec < 60 ? `${sec} s` : sec < 3600 ? `${sec / 60} min` : '1 h');
+
+// Quem vê: privado liga/desliga e os cargos que enxergam (dono e administradores sempre veem)
+function channelPrivacy(s, c) {
+  const content = h('div', 'form channel-privacy');
+  const toggle = h('label', 'check-row');
+  const on = h('input');
+  on.type = 'checkbox';
+  on.checked = !!c.private;
+  toggle.append(on, h('span', '', 'Canal privado'));
+  const hint = h('p', 'muted small', 'Só quem tem um dos cargos marcados abaixo vê e entra neste canal. O dono e os administradores sempre veem. Quem não tem acesso nem sabe que o canal existe.');
+  const list = h('div', 'role-checklist');
+  const boxes = [];
+  for (const r of s.roles.filter((x) => !x.isDefault).sort((a, b) => b.position - a.position)) {
+    const row = h('label', 'check-row');
+    const cb = h('input');
+    cb.type = 'checkbox';
+    cb.checked = (c.roles ?? []).includes(r.id);
+    cb.dataset.role = r.id;
+    const dot = h('span', 'role-dot');
+    dot.style.background = r.color || '#99aab5';
+    row.append(cb, dot, h('span', '', r.name));
+    list.append(row);
+    boxes.push(cb);
+  }
+  if (!boxes.length) list.append(h('p', 'muted small', 'Este servidor ainda não tem cargos: crie um em Configurações do servidor → Cargos (sem cargos, só o dono e os administradores veem).'));
+  const paint = () => { list.hidden = !on.checked; };
+  on.onchange = paint;
+  paint();
+  content.append(toggle, hint, list);
+  const save = button('Salvar');
+  const modal = openModal({ title: `Quem vê ${c.type === 'text' ? '#' : ''}${c.name}`, content, actions: [save] });
+  save.onclick = async () => {
+    try {
+      await request({ t: 'channel:privacy', channelId: c.id, private: on.checked, roleIds: boxes.filter((b) => b.checked).map((b) => b.dataset.role) });
+      modal.close();
+      toast(on.checked ? 'Canal privado.' : 'Canal aberto para todo mundo.');
+    } catch (err) { showBanner(err.message, { timeout: 4000 }); }
+  };
+}
+
+function channelSlowmode(c) {
+  const content = h('div', 'form');
+  const select = h('select');
+  for (const sec of SLOW_CHOICES) select.append(Object.assign(h('option', '', sec ? slowLabel(sec) : 'Desligado'), { value: sec, selected: sec === (c.slowmode ?? 0) }));
+  const field = h('label', 'field');
+  field.append(h('span', 'field-label', 'Cada pessoa pode mandar 1 mensagem a cada'), select,
+    h('span', 'muted small', 'Quem gerencia mensagens ou canais não espera.'));
+  content.append(field);
+  const save = button('Salvar');
+  const modal = openModal({ title: `Modo lento em #${c.name}`, content, actions: [save] });
+  save.onclick = () => request({ t: 'channel:slowmode', channelId: c.id, seconds: Number(select.value) })
+    .then(() => { modal.close(); toast(Number(select.value) ? `Modo lento: ${slowLabel(Number(select.value))}.` : 'Modo lento desligado.'); })
+    .catch((err) => showBanner(err.message, { timeout: 4000 }));
 }
 
 // Silenciar: sem destaque de não lida, sem som e sem notificação (menções ainda aparecem no número vermelho)
@@ -616,6 +678,13 @@ function channelItem(s, c, canManage) {
     btn.onclick = () => selectChannel(c.id);
   }
 
+  if (c.private) { // cadeado: canal privado
+    const lock = h('span', 'channel-lock');
+    lock.title = 'Canal privado';
+    lock.append(icon('lock', 12));
+    btn.querySelector('.name')?.after(lock);
+  }
+  if (c.slowmode && c.type !== 'voice') btn.title = `${btn.title ? `${btn.title} · ` : ''}Modo lento: ${slowLabel(c.slowmode)}`;
   if (canManage) {
     const gear = h('span', 'channel-gear');
     gear.title = 'Editar canal';
@@ -642,6 +711,8 @@ export function renderChannels() {
   box.replaceChildren();
   if (!s) return;
   const canManage = canIn(s, PERMS.MANAGE_CHANNELS);
+  const strip = eventsStrip(s); // próximo evento do servidor
+  if (strip) box.append(strip);
   // Canais sem categoria ficam no topo; os de uma categoria que não existe mais também
   const known = new Set((s.categories ?? []).map((k) => k.id));
   const loose = s.channels.filter((c) => !c.categoryId || !known.has(c.categoryId));
