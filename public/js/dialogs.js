@@ -80,15 +80,31 @@ export function promptText({ title, subtitle, label, value = '', placeholder = '
 }
 
 // Confirmação (ex.: excluir). Resolve true/false.
-export function confirmDialog({ title, message, confirm = 'Confirmar', danger = true }) {
+// `typeToConfirm`: o botão só libera depois de digitar esse texto (para ações sem volta)
+export function confirmDialog({ title, message, confirm = 'Confirmar', danger = true, typeToConfirm = null }) {
   return new Promise((resolve) => {
     let done = false;
     const ok = button(confirm, { kind: danger ? 'danger' : 'primary' });
     const cancel = button('Cancelar', { kind: 'link' });
-    const modal = openModal({ title, content: h('p', 'confirm-text', message), actions: [cancel, ok], onClose: () => { if (!done) resolve(false); } });
-    ok.onclick = () => { done = true; modal.close(); resolve(true); };
+    const content = h('div', 'form');
+    content.append(h('p', 'confirm-text', message));
+    let input = null;
+    if (typeToConfirm) {
+      const field = h('label', 'field');
+      input = h('input');
+      input.autocomplete = 'off';
+      field.append(h('span', 'field-label', `Digite "${typeToConfirm}" para confirmar`), input);
+      content.append(field);
+      const norm = (v) => v.trim().toLocaleLowerCase('pt-BR');
+      const check = () => { ok.disabled = norm(input.value) !== norm(typeToConfirm); };
+      input.oninput = check;
+      input.onkeydown = (e) => { if (e.key === 'Enter' && !ok.disabled) ok.click(); };
+      check();
+    }
+    const modal = openModal({ title, content, actions: [cancel, ok], onClose: () => { if (!done) resolve(false); } });
+    ok.onclick = () => { if (ok.disabled) return; done = true; modal.close(); resolve(true); };
     cancel.onclick = () => modal.close();
-    setTimeout(() => ok.focus(), 0);
+    setTimeout(() => (input ?? ok).focus(), 0);
   });
 }
 

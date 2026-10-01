@@ -463,6 +463,28 @@ test('servidor novo: criar, editar, sair e excluir', async () => {
   assert.equal((await dono.request({ t: 'server:delete', serverId: home })).t, 'error'); // o principal não
 });
 
+test('transferir posse: só o dono, só para membro, nunca o servidor principal', async () => {
+  assert.equal((await ana.request({ t: 'server:create', name: 'Passa Adiante' })).t, 'ok');
+  const srv = (await ana.waitFor('server', (e) => e.server.name === 'Passa Adiante')).server;
+  const text = srv.channels.find((c) => c.type === 'text').id;
+  assert.equal((await ana.request({ t: 'server:transfer', serverId: srv.id, userId: dono.me.id })).t, 'error', 'o dono ainda não é membro');
+  const inv = await ana.request({ t: 'invite:create', serverId: srv.id });
+  assert.equal((await dono.request({ t: 'invite:accept', code: inv.code })).t, 'ok');
+  assert.equal((await dono.request({ t: 'server:transfer', serverId: srv.id, userId: dono.me.id })).t, 'error', 'só o dono transfere');
+  assert.equal((await dono.request({ t: 'server:transfer', serverId: home, userId: ana.me.id })).t, 'error', 'o principal só pelo painel');
+  ana.events = [];
+  assert.equal((await ana.request({ t: 'server:transfer', serverId: srv.id, userId: dono.me.id })).t, 'ok');
+  const after = (await ana.waitFor('server', (e) => e.server.id === srv.id && e.server.ownerId === dono.me.id)).server;
+  assert.ok(after.members.some((x) => x.id === ana.me.id), 'quem era dono continua no servidor');
+  const msg = (await ana.waitFor('msg', (e) => e.msg.channel === text)).msg;
+  assert.match(msg.text, /passou a posse/);
+  // Agora a Ana é membro comum: pode sair; o novo dono não sai, mas exclui
+  assert.equal((await ana.request({ t: 'server:delete', serverId: srv.id })).t, 'error');
+  assert.equal((await ana.request({ t: 'server:leave', serverId: srv.id })).t, 'ok');
+  assert.equal((await dono.request({ t: 'server:leave', serverId: srv.id })).t, 'error');
+  assert.equal((await dono.request({ t: 'server:delete', serverId: srv.id })).t, 'ok');
+});
+
 test('expulsar: só quem tem a permissão, e nunca o dono', async () => {
   const caio = await new Person(server, 'caio').register();
   assert.equal((await ana.request({ t: 'member:kick', serverId: home, userId: caio.me.id })).t, 'error');

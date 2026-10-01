@@ -306,7 +306,7 @@ function buildMessage(msg, prev, server = findChannel(msg.channel).server) {
     appendRich(text, msg.text);
     text.classList.remove('jumbo');
     row.append(h('div', 'gutter', hhmm(new Date(msg.ts))),
-      icon({ music: 'headphones', join: 'arrow-right', leave: 'arrow-left', game: 'gamepad', call: 'phone', rename: 'pencil', event: 'calendar' }[kind] ?? 'headphones', 14), text);
+      icon({ music: 'headphones', join: 'arrow-right', leave: 'arrow-left', game: 'gamepad', call: 'phone', rename: 'pencil', event: 'calendar', owner: 'crown' }[kind] ?? 'headphones', 14), text);
     if (kind === 'event' && msg.meta?.eventId) {
       const see = h('button', 'btn small primary', 'Ver evento');
       see.type = 'button';

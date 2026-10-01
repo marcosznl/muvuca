@@ -109,9 +109,12 @@ function createWindow() {
   });
   win.on('focus', () => { if (IS_WIN) win.flashFrame(false); });
 
-  // Links para fora do Muvuca abrem no navegador; dentro, na própria janela
+  // Links para fora do Muvuca abrem no navegador; dentro, na própria janela.
+  // "Nova aba" com arquivo do próprio Muvuca (ex.: "Abrir original" de uma foto, /file/…) também vai para o navegador:
+  // o app não abre janelas extras. Só a página do Muvuca em si fica de fora (já está aberta aqui).
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (!url.startsWith(origin())) shell.openExternal(url);
+    else if (/^https?:$/.test(new URL(url).protocol) && new URL(url).pathname !== '/') shell.openExternal(url);
     return { action: 'deny' };
   });
   win.webContents.on('will-navigate', (e, url) => {

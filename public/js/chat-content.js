@@ -159,6 +159,9 @@ function openLightbox(a) {
   img.alt = a.name;
   const link = h('a', 'lightbox-link', 'Abrir original');
   Object.assign(link, { href: a.url, target: '_blank', rel: 'noopener' });
+  // App antigo (até a 1.4.4) não abre "nova aba" com arquivo do Muvuca: lá o botão baixa a foto
+  const oldApp = window.muvucaDesktop && !window.muvucaDesktop.opensFiles;
+  if (oldApp) { link.textContent = 'Baixar original'; link.download = a.name; link.removeAttribute('target'); }
   layer.append(img, link);
   const close = () => { layer.remove(); document.removeEventListener('keydown', onKey, true); };
   const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };

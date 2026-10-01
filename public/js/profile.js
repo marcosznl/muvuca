@@ -9,7 +9,7 @@ import { can, topPosition, nameColor } from './permissions.js';
 import { request, upload, api, send } from './net.js';
 import { openModal, button, contextMenu, promptText } from './dialogs.js';
 import { icon } from './icons.js';
-import { colorPicker, kickMember, openMemberRoles, canManageMember, myTop } from './settings.js';
+import { colorPicker, kickMember, transferOwnership, canTransfer, openMemberRoles, canManageMember, myTop } from './settings.js';
 
 const BIO_MAX = 190;
 
@@ -303,6 +303,8 @@ export function openProfileCard(userId, x, y, serverId = state.view.serverId) {
     { label: 'Copiar nome de usuário', icon: 'link', onClick: () => navigator.clipboard?.writeText(`@${p.username}`).then(() => toast('Copiado!')).catch(() => {}) },
     canKick && 'sep',
     canKick && { label: `Expulsar ${p.name}`, icon: 'door-out', danger: true, onClick: () => { closeProfileCard(); kickMember(s, p); } },
+    inServer && canTransfer(s, p) && !canKick && 'sep',
+    inServer && canTransfer(s, p) && { label: 'Transferir posse', icon: 'crown', danger: true, onClick: () => { closeProfileCard(); transferOwnership(s, p); } },
   ].filter(Boolean);
   top.append(cardIcon(null, 'Mais opções', (e) => {
     const r = e.currentTarget.getBoundingClientRect();

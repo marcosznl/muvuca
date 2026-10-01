@@ -72,6 +72,24 @@ export default {
     for (const ch of ctx.snap.channels.filter((c) => c.type === 'voice')) await closeVoiceRoom(ch.id);
   },
 
+  // Passar a posse do servidor para outro membro (só o dono; o servidor principal fica de fora).
+  // Quem era dono continua no servidor, com os cargos que já tinha.
+  async 'server:transfer'(user, m) {
+    const ctx = requireServer(user, m.serverId);
+    if (ctx.snap.kind === 'dm') fail('Conversa privada não tem dono.');
+    if (ctx.snap.id === HOME_SERVER) fail('O dono do servidor principal só muda pelo painel.');
+    if (ctx.snap.ownerId !== user.id) fail('Só o dono pode passar a posse do servidor.');
+    const target = ctx.snap.members.find((x) => x.id === m.userId);
+    if (!target || target.id === user.id) fail('Membro não encontrado.');
+    const next = db.userById(target.id);
+    if (db.ownedCount(next) >= LIMITS.serversOwned) fail(`${target.name} já é dono do máximo de ${LIMITS.serversOwned} servidores.`);
+    db.setOwner(ctx.snap.id, next);
+    pushServer(ctx.snap.id);
+    await syncVoicePermissions(ctx.snap.id); // o novo dono ganha tudo na voz na hora
+    const text = ctx.snap.channels.find((c) => c.id === ctx.snap.welcome?.channelId && c.type === 'text') ?? ctx.snap.channels.find((c) => c.type === 'text');
+    if (text) sendToServer(ctx.snap.id, { t: 'msg', msg: db.addSystemMessage(text.id, `<@${user.id}> passou a posse do servidor para <@${target.id}>.`, SYSTEM.owner) });
+  },
+
   async 'server:leave'(user, m) {
     const ctx = requireServer(user, m.serverId);
     if (ctx.snap.ownerId === user.id) fail('O dono não pode sair do próprio servidor (exclua-o ou transfira).');

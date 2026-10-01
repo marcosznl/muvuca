@@ -471,7 +471,7 @@ const publicUser = (row) => row && {
 // Conversa direta: mensagens, fixar e ligar (voz, câmera e tela)
 const DM_PERMS = PERMS.SEND_MESSAGES | PERMS.PIN_MESSAGES | PERMS.CONNECT | PERMS.SPEAK | PERMS.VIDEO;
 
-export const SYSTEM = { music: 1, join: 2, leave: 3, game: 4, call: 5, rename: 6, event: 7 };
+export const SYSTEM = { music: 1, join: 2, leave: 3, game: 4, call: 5, rename: 6, event: 7, owner: 8 };
 const SYSTEM_KIND = Object.fromEntries(Object.entries(SYSTEM).map(([k, v]) => [v, k]));
 
 // Textos padrão dos avisos ({user} = quem chegou/saiu, {server} = nome do servidor)

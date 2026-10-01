@@ -89,7 +89,22 @@ export function openMemberMenu(s, m, x, y) {
     { label: 'Copiar nome de usuário', icon: 'link', onClick: () => { navigator.clipboard?.writeText(m.username); toast('Copiado!'); } },
     can(perms, PERMS.KICK_MEMBERS) && m.id !== state.me.id && m.id !== s.ownerId && topPosition(s, m.id) < myTop(s)
       && { label: `Expulsar ${m.name}`, icon: 'door-out', danger: true, onClick: () => kickMember(s, m) },
+    canTransfer(s, m) && 'sep',
+    canTransfer(s, m) && { label: 'Transferir posse', icon: 'crown', danger: true, onClick: () => transferOwnership(s, m) },
   ]);
+}
+
+// Passar o servidor para outro membro: só o dono, fora do servidor principal e das conversas privadas
+export const canTransfer = (s, m) => s.kind !== 'dm' && !s.home && s.ownerId === state.me.id && m.id !== state.me.id;
+
+export async function transferOwnership(s, m) {
+  const ok = await confirmDialog({
+    title: `Transferir ${s.name}`,
+    message: `${m.name} vira dono(a) de ${s.name} e passa a poder tudo, inclusive excluir o servidor. Você continua no servidor, com os cargos que já tem, mas não dá para desfazer: só ${m.name} pode devolver.`,
+    confirm: 'Transferir posse',
+    typeToConfirm: s.name,
+  });
+  if (ok) request({ t: 'server:transfer', serverId: s.id, userId: m.id }).then(() => toast(`${m.name} agora é dono(a) de ${s.name}.`)).catch(fail);
 }
 
 export async function kickMember(s, m) {
@@ -738,6 +753,11 @@ function renderMemberTable(s, root) {
     if (can(perms, PERMS.KICK_MEMBERS) && m.id !== state.me.id && m.id !== s.ownerId && topPosition(s, m.id) < myTop(s)) {
       const b = button('Expulsar', { kind: 'danger-outline' });
       b.onclick = () => kickMember(s, m);
+      actions.append(b);
+    }
+    if (canTransfer(s, m)) {
+      const b = button('Transferir posse', { kind: 'danger-outline' });
+      b.onclick = () => transferOwnership(s, m);
       actions.append(b);
     }
     row.append(who, chips, actions);

@@ -10,6 +10,7 @@ const listen = (channel) => (cb) => {
 
 contextBridge.exposeInMainWorld('muvucaDesktop', {
   isDesktop: true,
+  opensFiles: true, // desde a 1.4.5: "nova aba" com arquivo do Muvuca abre no navegador
   platform: process.platform,
   info: () => ipcRenderer.invoke('app:info'),
   // Apertar para falar global: liga/desliga e avisa quando a tecla desce/sobe fora da janela
