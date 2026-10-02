@@ -13,6 +13,7 @@ import { musicChannelId } from './music.js';
 import { openServerSettings, openInviteDialog } from './settings.js';
 import { dmRailItem, renderDmSidebar, dmTitle } from './dms.js';
 import { openUserSettings, currentLayout } from './user-settings.js';
+import { openNovidades, temNovidade } from './novidades.js';
 import { openQuickSwitch } from './quick-switch.js';
 import { eventsStrip, openEvents } from './events.js';
 
@@ -839,6 +840,7 @@ function prefsMenu(x, y) {
     !window.muvucaDesktop && /Mac|Windows/.test(navigator.userAgent) && !/iPhone|iPad|Android/.test(navigator.userAgent)
       && { label: `Baixar o app para ${/Windows/.test(navigator.userAgent) ? 'Windows' : 'Mac'}`, icon: 'download', onClick: () => window.open('/baixar', '_blank') },
     'sep',
+    { label: temNovidade() ? 'Novidades (tem coisa nova!)' : 'Novidades', icon: 'star', onClick: openNovidades },
     { label: 'Configurações (tema, layout, conta)', icon: 'settings', onClick: openUserSettings },
   ]);
 }

@@ -5,6 +5,7 @@ import { openModal, button } from './dialogs.js';
 import { THEMES, currentTheme, setTheme } from './theme.js';
 import { openChangePassword } from './profile.js';
 import { enablePush, disablePush, pushEnabled } from './push.js';
+import { openNovidades, temNovidade } from './novidades.js';
 
 // ---------- Layout: servidores na coluna da esquerda (padrão) ou em abas no topo ----------
 export const LAYOUTS = [['side', 'Na lateral', 'Coluna de ícones à esquerda'], ['top', 'No topo', 'Abas com o nome do servidor']];
@@ -64,6 +65,11 @@ export function openUserSettings() {
     row.append(toggle, status);
     content.append(group('Notificações neste aparelho', row));
   }
+  // Novidades: o que mudou em cada versão
+  const news = h('div', 'user-settings-account');
+  const newsBtn = button('Ver novidades', { kind: temNovidade() ? 'primary' : 'secondary' });
+  news.append(newsBtn, h('span', 'muted small', temNovidade() ? 'Tem novidade que você ainda não viu.' : 'O que mudou em cada versão do Muvuca.'));
+  content.append(group('Novidades', news));
   const account = h('div', 'user-settings-account');
   const password = button('Trocar senha', { kind: 'secondary' });
   const logoutBtn = button('Sair da conta', { kind: 'danger-outline' });
@@ -71,6 +77,7 @@ export function openUserSettings() {
   content.append(group('Conta', account));
   const modal = openModal({ title: 'Configurações', content });
   modalRef = modal;
+  newsBtn.onclick = () => { modal.close(); openNovidades(); };
   password.onclick = () => { modal.close(); openChangePassword(); };
   logoutBtn.onclick = async () => {
     modal.close();
