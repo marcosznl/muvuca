@@ -32,9 +32,10 @@ let startHidden = false; // aberto junto com o computador: começa só na barra 
 let tray = null;
 let quitting = false;
 
-// Nada de "economizar" o site em segundo plano: timers e áudio seguem no ritmo normal durante call e live
-app.commandLine.appendSwitch('disable-renderer-backgrounding');
-app.commandLine.appendSwitch('disable-background-timer-throttling');
+// Segundo plano: escondido e sem call/música, o site "descansa" (o sistema reduz os timers, como em
+// qualquer programa: menos processador e bateria; mensagens e notificações chegam na hora do mesmo jeito).
+// Em call ou ouvindo música, roda a toda (ver voice:state). Janela coberta por outra (não escondida)
+// continua a toda, senão o Windows podia cortar a voz ao achar que ninguém está vendo.
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 
 // Um app só aberto: abrir de novo traz a janela para frente
@@ -69,7 +70,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      backgroundThrottling: false, // a voz e os jogos continuam fluindo com a janela escondida
+      backgroundThrottling: true, // escondido e sem call: descansa; em call o voice:state tira o freio
     },
   });
   win.once('ready-to-show', () => { if (!startHidden) win.show(); });
@@ -145,7 +146,9 @@ function setupPermissions() {
     }
     callback(true);
   });
-  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => ALLOWED.has(permission) && requestingOrigin === origin());
+  // O Electron manda a origem com barra no fim ("https://…/"): compara pela origem do URL. A comparação exata
+  // de antes negava sempre, e aí o Chromium escondia os nomes dos microfones (só aparecia "Padrão do sistema")
+  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => ALLOWED.has(permission) && trusted(requestingOrigin));
 
   // "Transmitir tela": o seletor nativo do macOS quando existe; senão, a nossa janelinha de escolha
   ses.setDisplayMediaRequestHandler(async (request, callback) => {
@@ -291,7 +294,8 @@ const DOM_TO_HOOK = (code) => {
   }[code] ?? code; // Space, CapsLock, Backquote, F1…, setas: mesmo nome
 };
 
-let hook = null;
+let hook = null;          // gancho de teclado (uiohook): só fica ligado enquanto o PTT está em uso
+let hookRunning = false;
 let pttKeycode = null;
 let pttDown = false;
 function sendPtt(down) {
@@ -304,6 +308,7 @@ function setPtt({ enabled, code }) {
   if (!want) {
     pttKeycode = null;
     if (pttDown) sendPtt(false);
+    stopHook(); // saiu da call ou desligou o PTT: para de escutar o teclado do computador
     return { ok: true };
   }
   if (IS_MAC && !systemPreferences.isTrustedAccessibilityClient(false)) {
@@ -319,13 +324,18 @@ function setPtt({ enabled, code }) {
       hook = uIOhook;
       hook.on('keydown', (e) => { if (e.keycode === pttKeycode && !win?.isFocused()) sendPtt(true); });
       hook.on('keyup', (e) => { if (e.keycode === pttKeycode) sendPtt(false); });
-      hook.start();
     }
+    if (!hookRunning) { hook.start(); hookRunning = true; }
     return { ok: true };
   } catch (err) {
     console.error('ptt global', err);
     return { ok: false, reason: 'erro' };
   }
+}
+function stopHook() {
+  if (!hook || !hookRunning) return;
+  try { hook.stop(); } catch (err) { console.error('ptt global (parar)', err); }
+  hookRunning = false;
 }
 ipcMain.handle('ptt:set', (_e, opts) => setPtt(opts ?? {}));
 // A janela ganhou foco no meio da fala: solta (o site assume a tecla dali em diante)
@@ -351,6 +361,8 @@ let napBlocker = null;
 ipcMain.on('voice:state', (_e, s) => {
   const muted = !!s?.muted;
   if (muted !== voiceMuted) { voiceMuted = muted; buildTray(); }
+  // Em call ou com música: o site roda a toda mesmo escondido (a voz e a live não podem engasgar)
+  win?.webContents.setBackgroundThrottling(!s?.inCall);
   if (s?.inCall && napBlocker === null) napBlocker = powerSaveBlocker.start('prevent-app-suspension');
   else if (!s?.inCall && napBlocker !== null) { powerSaveBlocker.stop(napBlocker); napBlocker = null; }
 });
@@ -476,4 +488,4 @@ app.whenReady().then(() => {
   setInterval(() => updater.check(), 6 * 3600_000);
 });
 
-app.on('will-quit', () => { try { hook?.stop(); } catch {} stopAppAudio(); });
+app.on('will-quit', () => { stopHook(); stopAppAudio(); });

@@ -8,7 +8,7 @@ import { register, login, cleanupAuthFails, changePassword } from './src/auth.js
 import { voiceToken, voiceFor, pollVoice, voiceAll } from './src/voice.js';
 import { serverViewFor } from './public/js/permissions.js';
 import { setBusyCheck, setBandwidth } from './src/throttle.js';
-import { INVITE_EXPIRY } from './src/actions/servers.js';
+import { INVITE_EXPIRY, deleteServerNow, transferServer, renameServer } from './src/actions/servers.js';
 import { music, musicFor } from './src/music-rooms.js';
 import { uploadEmoji, serveEmoji } from './src/emojis.js';
 import { uploadImage, serveImage } from './src/images.js';
@@ -108,7 +108,16 @@ const internalActions = {
     return { ok: true };
   },
   '/internal/file/delete': (b) => adminDeleteFile(String(b.id ?? '')),
+  // Servidores pelo painel: renomear, passar a posse (inclusive do principal) e excluir
+  '/internal/server/rename': (b) => ({ ok: true, name: renameServer(serverForPanel(b.serverId), b.name) }),
+  '/internal/server/transfer': async (b) => { await transferServer(serverForPanel(b.serverId), String(b.userId ?? '')); return { ok: true }; },
+  '/internal/server/delete': async (b) => { await deleteServerNow(serverForPanel(b.serverId)); return { ok: true }; },
 };
+function serverForPanel(id) {
+  const snap = db.snapshot(String(id ?? ''));
+  if (!snap || snap.kind === 'dm') throw new Error('Servidor não encontrado.');
+  return snap;
+}
 
 const server = http.createServer(async (req, res) => {
   securityHeaders(req, res);

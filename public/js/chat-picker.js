@@ -1,7 +1,7 @@
 // Painel de GIFs e emojis (como o do Discord: abas, busca e blocos de categoria)
 import { $, h, store, showBanner } from './util.js';
 import { icon } from './icons.js';
-import { state } from './state.js';
+import { state, chatChannelId } from './state.js';
 import { send, request } from './net.js';
 import { usableEmojis } from './richtext.js';
 import { customEmojiImg } from './chat-content.js';
@@ -93,7 +93,7 @@ function toggleFavorite(item) {
 }
 
 function sendGif(item) {
-  send({ t: 'msg', channel: state.view.channelId, text: item.url });
+  send({ t: 'msg', channel: chatChannelId(), text: item.url });
   closeEmojiPanel();
 }
 

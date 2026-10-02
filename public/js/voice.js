@@ -308,6 +308,7 @@ function onVoiceClosed({ keepView = false } = {}) {
   pinnedKey = null;
   for (const el of tiles.values()) el.remove();
   tiles.clear();
+  syncMiniPlayer(); // saiu da call: a janela flutuante some
   audioSink.replaceChildren();
   renderVoicePanel();
   syncDesktopPtt(); // saiu da call: o app para de escutar a tecla
@@ -1204,18 +1205,17 @@ export function renderStage() {
 
   for (const t of list) updateTile(tiles.get(t.key) || createTile(t.key), t, t.key === mainKey);
 
-  // Com alguém em destaque (live): quadro grande em cima e os participantes numa faixa embaixo, que pode ser ocultada
+  // Com alguém em destaque (live): quadro grande e os participantes embaixo, por cima da live (só as câmeras,
+  // em miniatura no canto) ou ocultos — a pessoa escolhe nos botões entre os dois
   const focus = !!mainKey && list.length > 1;
   stage.classList.toggle('focus', focus);
+  stage.classList.toggle('strip-over', focus && stripMode === 'over');
   if (focus) {
     const others = list.filter((t) => t.key !== mainKey);
     stage.append(tiles.get(mainKey), stripToggle, strip); // append move sem recriar (o vídeo continua tocando)
     for (const t of others) strip.append(tiles.get(t.key));
-    strip.hidden = stripHidden; // quadros ocultos deixam de receber vídeo (economiza banda)
-    stripToggle.replaceChildren(
-      icon(stripHidden ? 'chevron-up' : 'chevron-down', 16),
-      stripHidden ? ` Mostrar participantes (${others.length})` : ' Ocultar participantes',
-    );
+    strip.hidden = stripMode === 'hidden'; // quadros ocultos deixam de receber vídeo (economiza banda)
+    paintStripModes(others.length);
   } else {
     for (const t of list) stage.append(tiles.get(t.key));
     stripToggle.remove();
@@ -1223,7 +1223,142 @@ export function renderStage() {
   }
   layoutGrid();
   updateSpeaking();
+  syncMiniPlayer();
 }
+
+// ---------- Janela flutuante (câmera e live fora da tela da call) ----------
+// Em call e olhando outra coisa (chat, outro servidor, jogos, amigos): a live ou a câmera de quem está na call
+// aparece numa janelinha no canto, que dá para arrastar. Tem vídeo próprio (o quadro da call fica onde está).
+// Fechar esconde até alguém começar outra transmissão; "janela do sistema" solta o vídeo por cima de outros apps.
+const mini = h('div', 'mini-player');
+mini.hidden = true;
+mini.innerHTML = `
+  <video autoplay playsinline muted></video>
+  <div class="mini-bar">
+    <span class="mini-label"></span>
+    <button class="mini-btn mini-prev" title="Anterior"></button>
+    <button class="mini-btn mini-next" title="Próximo"></button>
+    <button class="mini-btn mini-pip" title="Janela do sistema (fica por cima de outros programas)"></button>
+    <button class="mini-btn mini-open" title="Abrir a call"></button>
+    <button class="mini-btn mini-close" title="Fechar (volta quando alguém começar outra transmissão)"></button>
+  </div>`;
+document.body.append(mini);
+const miniVideo = mini.querySelector('video');
+mini.querySelector('.mini-prev').append(icon('arrow-left', 14));
+mini.querySelector('.mini-next').append(icon('arrow-right', 14));
+mini.querySelector('.mini-pip').append(icon('monitor-up', 14));
+mini.querySelector('.mini-open').append(icon('maximize', 14));
+mini.querySelector('.mini-close').append(icon('close', 14));
+let miniKey = null;          // o que a janelinha está mostrando
+let miniChosen = null;       // escolhido pelas setas
+let miniDismissed = null;    // fechou: Set das transmissões que existiam (volta se surgir outra)
+let miniTrack = null;
+
+// O que dá para ver: lives primeiro, depois câmeras (de quem está na call, não as suas)
+function miniCandidates() {
+  return desiredTiles().filter((t) => !t.p.isLocal && t.pub?.track && !t.pub.isMuted)
+    .sort((a, b) => Number(b.screen) - Number(a.screen));
+}
+const callOnScreen = () => !$('voice-view').hidden && state.view.channelId === roomChannel && !$('app').hidden;
+
+export function syncMiniPlayer() {
+  const list = room ? miniCandidates() : [];
+  const keys = list.map((t) => t.key);
+  // Começou outra transmissão depois de fechar: a janelinha volta mostrando a nova
+  const fresh = miniDismissed && keys.find((k) => !miniDismissed.has(k));
+  if (fresh) { miniDismissed = null; miniChosen = fresh; }
+  const pip = document.pictureInPictureElement === miniVideo;
+  const show = !!list.length && !callOnScreen() && (!miniDismissed || pip);
+  const pick = list.find((t) => t.key === miniChosen) ?? list.find((t) => t.key === pinnedKey) ?? list[0];
+  if (!show && !pip) {
+    mini.hidden = true;
+    if (miniTrack) { miniTrack.detach(miniVideo); miniTrack = null; miniKey = null; }
+    return;
+  }
+  if (!pick) { mini.hidden = true; return; }
+  const track = pick.pub.track;
+  if (track !== miniTrack) {
+    miniTrack?.detach(miniVideo);
+    track.attach(miniVideo);
+    miniTrack = track;
+  }
+  miniKey = pick.key;
+  const name = pick.p.name || pick.p.identity;
+  mini.querySelector('.mini-label').textContent = pick.screen ? `Tela de ${name}` : name;
+  mini.classList.toggle('screen', pick.screen);
+  mini.querySelector('.mini-prev').hidden = mini.querySelector('.mini-next').hidden = list.length < 2;
+  mini.querySelector('.mini-pip').hidden = !document.pictureInPictureEnabled || !miniVideo.requestPictureInPicture;
+  mini.hidden = !show || pip; // na janela do sistema, a do site some (não mostra o mesmo vídeo duas vezes)
+  placeMini();
+}
+
+function miniStep(dir) {
+  const keys = miniCandidates().map((t) => t.key);
+  if (keys.length < 2) return;
+  miniChosen = keys[(keys.indexOf(miniKey) + dir + keys.length) % keys.length];
+  syncMiniPlayer();
+}
+function openMiniInCall() {
+  if (!roomChannel) return;
+  pinnedKey = miniKey; // abre a call com esse quadro em destaque
+  selectChannel(roomChannel);
+}
+mini.querySelector('.mini-prev').onclick = (e) => { e.stopPropagation(); miniStep(-1); };
+mini.querySelector('.mini-next').onclick = (e) => { e.stopPropagation(); miniStep(1); };
+mini.querySelector('.mini-open').onclick = (e) => { e.stopPropagation(); openMiniInCall(); };
+mini.querySelector('.mini-close').onclick = (e) => {
+  e.stopPropagation();
+  miniDismissed = new Set(miniCandidates().map((t) => t.key));
+  syncMiniPlayer();
+};
+mini.querySelector('.mini-pip').onclick = async (e) => {
+  e.stopPropagation();
+  try { await miniVideo.requestPictureInPicture(); } catch { toast('Este navegador não deixou abrir a janela do sistema.'); }
+  syncMiniPlayer();
+};
+miniVideo.addEventListener('leavepictureinpicture', () => syncMiniPlayer());
+miniVideo.addEventListener('enterpictureinpicture', () => syncMiniPlayer());
+
+// Arrastar (mouse ou dedo); a posição fica salva no aparelho. Toque sem arrastar abre a call.
+let miniPos = null;
+try { miniPos = JSON.parse(store.get('miniPos') ?? 'null'); } catch {}
+function placeMini() {
+  if (mini.hidden) return;
+  const w = mini.offsetWidth; const hgt = mini.offsetHeight;
+  const maxX = window.innerWidth - w - 8; const maxY = window.innerHeight - hgt - 8;
+  const x = Math.min(Math.max(8, miniPos?.x ?? maxX - 8), maxX); // padrão: canto de baixo à direita
+  const y = Math.min(Math.max(8, miniPos?.y ?? maxY - 72), maxY);
+  mini.style.left = `${x}px`;
+  mini.style.top = `${y}px`;
+}
+window.addEventListener('resize', placeMini);
+// Qualquer troca de tela (jogos, amigos, outro canal) mostra ou esconde a janelinha
+new MutationObserver(() => syncMiniPlayer()).observe($('voice-view'), { attributes: true, attributeFilter: ['hidden'] });
+mini.addEventListener('pointerdown', (e) => {
+  if (e.target.closest('.mini-btn') || e.button > 0) return;
+  const start = { x: e.clientX, y: e.clientY, left: mini.offsetLeft, top: mini.offsetTop };
+  let moved = false;
+  mini.setPointerCapture(e.pointerId);
+  const move = (ev) => {
+    const dx = ev.clientX - start.x; const dy = ev.clientY - start.y;
+    if (!moved && Math.hypot(dx, dy) < 5) return;
+    moved = true;
+    mini.classList.add('dragging');
+    miniPos = { x: start.left + dx, y: start.top + dy };
+    placeMini();
+  };
+  const up = () => {
+    mini.removeEventListener('pointermove', move);
+    mini.removeEventListener('pointerup', up);
+    mini.removeEventListener('pointercancel', up);
+    mini.classList.remove('dragging');
+    if (moved) store.set('miniPos', JSON.stringify(miniPos));
+    else openMiniInCall();
+  };
+  mini.addEventListener('pointermove', move);
+  mini.addEventListener('pointerup', up);
+  mini.addEventListener('pointercancel', up);
+});
 
 // Grade como a do Discord: todos os quadros em 16:9, com o número de colunas que deixa cada um o maior possível
 // (antes as colunas esticavam até a altura toda e os quadros ficavam compridos em pé)
@@ -1247,15 +1382,27 @@ function layoutGrid() {
 }
 new ResizeObserver(() => layoutGrid()).observe(stage);
 
-// Faixa de participantes embaixo da live
+// Participantes durante a live: embaixo (faixa), sobre a tela (câmeras em miniatura no canto) ou ocultos
 const strip = h('div', 'strip');
-const stripToggle = h('button', 'strip-toggle');
-let stripHidden = store.get('hideStrip') === '1';
-stripToggle.onclick = () => {
-  stripHidden = !stripHidden;
-  store.set('hideStrip', stripHidden ? '1' : null);
-  renderStage();
-};
+const stripToggle = h('div', 'strip-toggle');
+const STRIP_MODES = [['below', 'Embaixo'], ['over', 'Sobre a tela'], ['hidden', 'Ocultar']];
+let stripMode = store.get('stripMode') ?? (store.get('hideStrip') === '1' ? 'hidden' : 'below');
+if (!STRIP_MODES.some(([m]) => m === stripMode)) stripMode = 'below';
+function paintStripModes(count) {
+  stripToggle.replaceChildren(h('span', 'strip-label', `Participantes (${count}):`), ...STRIP_MODES.map(([mode, label]) => {
+    const b = h('button', mode === stripMode ? 'strip-mode on' : 'strip-mode', label);
+    b.type = 'button';
+    b.setAttribute('aria-pressed', String(mode === stripMode));
+    b.onclick = (e) => {
+      e.stopPropagation();
+      stripMode = mode;
+      store.set('stripMode', mode === 'below' ? null : mode);
+      store.set('hideStrip', null);
+      renderStage();
+    };
+    return b;
+  }));
+}
 
 function createTile(key) {
   const el = document.createElement('div');
@@ -1295,6 +1442,7 @@ function updateTile(el, { p, pub, screen }, isMain) {
 
   const name = p.name || p.identity;
   video.hidden = !showVideo;
+  el.classList.toggle('has-video', showVideo);
   video.style.transform = p.isLocal && !screen && mirrorLocalCamera() ? 'scaleX(-1)' : ''; // espelha só a própria câmera frontal
 
   // Avatar com a cor da pessoa quando não há vídeo

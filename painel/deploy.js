@@ -86,6 +86,13 @@ async function pending() {
   return { site, server, hasBaseline: !!live };
 }
 
+// O que está esperando para ir ao ar (para o quadro "Precisa de atenção"); null se não deu para ver
+export async function pendingUpdate() {
+  // Sem public_next/ (cópia de trabalho do site) não há o que comparar
+  if (!ROOT || !fs.existsSync(path.join(ROOT, 'public_next'))) return null;
+  try { return await pending(); } catch { return null; }
+}
+
 // ---------- Versões guardadas ----------
 
 async function commitInfo() {

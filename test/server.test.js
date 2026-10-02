@@ -257,6 +257,57 @@ test('foto de perfil: enviar, ver e remover', async () => {
   assert.equal((await ana.upload('/api/image', { for: 'server', server: home }, PNG)).status, 403); // ícone: só quem gerencia
 });
 
+test('tema: fica na conta e vale em todos os aparelhos da pessoa', async () => {
+  const pc = await new Person(server, 'tema1').register();
+  const phone = new Person(server, 'tema1');
+  phone.token = (await phone.post('/api/login', { username: 'tema1', password: 'senha-123' })).body.token;
+  await phone.connect();
+  assert.equal(pc.me.theme, null); // conta nova: sem tema escolhido
+  assert.equal((await pc.request({ t: 'theme:set', theme: 'color:<script>' })).t, 'error');
+  assert.equal((await pc.request({ t: 'theme:set', theme: 'roxo' })).t, 'error');
+  await pc.request({ t: 'theme:set', theme: 'color:aurora' });
+  const ev = await phone.waitFor('theme', (e) => e.theme === 'color:aurora'); // o outro aparelho troca na hora
+  assert.ok(ev);
+  // Abrindo de novo (outro aparelho, outro dia): o tema vem junto
+  const later = new Person(server, 'tema1');
+  later.token = (await later.post('/api/login', { username: 'tema1', password: 'senha-123' })).body.token;
+  await later.connect();
+  assert.equal(later.me.theme, 'color:aurora');
+  // Os outros não veem o tema de ninguém
+  assert.ok(!snap(dono).members.some((m) => 'theme' in m));
+  pc.close(); phone.close(); later.close();
+});
+
+test('editor de perfil: foto e banner enviados só valem depois de Salvar', async () => {
+  const before = { avatar: ana.me.avatar, bannerImage: ana.me.bannerImage ?? null };
+  const up = await ana.upload('/api/image', { for: 'banner', pending: '1' }, PNG);
+  assert.equal(up.status, 200);
+  await sleep(150);
+  assert.equal(ana.me.bannerImage ?? null, before.bannerImage); // enviou mas não salvou: nada muda
+  // Salvar só nome/bio (sem mexer na imagem) não aplica a pendente
+  await ana.request({ t: 'profile:update', name: 'Ana Clara', bio: 'oi!' });
+  await sleep(150);
+  assert.equal(ana.me.bannerImage ?? null, before.bannerImage);
+  // Outra pessoa não consegue usar a imagem enviada pela ana
+  const r = await dono.request({ t: 'profile:update', name: 'Dono', bannerImage: up.body.id });
+  assert.equal(r.t, 'error');
+  // Salvar com a imagem: aí sim vale
+  await ana.request({ t: 'profile:update', name: 'Ana Clara', bio: 'oi!', bannerImage: up.body.id });
+  await sleep(150);
+  assert.equal(ana.me.bannerImage, up.body.id);
+  assert.equal(snap(dono).members.find((x) => x.id === ana.me.id).bannerImage, up.body.id);
+  // Fechou sem salvar: a imagem enviada é descartada
+  const draft = await ana.upload('/api/image', { for: 'avatar', pending: '1' }, PNG);
+  assert.equal((await fetch(`${server.base}/img/${draft.body.id}`)).status, 200);
+  await ana.request({ t: 'image:discard', ids: [draft.body.id] });
+  assert.equal((await fetch(`${server.base}/img/${draft.body.id}`)).status, 404);
+  // Remover pelo Salvar (null) apaga o banner
+  await ana.request({ t: 'profile:update', name: 'Ana Clara', bio: 'oi!', bannerImage: null });
+  await sleep(150);
+  assert.equal(ana.me.bannerImage ?? null, null);
+  assert.equal((await fetch(`${server.base}/img/${up.body.id}`)).status, 404);
+});
+
 test('banner do perfil: GIF animado maior que a foto; remover apaga o arquivo', async () => {
   const gif = Buffer.concat([Buffer.from('GIF89a'), Buffer.alloc(8 * 1024 * 1024)]); // 8 MB: passa do limite da foto, cabe no banner (até 10 MB)
   assert.equal((await ana.upload('/api/image', { for: 'avatar' }, gif)).status, 413);

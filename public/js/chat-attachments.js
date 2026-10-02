@@ -3,7 +3,7 @@ import { $, h, showBanner } from './util.js';
 import { contextMenu } from './dialogs.js';
 import { openPollDialog } from './chat-polls.js';
 import { icon } from './icons.js';
-import { state, findChannel, canIn, PERMS } from './state.js';
+import { state, findChannel, canIn, PERMS, chatChannelId } from './state.js';
 import { sessionToken } from './net.js';
 
 const MAX_IMAGE = 10 * 1024 * 1024;
@@ -47,7 +47,7 @@ function videoSize(url) {
 }
 
 export function addFiles(files) {
-  const { channel, server } = findChannel(state.view.channelId);
+  const { channel, server } = findChannel(chatChannelId());
   if (!channel || channel.type === 'voice' || !canIn(server, PERMS.SEND_MESSAGES)) return;
   for (const original of files) {
     // SVG e formatos que o navegador não mostra vão como documento
@@ -168,7 +168,7 @@ function pickFiles() {
 $('btn-attach').onclick = (e) => {
   e.stopPropagation();
   const r = $('btn-attach').getBoundingClientRect();
-  const channel = state.view.channelId;
+  const channel = chatChannelId();
   contextMenu(r.left, r.top - 96, [
     { label: 'Enviar foto, vídeo ou arquivo', icon: 'plus', onClick: pickFiles },
     { label: 'Criar enquete', icon: 'bar-chart', onClick: () => openPollDialog(channel) },

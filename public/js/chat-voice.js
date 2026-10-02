@@ -2,7 +2,7 @@
 // Na conversa, vira um tocador com play, barra de progresso e duração.
 import { $, h, showBanner } from './util.js';
 import { icon } from './icons.js';
-import { state } from './state.js';
+import { state, chatChannelId } from './state.js';
 import { send, upload } from './net.js';
 
 const MAX_SECONDS = 300;
@@ -19,7 +19,7 @@ function pickMime() {
 async function start() {
   if (rec) return;
   if (!window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) return showBanner('Este navegador não grava áudio.', { timeout: 4000 });
-  const channel = state.view.channelId;
+  const channel = chatChannelId();
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); } catch {
     return showBanner('Não deu para usar o microfone. Libere o acesso no navegador.', { timeout: 5000 });

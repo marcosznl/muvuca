@@ -3,10 +3,13 @@ import { $, store, showBanner, toast } from './util.js';
 import { eventsUpdated, onEventReminder } from './events.js';
 import { openUserSettings } from './user-settings.js';
 import { avisarNovidades } from './novidades.js';
+import { currentTheme, receiveTheme, onThemeSaved } from './theme.js';
+onThemeSaved((theme) => request({ t: 'theme:set', theme }).catch(() => {})); // vale em todos os aparelhos
 import { icon, applyStaticIcons } from './icons.js';
 import {
-  state, serverById, findChannel, upsertServer, removeServer, rememberTextChannel, rememberedTextChannel,
+  state, serverById, findChannel, upsertServer, removeServer, rememberTextChannel, rememberedTextChannel, chatChannelId,
 } from './state.js';
+import { renderCallChat } from './call-chat.js';
 import { connect, disconnect, request, send, api, sessionToken, setSessionToken } from './net.js';
 import { showAuth, pendingInvite, clearInviteFromUrl, showForcedPasswordChange } from './auth.js';
 import { renderRail, renderServerHeader, renderChannels, renderUserPanel, renderVoicePanel, applyServerOrder } from './sidebar.js';
@@ -19,7 +22,7 @@ import './quick-switch.js';
 import './voice-menus.js';
 import { setupPush, pushAfterLogin } from './push.js';
 import { closeEmojiPanel } from './chat-picker.js';
-import { renderStage, leaveVoice, voiceChannelId, applyAudioState, updateMediaButtons, mergeSelfIntoVoice, onBoardSound, onVoiceMove } from './voice.js';
+import { renderStage, leaveVoice, voiceChannelId, applyAudioState, updateMediaButtons, mergeSelfIntoVoice, onBoardSound, onVoiceMove, syncMiniPlayer } from './voice.js';
 import { renderMembers } from './members.js';
 import {
   joinMusic, musicChannelId, onMusicState, onMusicQueue, rejoinMusic, musicChannelGone, placeMusicView, renderAllMusic,
@@ -101,9 +104,12 @@ function showChannel() {
   const isMusic = channel?.type === 'music';
   // O chat é o mesmo componente: embaixo do player nos canais de música, sozinho nos de texto
   // Só move quando muda de lugar: mover o elemento zera a rolagem (o chat "pulava" a cada atualização)
+  // Na call com o chat ao lado ligado: o mesmo chat vai para a direita da call (canal de texto escolhido)
+  const callChat = isVoice && !!chatChannelId();
   if (isMusic) { if ($('text-view').parentElement !== $('music-chat-slot')) $('music-chat-slot').append($('text-view')); }
+  else if (callChat) { if ($('text-view').parentElement !== $('call-chat-slot')) $('call-chat-slot').append($('text-view')); }
   else if ($('text-view').previousElementSibling !== $('empty-view')) $('empty-view').after($('text-view'));
-  $('text-view').hidden = isVoice || !channel;
+  $('text-view').hidden = (isVoice && !callChat) || !channel;
   $('voice-view').hidden = !isVoice;
   const friendsHome = !!state.view.dms && !channel; // mensagens diretas sem conversa: página de amigos
   $('empty-view').hidden = !!channel || friendsHome;
@@ -136,8 +142,13 @@ function showChannel() {
   if (channel && channel.type !== 'voice') {
     openTextChannel(channel.id);
     if (matchMedia('(pointer: fine)').matches && channel.type === 'text') $('chat-input').focus();
+  } else if (callChat) {
+    openTextChannel(chatChannelId());
+    state.unread[chatChannelId()] = 0;
   }
+  renderCallChat();
   if (isVoice) renderStage();
+  syncMiniPlayer(); // fora da tela da call: live/câmera numa janelinha flutuante
   renderAll();
   renderCallBar();
   if (friendsHome) renderFriendsView();
@@ -165,7 +176,7 @@ function handle(m) {
     case 'me': {
       state.me = { ...state.me, ...m.you };
       renderAll();
-      if (findChannel(state.view.channelId).channel?.type !== 'voice') openTextChannel(state.view.channelId); // nome/foto nas mensagens
+      if (chatChannelId()) openTextChannel(chatChannelId()); // nome/foto nas mensagens
       break;
     }
     case 'maintenance':
@@ -186,6 +197,9 @@ function handle(m) {
       pushAfterLogin(); // notificações: refaz a inscrição perdida e convida no celular (uma vez)
       renderMaintBar(m.maintenance);
       state.me = { ...m.you, xpRank: m.xpRank ?? null };
+      // Tema da conta (escolhido em qualquer aparelho); conta ainda sem tema: leva o deste aparelho
+      if (m.you.theme) receiveTheme(m.you.theme);
+      else if (currentTheme() !== 'dark') send({ t: 'theme:set', theme: currentTheme() });
       state.servers = m.servers;
       state.online = new Set(m.online);
       state.status = m.status ?? {};
@@ -304,6 +318,9 @@ function handle(m) {
       break;
     case 'event:reminder':
       onEventReminder(m);
+      break;
+    case 'theme': // escolheu outro tema em outro aparelho (ou aba)
+      receiveTheme(m.theme);
       break;
     case 'servers:order':
       applyServerOrder(m.ids);

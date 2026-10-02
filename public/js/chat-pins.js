@@ -1,7 +1,7 @@
 // Mensagens fixadas: o pininho no topo do chat e a lista que ele abre
 import { $, h, makeAvatar, fmtTime, showBanner } from './util.js';
 import { icon } from './icons.js';
-import { state, findChannel, canIn, PERMS, nameOf } from './state.js';
+import { state, findChannel, canIn, PERMS, nameOf, chatChannelId } from './state.js';
 import { request } from './net.js';
 import { GIF_URL } from './richtext.js';
 import { appendRich, appendGif, attachmentsView } from './chat-content.js';
@@ -14,7 +14,7 @@ export const toastPin = (pinned) => showBanner(pinned ? 'Mensagem fixada! Veja n
 
 function openPins() {
   if (!panel.hidden) return closePins();
-  pinsChannel = state.view.channelId;
+  pinsChannel = chatChannelId();
   panel.hidden = false;
   $('btn-pins').classList.add('on');
   panel.replaceChildren(h('div', 'pins-head', 'Mensagens fixadas'), h('div', 'picker-empty', 'Carregando…'));

@@ -119,47 +119,78 @@ $('#logout').addEventListener('click', async () => {
 });
 
 // ---------- Abas ----------
+// Cada aba da lateral (página) tem uma ou mais sub-abas. Os ids das sub-abas são os antigos endereços
+// (#quedas, #backups…), então os links dos alertas no celular continuam abrindo o lugar certo.
 const TABS = {
-  geral: ['Visão geral', viewGeral, 5000],
-  aovivo: ['Ao vivo', viewAoVivo, 5000],
-  usuarios: ['Usuários', viewUsuarios, 30000],
+  geral: ['Agora', viewGeral, 5000],
+  sistema: ['Sistema', viewSistema, 30000],
   resumo: ['Resumo da semana', viewResumo, 300000],
+  aovivo: ['Ao vivo', viewAoVivo, 5000],
+  usuarios: ['Contas', viewUsuarios, 30000],
+  convites: ['Convites', viewConvites, 60000],
+  xp: ['XP e níveis', viewXp, 30000],
+  servidores: ['Servidores', viewServidores, 30000],
   mensagens: ['Mensagens', viewMensagens, 0],
   arquivos: ['Arquivos pesados', viewArquivos, 60000],
-  xp: ['XP e níveis', viewXp, 30000],
   auditoria: ['Auditoria', viewAuditoria, 0],
   acessos: ['Acessos ao site', viewAcessos, 60000],
-  logs: ['Logs', viewLogs, 0],
-  backups: ['Backups', viewBackups, 60000],
-  atualizar: ['Atualizar o Muvuca', viewAtualizar, 4000],
-  minecraft: ['Minecraft', viewMinecraft, 5000],
+  ips: ['IPs bloqueados', viewIps, 60000],
   internet: ['Internet', viewInternet, 4000],
+  quedas: ['Quedas', viewQuedas, 30000],
+  atualizar: ['Atualizar o Muvuca', viewAtualizar, 4000],
+  backups: ['Backups', viewBackups, 60000],
+  manut: ['Manutenção e reiniciar', viewManutencao, 30000],
+  logs: ['Logs', viewLogs, 0],
+  minecraft: ['Minecraft', viewMinecraft, 5000],
+  seguranca: ['Login (Face ID / Touch ID)', viewSeguranca, 0],
   alertas: ['Alertas no celular', viewAlertas, 0],
-  quedas: ['Histórico de quedas', viewQuedas, 30000],
-  convites: ['Convites', viewConvites, 60000],
-  seguranca: ['Login do painel', viewSeguranca, 0],
-  sistema: ['Sistema', viewSistema, 30000],
+  aparelhos: ['Aparelhos conectados', viewAparelhos, 30000],
 };
+const PAGES = {
+  geral: ['Visão geral', ['geral', 'sistema', 'resumo']],
+  aovivo: ['Ao vivo', ['aovivo']],
+  pessoas: ['Pessoas', ['usuarios', 'convites', 'xp']],
+  servidoresPg: ['Servidores', ['servidores']],
+  conteudo: ['Conteúdo', ['mensagens', 'arquivos']],
+  protecao: ['Segurança', ['auditoria', 'acessos', 'ips']],
+  conexao: ['Conexão', ['internet', 'quedas']],
+  manutencao: ['Manutenção', ['atualizar', 'backups', 'manut']],
+  logs: ['Logs', ['logs']],
+  minecraft: ['Minecraft', ['minecraft']],
+  config: ['Configurações do painel', ['seguranca', 'alertas', 'aparelhos']],
+};
+const pageOf = (sub) => Object.keys(PAGES).find((p) => PAGES[p][1].includes(sub));
 let tab = 'geral';
 let timer = null;
 let status = null;
 const stopTimers = () => { clearInterval(timer); timer = null; };
 
-document.querySelectorAll('.side button[data-tab]').forEach((b) => b.addEventListener('click', () => openTab(b.dataset.tab)));
-// No celular: as abas viram uma lista só, separada pelos mesmos grupos da lateral
+// Lateral: uma linha por página (com a bolinha de pendências); no celular, a mesma lista num seletor
 const tabSelect = $('#tab-select');
-for (const g of document.querySelectorAll('.side-group')) {
-  const parent = g.dataset.label ? tabSelect.appendChild(h('optgroup', { label: g.dataset.label })) : tabSelect;
-  for (const b of g.querySelectorAll('button[data-tab]')) parent.append(h('option', { value: b.dataset.tab }, b.textContent));
+for (const [id, [label]] of Object.entries(PAGES)) {
+  $('#side-pages').append(h('button', { 'data-page': id, onclick: () => openTab(id) }, h('span', {}, label), h('span', { class: 'side-badge', hidden: true })));
+  tabSelect.append(h('option', { value: id }, label));
 }
 tabSelect.addEventListener('change', () => openTab(tabSelect.value));
+
+// Última sub-aba usada em cada página (volta nela ao clicar na página)
+let lastSub = {};
+try { lastSub = JSON.parse(localStorage.getItem('painel-subabas') || '{}'); } catch { /* sem armazenamento */ }
+
+// name: uma sub-aba (ex.: 'quedas') ou uma página (ex.: 'conexao', abre a última sub-aba usada nela)
 function openTab(name) {
-  tab = TABS[name] ? name : 'geral';
-  try { localStorage.setItem('painel-tab', tab); } catch { /* sem armazenamento */ }
-  document.querySelectorAll('.side button[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
-  tabSelect.value = tab;
-  const [title, fn, every] = TABS[tab];
-  $('#title').textContent = title;
+  if (!TABS[name]) name = PAGES[name] ? (PAGES[name][1].includes(lastSub[name]) ? lastSub[name] : PAGES[name][1][0]) : 'geral';
+  tab = name;
+  const page = pageOf(tab);
+  lastSub[page] = tab;
+  try { localStorage.setItem('painel-tab', tab); localStorage.setItem('painel-subabas', JSON.stringify(lastSub)); } catch { /* sem armazenamento */ }
+  document.querySelectorAll('.side button[data-page]').forEach((b) => b.classList.toggle('on', b.dataset.page === page));
+  tabSelect.value = page;
+  const [pageTitle, subs] = PAGES[page];
+  $('#title').textContent = pageTitle;
+  $('#subtabs').replaceChildren(...(subs.length > 1 ? subs.map((id) => h('button', { class: id === tab ? 'on' : null, onclick: () => openTab(id) }, TABS[id][0])) : []));
+  $('#subtabs').hidden = subs.length < 2;
+  const [, fn, every] = TABS[tab];
   const view = $('#view');
   // Mesma aba (ex.: trocou o período do gráfico): mantém o conteúdo até o novo chegar, sem piscar
   if (view.dataset.tab !== name) {
@@ -194,7 +225,7 @@ async function start() {
   let saved = 'geral';
   try { saved = localStorage.getItem('painel-tab') || 'geral'; } catch { /* sem armazenamento */ }
   const fromLink = location.hash.slice(1); // alerta tocado no celular: abre a aba certa (#quedas, #backups…)
-  if (TABS[fromLink]) { saved = fromLink; history.replaceState(null, '', '/'); }
+  if (TABS[fromLink] || PAGES[fromLink]) { saved = fromLink; history.replaceState(null, '', '/'); }
   openTab(saved);
   refreshTop();
   setInterval(refreshTop, 15000);
@@ -202,6 +233,7 @@ async function start() {
 
 async function refreshTop() {
   if ($('#app').hidden) return;
+  refreshAttention();
   try { status = await api('/api/status'); } catch { return; }
   const m = status.main ?? {};
   const ok = m.up && !m.error;
@@ -252,40 +284,113 @@ function lineChart(times, series, { format = (v) => v, max } = {}) {
 }
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-// ---------- Alertas (o que merece atenção agora) ----------
-function alerts(s, ov, bk) {
-  const out = [];
-  const m = s.main ?? {};
-  if (!m.up) out.push(['bad', `O Muvuca está fora do ar (${m.error ?? 'sem resposta'}).`]);
-  else if (m.error) out.push(['warn', `Muvuca: ${m.error}`]);
-  for (const [name, label] of [['livekit', 'voz (LiveKit)'], ['caddy', 'HTTPS (Caddy)'], ['ddns', 'DuckDNS']]) {
-    if (!s.procs?.[name]) out.push(['bad', `O serviço de ${label} não está rodando.`]);
+// ---------- Busca única (topo) ----------
+// Digita um nome, @usuário, IP ou trecho de mensagem: pessoas abrem o cartão, IPs abrem a Auditoria
+// filtrada, mensagens abrem Conteúdo → Mensagens com a busca. Ctrl+K (ou /) foca a busca.
+const buscaInput = $('#busca');
+buscaInput.placeholder = 'Buscar pessoa, servidor, #canal, IP ou mensagem… (Ctrl+K)';
+const buscaRes = $('#busca-res');
+let buscaTimer = null;
+let buscaSeq = 0;
+const fecharBusca = () => { buscaRes.hidden = true; };
+function buscaGo(fn) { fecharBusca(); buscaInput.blur(); fn(); }
+async function buscar() {
+  const q = buscaInput.value.trim();
+  if (q.length < 2) return fecharBusca();
+  const seq = ++buscaSeq;
+  let d;
+  try { d = await api(`/api/busca?q=${encodeURIComponent(q)}`); } catch { return; }
+  if (seq !== buscaSeq) return; // chegou resposta de uma busca antiga
+  const item = (onPick, ...kids) => h('button', { class: 'busca-item', type: 'button', onclick: () => buscaGo(onPick) }, ...kids);
+  const sec = (title, rows) => (rows.length ? [h('div', { class: 'busca-sec' }, title), ...rows] : []);
+  const rows = [
+    ...sec('Pessoas', d.users.map((u) => item(() => openPessoa(u.id), h('b', {}, u.name), h('span', { class: 'muted small' }, ` @${u.username}`), u.online ? h('span', { class: 'pill good' }, 'online') : null))),
+    ...sec('Servidores', (d.servers ?? []).map((sv) => item(() => openServerDetail(sv.id), h('b', {}, sv.name)))),
+    ...sec('Canais', (d.channels ?? []).map((c) => item(() => openServerDetail(c.server_id), h('b', {}, `${{ text: '#', voice: '🔊', music: '🎵' }[c.type] ?? '#'}${c.name}`), h('span', { class: 'muted small' }, ` · ${c.server}`)))),
+    ...sec('IPs', d.ips.map((r) => item(() => { auditFilters = { ip: r.ip }; openTab('auditoria'); }, h('span', { class: 'mono' }, r.ip), h('span', { class: 'muted small' }, ` · ${r.who.join(', ') || 'sem conta'} · ${ago(r.last)}`)))),
+    ...sec('Mensagens', d.messages.map((m) => item(() => { msgQuery = { q, user: '' }; openTab('mensagens'); }, h('b', {}, m.name ?? '?'), h('span', { class: 'muted small' }, ` · ${m.where}`), h('div', { class: 'busca-trecho' }, (m.text || '📎 anexo').slice(0, 120))))),
+  ];
+  if (d.messages.length) rows.push(item(() => { msgQuery = { q, user: '' }; openTab('mensagens'); }, h('span', { class: 'muted' }, `Ver todas as mensagens com "${q}" →`)));
+  buscaRes.replaceChildren(...(rows.length ? rows : [h('p', { class: 'empty' }, 'Nada encontrado.')]));
+  buscaRes.hidden = false;
+}
+buscaInput.addEventListener('input', () => { clearTimeout(buscaTimer); buscaTimer = setTimeout(buscar, 250); });
+buscaInput.addEventListener('focus', () => { if (buscaRes.childElementCount && buscaInput.value.trim().length >= 2) buscaRes.hidden = false; });
+buscaInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { fecharBusca(); buscaInput.blur(); }
+  if (e.key === 'Enter') { e.preventDefault(); buscaRes.querySelector('.busca-item')?.click(); }
+  if (e.key === 'ArrowDown') { e.preventDefault(); buscaRes.querySelector('.busca-item')?.focus(); }
+});
+buscaRes.addEventListener('keydown', (e) => {
+  const items = [...buscaRes.querySelectorAll('.busca-item')];
+  const i = items.indexOf(document.activeElement);
+  if (e.key === 'ArrowDown') { e.preventDefault(); items[Math.min(items.length - 1, i + 1)]?.focus(); }
+  if (e.key === 'ArrowUp') { e.preventDefault(); (i <= 0 ? buscaInput : items[i - 1]).focus(); }
+  if (e.key === 'Escape') { fecharBusca(); buscaInput.focus(); }
+});
+document.addEventListener('click', (e) => { if (!e.target.closest('.top-search')) fecharBusca(); });
+document.addEventListener('keydown', (e) => {
+  const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName ?? '');
+  if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') || (e.key === '/' && !typing)) {
+    if ($('#app').hidden) return;
+    e.preventDefault();
+    buscaInput.focus();
+    buscaInput.select();
   }
-  const memPct = s.mem ? (s.mem.used / s.mem.total) * 100 : 0;
-  if (memPct > 90) out.push(['warn', `Memória do Mac em ${pct(memPct)}.`]);
-  if (s.cpu > 85) out.push(['warn', `Processador em ${pct(s.cpu)}.`]);
-  if (s.disk && s.disk.free < 5 * 1024 ** 3) out.push(['bad', `Disco quase cheio: só ${bytes(s.disk.free)} livres.`]);
-  else if (s.disk && s.disk.free < 15 * 1024 ** 3) out.push(['warn', `Pouco espaço em disco: ${bytes(s.disk.free)} livres.`]);
-  const inCall = (m.voice ?? []).flatMap((v) => v.people ?? []);
-  const bad = inCall.filter((p) => p.net && (p.net.q === 'poor' || p.net.q === 'lost'));
-  if (bad.length) out.push(['warn', `Conexão ruim na call: ${bad.map((p) => p.name).join(', ')} (veja em Ao vivo).`]);
-  const limited = inCall.filter((p) => p.net?.pub?.some((x) => x.limit === 'bandwidth' || x.limit === 'cpu'));
-  if (limited.length) out.push(['warn', `Live/câmera com qualidade reduzida: ${limited.map((p) => `${p.name} (${p.net.pub.find((x) => x.limit).limit === 'cpu' ? 'processador' : 'internet'} de quem transmite)`).join(', ')}.`]);
-  if (m.loopDelayMs > 100) out.push(['warn', `O Muvuca está respondendo devagar (atraso médio de ${m.loopDelayMs} ms).`]);
-  for (const c of s.certs ?? []) {
-    if (!c.name.endsWith('duckdns.org')) continue;
-    const days = Math.floor((c.validTo - Date.now()) / 86400000);
-    if (days < 14) out.push([days < 5 ? 'bad' : 'warn', `Certificado HTTPS de ${c.name} vence em ${days} dias (o Caddy renova sozinho; se não renovar, confira os logs).`]);
+});
+
+// ---------- Precisa de atenção ----------
+// A lista vem do painel (/api/atencao): o que pede ação agora e em qual sub-aba se resolve.
+// Também vira a bolinha com o número de pendências ao lado de cada aba da lateral.
+let attentionItems = [];
+function paintBadges() {
+  for (const b of document.querySelectorAll('.side button[data-page]')) {
+    const mine = attentionItems.filter((i) => pageOf(i.tab) === b.dataset.page);
+    const badge = b.querySelector('.side-badge');
+    badge.hidden = !mine.length;
+    badge.textContent = mine.length;
+    badge.className = `side-badge ${mine.some((i) => i.level === 'bad') ? 'bad' : mine.some((i) => i.level === 'warn') ? '' : 'info'}`;
+    b.title = mine.map((i) => i.text).join('\n');
+    // No celular (lista em vez da lateral): o número vai junto do nome
+    const opt = tabSelect.querySelector(`option[value="${b.dataset.page}"]`);
+    if (opt) opt.textContent = `${PAGES[b.dataset.page][0]}${mine.length ? ` (${mine.length})` : ''}`;
   }
-  if (ov?.failed24 > 10) out.push(['warn', `${ov.failed24} tentativas que falharam (senha errada etc.) nas últimas 24 h — veja a Auditoria.`]);
-  if (ov && !ov.auditReady) out.push(['warn', 'A auditoria ainda não está ativa: reinicie o Muvuca uma vez para criar o registro.']);
-  if (bk) {
-    const last = bk.local?.[0]?.at;
-    if (!last || Date.now() - last > 26 * 3600000) out.push(['warn', `O último backup é de ${last ? ago(last) : 'nunca'}.`]);
-    const lastWarn = (bk.warnings ?? []).find((w) => w.startsWith('[backup'));
-    if (lastWarn) out.push(['warn', `Último backup com aviso: ${lastWarn.replace(/^\[backup [^\]]+\]\s*/, '')}`]);
-  }
-  return out;
+}
+async function refreshAttention() {
+  try { attentionItems = (await api('/api/atencao')).items; } catch { return attentionItems; }
+  paintBadges();
+  return attentionItems;
+}
+
+function attentionCard(items) {
+  return h('div', { class: 'card attention' },
+    h('h2', {}, 'Precisa de atenção'),
+    items.length
+      ? h('div', { class: 'alerts' }, items.map((i) => h('button', { class: `alert ${i.level} alert-link`, onclick: () => openTab(i.tab) },
+        h('span', {}, i.text), h('span', { class: 'alert-go' }, `${TABS[i.tab]?.[0] ?? 'Abrir'} →`))))
+      : h('div', { class: 'alert good' }, 'Tudo certo ✅ Nada pedindo ação agora.'));
+}
+
+// Ações rápidas (as mesmas de Manutenção, para uma emergência pelo celular)
+async function backupNow(btn) {
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = 'Fazendo backup…';
+  try {
+    const r = await api('/api/backup', { method: 'POST' });
+    toast(r.output || (r.ok ? 'Backup feito.' : 'O backup falhou.'), 8000);
+  } catch (err) { toast(err.message); } finally { btn.disabled = false; btn.textContent = label; refreshAttention(); }
+}
+function quickActions(mt) {
+  const restart = h('button', { class: 'btn danger' }, 'Reiniciar o Muvuca');
+  restart.addEventListener('click', () => restartMuvuca(restart));
+  const backup = h('button', { class: 'btn' }, 'Fazer backup agora');
+  backup.addEventListener('click', () => backupNow(backup));
+  const maint = mt.on
+    ? h('button', { class: 'btn', onclick: () => act('/api/maintenance', { on: false }, { reload: 'geral' }) }, 'Desligar manutenção')
+    : h('button', { class: 'btn', onclick: () => act('/api/maintenance', { on: true, message: 'O Muvuca vai reiniciar para uma atualização. Volta em instantes!', minutes: 0, lock: false },
+      { confirmText: 'Ligar o aviso de manutenção no topo do Muvuca para todo mundo? (Mais opções em Manutenção.)', reload: 'geral' }) }, 'Ligar aviso de manutenção');
+  return h('div', { class: 'card row quick' }, h('b', {}, 'Ações rápidas'), h('span', { class: 'spacer' }), backup, maint, restart);
 }
 
 // Ação com confirmação (e motivo opcional) que chama o painel e mostra o resultado
@@ -296,31 +401,27 @@ async function act(path, body, { confirmText, askReason, reload } = {}) {
     if (reason === null) return;
     body = { ...body, reason };
   }
+  let ok = false;
   try {
     const r = await api(path, { method: 'POST', body });
     toast(r.message ?? 'Feito.', 5000);
+    ok = true;
   } catch (err) { toast(err.message, 6000); }
   if (reload) openTab(reload);
+  return ok;
 }
 const ipBlockButton = (ip, reload) => (ip ? h('button', { class: 'btn small ghost', title: `Bloquear ${ip}`, onclick: (e) => { e.stopPropagation(); act('/api/ips/block', { ip, block: true }, { confirmText: `Bloquear o IP ${ip}? Ele não vai conseguir abrir o Muvuca nem entrar nas calls.`, askReason: 'Motivo (opcional):', reload }); } }, 'Bloquear IP') : null);
 
 // ---------- Visão geral ----------
 let range = 1;
-let bkCache = null;
 async function viewGeral(first) {
-  const [s, ov, hist] = await Promise.all([api('/api/status'), api('/api/overview'), api(`/api/history?hours=${range}`)]);
+  const [s, ov, hist, items, mt] = await Promise.all([api('/api/status'), api('/api/overview'), api(`/api/history?hours=${range}`), refreshAttention(), api('/api/maintenance')]);
   status = s;
-  // Backups entram nos alertas sem segurar a tela: usa o que já tem e atualiza por trás
-  if (!bkCache || Date.now() - bkCache.t > 60000) {
-    bkCache = { t: Date.now(), data: bkCache?.data ?? null };
-    api('/api/backups').then((d) => { bkCache = { t: Date.now(), data: d }; }).catch(() => {});
-  }
   const m = s.main ?? {};
   const inVoice = (m.voice ?? []).reduce((n, v) => n + v.count, 0);
   const lives = (m.voice ?? []).reduce((n, v) => n + (v.people ?? []).filter((p) => p.streaming).length, 0);
   const memPct = s.mem ? (s.mem.used / s.mem.total) * 100 : 0;
   const diskPct = s.disk ? (1 - s.disk.free / s.disk.total) * 100 : 0;
-  const al = alerts(s, ov, bkCache.data);
 
   const times = hist.map((p) => p.t);
   const rangeSel = h('div', { class: 'row' }, h('span', { class: 'muted small' }, 'Período:'),
@@ -330,8 +431,9 @@ async function viewGeral(first) {
   const days = Array.from({ length: 14 }, (_, i) => ov.perDay.find((d) => d.d === i)?.n ?? 0);
 
   return h('div', {},
-    h('div', { class: 'alerts' }, al.length ? al.map(([k, t]) => h('div', { class: `alert ${k}` }, t)) : h('div', { class: 'alert good' }, 'Tudo certo: nenhum alerta agora.')),
-    h('div', { class: 'grid cards' },
+    attentionCard(items),
+    h('div', { class: 'section' }, quickActions(mt)),
+    h('div', { class: 'section grid cards' },
       stat('Muvuca', m.up && !m.error ? 'No ar' : 'Fora', m.upSince ? `há ${duration((Date.now() - m.upSince) / 1000)}` : m.error ?? ''),
       stat('Online agora', num(m.users?.length ?? 0), `${num(m.connections ?? 0)} abas/apps conectados`),
       stat('Em call', num(inVoice), `${num((m.voice ?? []).length)} canais · ${num(lives)} ${lives === 1 ? 'live' : 'lives'}`),
@@ -376,7 +478,6 @@ async function viewGeral(first) {
       h('div', { class: 'card' }, h('h2', {}, 'Jogos mais jogados (7 dias)'),
         table([{ label: 'Jogo', get: (r) => r.game }, { label: 'Partidas', num: true, get: (r) => num(r.n) }], ov.games7, { empty: 'Nenhuma partida nesta semana.' })),
     ),
-    h('div', { class: 'section card' }, h('h2', {}, 'Processos'), processTable(s)),
   );
 }
 
@@ -427,7 +528,7 @@ async function viewAoVivo() {
     h('div', { class: 'grid two' },
       h('div', { class: 'card' }, h('h2', {}, `Online (${m.users.length})`),
         table([
-          { label: 'Pessoa', get: (u) => h('span', {}, h('b', {}, u.name), ' ', h('span', { class: 'muted small' }, `@${u.username}`)) },
+          { label: 'Pessoa', get: (u) => personLink(u.id, h('b', {}, u.name), h('span', { class: 'muted small' }, ` @${u.username}`)) },
           { label: 'Status', get: (u) => { const [k, t] = statusLabel[u.status] ?? ['', u.status]; return h('span', { class: `pill ${k}` }, t); } },
           { label: 'Abas', num: true, get: (u) => `${u.tabs}${u.hidden ? ' (em segundo plano)' : ''}` },
           { label: 'IP', get: (u) => h('span', { class: 'mono' }, u.ip ?? '—') },
@@ -466,7 +567,7 @@ async function ipsCard() {
   const add = h('button', { class: 'btn small primary' }, 'Bloquear');
   add.addEventListener('click', () => ip.value.trim() && act('/api/ips/block', { ip: ip.value.trim(), block: true }, { confirmText: `Bloquear o IP ${ip.value.trim()}?`, askReason: 'Motivo (opcional):', reload: tab }));
   return h('div', { class: 'card' }, h('h2', {}, 'IPs bloqueados'),
-    h('p', { class: 'muted small' }, `IP bloqueado não abre nada do Muvuca (site, app, calls). Seu IP agora: ${d.you}. Dá para bloquear também pelas abas Ao vivo e Acessos.`),
+    h('p', { class: 'muted small' }, `IP bloqueado não abre nada do Muvuca (site, app, calls). Seu IP agora: ${d.you}. Dá para bloquear também em Ao vivo e em Acessos ao site.`),
     table([
       { label: 'IP', get: (r) => h('span', { class: 'mono' }, r.ip) },
       { label: 'Motivo', get: (r) => r.reason ?? '—' },
@@ -485,7 +586,7 @@ async function viewUsuarios() {
     const q = userFilter.toLowerCase();
     const rows = users.filter((u) => !q || u.username.toLowerCase().includes(q) || u.name.toLowerCase().includes(q));
     body.replaceChildren(table([
-      { label: 'Pessoa', get: (u) => h('span', {}, h('b', {}, u.name), ' ', h('span', { class: 'muted small' }, `@${u.username}`)) },
+      { label: 'Pessoa', get: (u) => personLink(u.id, h('b', {}, u.name), h('span', { class: 'muted small' }, ` @${u.username}`)) },
       { label: 'Agora', get: (u) => h('span', { class: `pill ${u.online ? 'good' : ''}` }, u.online ? 'online' : ago(u.last_seen)) },
       { label: 'Nível', num: true, get: (u) => (u.level ? h('span', { title: `${num(u.level.total)} XP · ${num(u.level.into)}/${num(u.level.need)} para o próximo` }, h('b', {}, u.level.level), h('span', { class: 'muted small' }, ` · ${num(u.level.total)} XP`)) : '—') },
       { label: 'Conta criada', get: (u) => when(u.created_at) },
@@ -509,9 +610,12 @@ async function viewUsuarios() {
   };
   input.addEventListener('input', () => { userFilter = input.value; render(); });
   render();
-  box.append(h('div', { class: 'row' }, h('h2', {}, `${users.length} contas`), h('span', { class: 'spacer' }), input), body);
-  return h('div', {}, box, h('div', { class: 'section' }, await ipsCard()));
+  box.append(h('div', { class: 'row' }, h('h2', {}, `${users.length} contas`), h('span', { class: 'spacer' }), input,
+    h('a', { class: 'btn small', href: '/api/users.csv', title: 'Baixar a lista de contas (abre no Excel/Numbers)' }, 'Exportar planilha')), body);
+  return box;
 }
+
+async function viewIps() { return ipsCard(); }
 
 // Senha temporária: você escolhe (ou usa a sugerida), passa para a pessoa, e ela troca no primeiro login
 function resetPasswordFor(u) {
@@ -521,14 +625,192 @@ function resetPasswordFor(u) {
   const password = prompt(`Senha temporária para @${u.username} (pelo menos 6 caracteres).\n\nA pessoa sai de todos os aparelhos agora, entra com esta senha e escolhe a nova na hora.`, suggestion);
   if (password === null) return;
   if (password.trim().length < 6) return toast('A senha temporária precisa ter pelo menos 6 caracteres.', 5000);
-  act('/api/users/reset-password', { id: u.id, password: password.trim() }, { reload: 'usuarios' });
+  closePessoa();
+  act('/api/users/reset-password', { id: u.id, password: password.trim() }, { reload: tab });
 }
 
 // Excluir a conta: pede o @ de novo (não dá para desfazer)
 function deleteAccountOf(u) {
   const typed = prompt(`EXCLUIR a conta @${u.username} (${u.name})?\n\nApaga para sempre: as mensagens dela (em servidores e conversas privadas), anexos, foto, banner, XP e amizades. Servidores que ela criou passam para o membro mais antigo (ou somem, se só ela estava lá). Não dá para desfazer (só voltando um backup).\n\nPara confirmar, digite o usuário dela:`, '');
   if (typed === null) return;
-  act('/api/users/delete', { id: u.id, confirm: typed }, { reload: 'usuarios' });
+  closePessoa();
+  act('/api/users/delete', { id: u.id, confirm: typed }, { reload: tab });
+}
+
+// ---------- Servidores ----------
+// Lista (um cartão por servidor) e, ao clicar, tudo do servidor: canais, membros, cargos, convites e
+// movimento, com as ações de renomear, passar a posse e excluir (pelo Muvuca, fica na auditoria).
+let serverSel = null;
+function openServerDetail(id) { serverSel = id; openTab('servidores'); }
+const serverIcon = (sv, size = 40) => (sv.icon
+  ? h('img', { class: 'sv-icon', src: `/api/img?id=${encodeURIComponent(sv.icon)}`, alt: '', width: size, height: size })
+  : h('span', { class: 'sv-icon sv-initials', style: `background:${sv.color ?? '#5865f2'};width:${size}px;height:${size}px` }, sv.name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase()));
+
+async function viewServidores() {
+  if (serverSel) return serverDetailView(serverSel);
+  const list = await api('/api/servers');
+  if (!list.length) return h('p', { class: 'empty' }, 'Nenhum servidor ainda.');
+  return h('div', {},
+    h('p', { class: 'muted small' }, 'Servidores criados no Muvuca (conversas privadas não aparecem aqui). Clique para ver tudo de um servidor.'),
+    h('div', { class: 'grid sv-grid' }, list.map((sv) => h('button', { class: 'card sv-card', onclick: () => openServerDetail(sv.id) },
+      h('div', { class: 'row' }, serverIcon(sv), h('div', {}, h('b', { class: 'sv-name' }, sv.name),
+        h('div', { class: 'muted small' }, sv.owner ? `dono: @${sv.owner.username}` : h('span', { class: 'error' }, 'sem dono'))),
+        h('span', { class: 'spacer' }), sv.home ? h('span', { class: 'pill' }, 'principal') : null),
+      h('div', { class: 'sv-stats' },
+        h('span', {}, h('b', {}, num(sv.members)), ' membros'), h('span', {}, h('b', {}, num(sv.online)), ' online'),
+        sv.inCall ? h('span', { class: 'pill good' }, `${sv.inCall} em call`) : null),
+      h('div', { class: 'muted small' }, `${sv.channels.text} texto · ${sv.channels.voice} voz · ${sv.channels.music} música · ${num(sv.msgs7)} mensagens em 7 dias · ${bytes(sv.bytes)} de anexos`),
+      h('div', { class: 'muted small' }, `criado em ${when(sv.createdAt)}`)))));
+}
+
+async function serverDetailView(id) {
+  let d;
+  try { d = await api(`/api/server?id=${encodeURIComponent(id)}`); } catch (err) { serverSel = null; throw err; }
+  const back = h('button', { class: 'btn small ghost', onclick: () => { serverSel = null; openTab('servidores'); } }, '← Todos os servidores');
+  const typeIcon = { text: '#', voice: '🔊', music: '🎵' };
+  const maxDay = Math.max(1, ...d.perDay);
+  const top = [...d.channels].sort((a, b) => b.msgs7 - a.msgs7)[0];
+  const rename = () => {
+    const name = prompt('Novo nome do servidor:', d.name);
+    if (name === null || !name.trim() || name.trim() === d.name) return;
+    act('/api/server/rename', { id: d.id, name: name.trim() }, { reload: 'servidores' });
+  };
+  const transferSel = h('select', {}, h('option', { value: '' }, 'Escolha o novo dono…'),
+    d.members.filter((m) => !m.owner).map((m) => h('option', { value: m.id }, `${m.name} (@${m.username})`)));
+  const transfer = () => {
+    const m = d.members.find((x) => String(x.id) === transferSel.value);
+    if (!m) return toast('Escolha quem vai ser o novo dono.');
+    act('/api/server/transfer', { id: d.id, userId: m.id }, { confirmText: `Passar a posse de "${d.name}" para ${m.name} (@${m.username})? ${d.owner ? `@${d.owner.username} continua no servidor, com os cargos que já tem.` : ''}`, reload: 'servidores' });
+  };
+  const remove = () => {
+    const typed = prompt(`EXCLUIR o servidor "${d.name}"?\n\nApaga para sempre os canais, as mensagens, os emojis e os sons dele, e todo mundo sai. Não dá para desfazer (só voltando um backup).\n\nPara confirmar, digite o nome do servidor:`, '');
+    if (typed === null) return;
+    act('/api/server/delete', { id: d.id, confirm: typed }, {}).then((ok) => { if (ok) { serverSel = null; openTab('servidores'); } });
+  };
+  return h('div', {},
+    h('div', { class: 'row' }, back),
+    h('div', { class: 'card section row' }, serverIcon(d, 56),
+      h('div', {}, h('h2', { class: 'sv-title' }, d.name, d.home ? h('span', { class: 'pill' }, 'principal') : null),
+        h('div', { class: 'muted small' }, d.owner ? h('span', {}, 'dono: ', personLink(d.owner.id, h('b', {}, `${d.owner.name} (@${d.owner.username})`))) : h('span', { class: 'error' }, 'sem dono (a conta foi excluída)'),
+          ` · criado em ${when(d.createdAt)} · ${num(d.members.length)} membros (${num(d.members.filter((m) => m.online).length)} online)`)),
+      h('span', { class: 'spacer' }),
+      h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: rename }, 'Renomear'), transferSel, h('button', { class: 'btn small', onclick: transfer }, 'Passar a posse'),
+        d.home ? null : h('button', { class: 'btn small danger-ghost', onclick: remove }, 'Excluir servidor'))),
+    h('div', { class: 'section grid cards' },
+      stat('Mensagens (7 dias)', num(d.channels.reduce((n, c) => n + c.msgs7, 0)), top?.msgs7 ? `mais movimentado: ${typeIcon[top.type]}${top.name}` : 'nenhuma ainda'),
+      stat('Em call agora', num(d.channels.reduce((n, c) => n + c.inCall.length, 0)), d.channels.filter((c) => c.inCall.length).map((c) => c.name).join(', ') || 'ninguém'),
+      stat('Anexos', bytes(d.bytes)),
+      stat('Emojis e sons', `${num(d.emojis)} · ${num(d.sounds)}`, 'emojis próprios · sons do soundboard')),
+    h('div', { class: 'section card' }, h('h2', {}, 'Mensagens por dia (14 dias)'),
+      h('div', { class: 'bars' }, d.perDay.map((n) => h('div', { title: `${n} mensagens`, style: `height:${Math.max(2, (n / maxDay) * 100)}%` }))),
+      h('div', { class: 'legend' }, h('span', {}, 'há 14 dias'), h('span', { class: 'spacer' }), h('span', {}, 'hoje'))),
+    h('div', { class: 'section card' }, h('h2', {}, `Canais (${d.channels.length})`), table([
+      { label: 'Canal', get: (c) => h('span', {}, h('b', {}, `${typeIcon[c.type]} ${c.name}`), c.category ? h('span', { class: 'muted small' }, ` · ${c.category}`) : null) },
+      { label: 'Quem vê', get: (c) => (c.private ? h('span', { class: 'pill warn', title: 'Canal privado' }, `🔒 ${c.roles.join(', ') || 'só administradores'}`) : h('span', { class: 'muted small' }, 'todos')) },
+      { label: 'Regras', get: (c) => [c.slowmode ? `modo lento ${c.slowmode} s` : null, c.userLimit ? `até ${c.userLimit} pessoas` : null].filter(Boolean).join(' · ') || '—' },
+      { label: 'Mensagens (7 d)', num: true, get: (c) => (c.type === 'voice' ? '—' : num(c.msgs7)) },
+      { label: 'Agora', get: (c) => (c.inCall.length ? h('span', { class: 'pill good' }, c.inCall.join(', ')) : '') },
+      { label: '', get: (c) => (c.type === 'voice' ? null : h('a', { class: 'btn small ghost', href: `/api/channel.csv?id=${encodeURIComponent(c.id)}`, title: 'Baixar as mensagens deste canal (abre no Excel/Numbers)' }, 'Planilha')) },
+    ], d.channels)),
+    h('div', { class: 'section grid two' },
+      h('div', { class: 'card' }, h('h2', {}, `Membros (${d.members.length})`), table([
+        { label: 'Pessoa', get: (m) => personLink(m.id, h('b', {}, m.nick ?? m.name), h('span', { class: 'muted small' }, ` @${m.username}`)) },
+        { label: 'Cargos', get: (m) => [m.owner ? h('span', { class: 'pill' }, 'dono') : null, ...m.roles.map((r) => h('span', { class: 'pill' }, r))] },
+        { label: 'Entrou', get: (m) => when(m.joinedAt) },
+        { label: '', get: (m) => (m.online ? h('span', { class: 'pill good' }, 'online') : '') },
+      ], d.members)),
+      h('div', { class: 'card' }, h('h2', {}, 'Cargos e permissões'),
+        d.roles.map((r) => h('div', { class: 'sv-role' },
+          h('div', {}, h('b', { style: r.color ? `color:${r.color}` : null }, r.name), h('span', { class: 'muted small' }, ` · ${num(r.count)} ${r.count === 1 ? 'pessoa' : 'pessoas'}`)),
+          h('div', { class: 'muted small' }, r.perms.length ? r.perms.join(' · ') : 'sem permissões extras'))),
+        h('h2', { class: 'section' }, `Convites valendo (${d.invites.length})`),
+        table([
+          { label: 'Código', get: (i) => h('span', { class: 'mono' }, i.code) },
+          { label: 'Criado por', get: (i) => (i.username ? `@${i.username}` : '—') },
+          { label: 'Usos', num: true, get: (i) => `${i.uses}${i.max_uses ? `/${i.max_uses}` : ''}` },
+          { label: 'Vence', get: (i) => (i.expires_at ? when(i.expires_at) : 'nunca') },
+        ], d.invites, { empty: 'Nenhum convite valendo (crie em Pessoas → Convites).' }))),
+  );
+}
+
+// ---------- Cartão da pessoa ----------
+// Clicar no nome de alguém (Contas, Ao vivo, Auditoria, Mensagens, busca) abre tudo da conta num lugar só,
+// com as ações (desconectar, bloquear, nova senha, XP, excluir). ref: id (12 ou "u12") ou @usuário.
+const personLink = (ref, label, extra) => (ref ? h('button', { class: 'person-link', title: 'Abrir o cartão da pessoa', onclick: (e) => { e.stopPropagation(); openPessoa(ref); } }, label, extra ?? null) : h('b', {}, label));
+let pessoaOverlay = null;
+function closePessoa() { pessoaOverlay?.remove(); pessoaOverlay = null; }
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && pessoaOverlay) closePessoa(); });
+
+async function openPessoa(ref) {
+  closePessoa();
+  const box = h('div', { class: 'pessoa-box', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Cartão da pessoa' }, h('p', { class: 'muted' }, 'Carregando…'));
+  pessoaOverlay = h('div', { class: 'preview-overlay', onclick: (e) => { if (e.target === pessoaOverlay) closePessoa(); } }, box);
+  document.body.append(pessoaOverlay);
+  let d;
+  const q = /^u?\d+$/.test(String(ref)) ? `id=${encodeURIComponent(ref)}` : `user=${encodeURIComponent(String(ref).replace(/^@/, ''))}`;
+  try { d = await api(`/api/pessoa?${q}`); } catch (err) { box.replaceChildren(h('p', { class: 'error' }, err.message), h('button', { class: 'btn', onclick: closePessoa }, 'Fechar')); return; }
+  const u = d.user;
+  // Depois de uma ação: fecha o cartão e atualiza a aba aberta
+  const doAct = (path, body, opts) => { closePessoa(); act(path, body, { ...opts, reload: tab }); };
+  const giveXp = () => {
+    const v = prompt(`Quanto XP dar para @${u.username}? (número negativo tira)`, '100');
+    if (v === null) return;
+    doAct('/api/xp/adjust', { id: u.id, amount: Number(v) }, {});
+  };
+  const fact = (label, value) => h('div', { class: 'fact' }, h('span', { class: 'muted small' }, label), h('b', {}, value));
+  box.replaceChildren(
+    h('div', { class: 'row' },
+      h('div', {}, h('h2', { class: 'pessoa-nome' }, u.name), h('span', { class: 'muted' }, `@${u.username}`)),
+      h('span', { class: `pill ${u.online ? 'good' : ''}` }, u.online ? 'online' : `visto ${ago(u.last_seen)}`),
+      u.blocked_at ? h('span', { class: 'pill bad', title: u.blocked_reason ?? '' }, 'bloqueada') : null,
+      u.must_change ? h('span', { class: 'pill warn' }, 'senha temporária') : null,
+      u.home_owner ? h('span', { class: 'pill' }, 'dono do servidor principal') : null,
+      h('span', { class: 'spacer' }), h('button', { class: 'btn ghost small', onclick: closePessoa, 'aria-label': 'Fechar' }, '✕')),
+    h('div', { class: 'facts section' },
+      fact('Nível', u.level ? `${u.level.level} · ${num(u.level.total)} XP` : '—'),
+      fact('Mensagens', num(u.messages)), fact('Anexos', bytes(u.bytes)), fact('Servidores', num(u.servers)),
+      fact('Aparelhos', num(u.sessions)), fact('Conta criada', when(u.created_at)),
+      fact('Último login', u.lastLogin ? `${ago(u.lastLogin)}` : '—'), fact('Senha errada (7 d)', num(u.fails7))),
+    h('div', { class: 'row section pessoa-acoes' },
+      !u.blocked_at && (u.sessions || u.online) ? h('button', { class: 'btn small', onclick: () => doAct('/api/users/disconnect', { id: u.id }, { confirmText: `Desconectar @${u.username} de todos os aparelhos? Ela precisa entrar de novo com a senha.` }) }, 'Desconectar') : null,
+      u.blocked_at
+        ? h('button', { class: 'btn small', onclick: () => doAct('/api/users/block', { id: u.id, block: false }, { confirmText: `Desbloquear @${u.username}?` }) }, 'Desbloquear')
+        : h('button', { class: 'btn small', onclick: () => doAct('/api/users/block', { id: u.id, block: true }, { confirmText: `Bloquear @${u.username}? A conta sai de todos os aparelhos e não consegue mais entrar até ser desbloqueada.`, askReason: 'Motivo (opcional, fica na auditoria):' }) }, 'Bloquear'),
+      h('button', { class: 'btn small', onclick: () => resetPasswordFor(u) }, 'Nova senha'),
+      h('button', { class: 'btn small', onclick: giveXp }, 'Dar ou tirar XP'),
+      h('button', { class: 'btn small', onclick: () => { closePessoa(); auditFilters = { user: u.username }; openTab('auditoria'); } }, 'Auditoria completa'),
+      h('button', { class: 'btn small', onclick: () => { closePessoa(); msgQuery = { q: '', user: u.username }; openTab('mensagens'); } }, 'Todas as mensagens'),
+      u.home_owner ? null : h('button', { class: 'btn small danger-ghost', onclick: () => deleteAccountOf(u) }, 'Excluir conta')),
+    h('div', { class: 'grid two section' },
+      h('div', {}, h('h3', {}, 'Servidores'), d.servers.length
+        ? h('ul', { class: 'plain' }, d.servers.map((x) => h('li', {}, x.name, x.nick ? h('span', { class: 'muted small' }, ` (apelido: ${x.nick})`) : null, x.owner ? h('span', { class: 'pill' }, 'dono') : null)))
+        : h('p', { class: 'empty' }, 'Em nenhum servidor.'),
+      h('h3', { class: 'section' }, 'Uso nos últimos 7 dias'),
+      h('ul', { class: 'plain' },
+        h('li', {}, 'Tempo em call: ', h('b', {}, d.usage7.callMinutes >= 60 ? `${Math.floor(d.usage7.callMinutes / 60)} h ${d.usage7.callMinutes % 60} min` : `${d.usage7.callMinutes} min`)),
+        h('li', {}, 'Mensagens: ', h('b', {}, num(d.usage7.messages))),
+        d.usage7.games.length
+          ? h('li', {}, 'Jogos: ', h('b', {}, d.usage7.games.map((g) => `${g.game} (${g.n}${g.wins ? `, ${g.wins} ${g.wins === 1 ? 'vitória' : 'vitórias'}` : ''})`).join(', ')))
+          : h('li', { class: 'muted' }, 'Nenhuma partida.')),
+      h('h3', { class: 'section' }, 'XP nos últimos 7 dias'), d.xp7.length
+        ? h('ul', { class: 'plain' }, d.xp7.map((x) => h('li', {}, `${x.reason}: `, h('b', {}, num(x.n)))))
+        : h('p', { class: 'empty' }, 'Nada nos últimos 7 dias.')),
+      h('div', {}, h('h3', {}, 'IPs usados'), table([
+        { label: 'IP', get: (r) => h('span', { class: 'mono' }, r.ip) },
+        { label: 'Último', get: (r) => ago(r.last) },
+        { label: '', get: (r) => (d.blockedIps.includes(r.ip) ? h('span', { class: 'pill bad' }, 'bloqueado') : ipBlockButton(r.ip, tab)) },
+      ], d.ips, { empty: 'Nenhum IP registrado.' }))),
+    h('h3', { class: 'section' }, 'Últimas mensagens (servidores)'),
+    d.messages.length ? h('div', { class: 'msg-list' }, d.messages.map((m) => h('div', { class: 'msg-item' },
+      h('div', { class: 'muted small' }, `${m.where} · ${when(m.at)}`), m.text ? h('div', { class: 'msg-text' }, m.text) : h('div', { class: 'muted small' }, `📎 ${m.files.length} anexo(s)`))))
+      : h('p', { class: 'empty' }, 'Nenhuma mensagem em servidores.'),
+    h('h3', { class: 'section' }, 'Últimas ações registradas'),
+    table([
+      { label: 'Quando', get: (r) => when(r.at) },
+      { label: 'O quê', get: (r) => h('span', {}, r.ok ? '' : '❌ ', r.label) },
+      { label: 'IP', get: (r) => h('span', { class: 'mono' }, r.ip ?? '') },
+    ], d.audit, { empty: 'Nada registrado.', rowClass: (r) => (r.ok ? null : 'fail') }),
+  );
 }
 
 // ---------- Auditoria ----------
@@ -580,7 +862,7 @@ async function viewAuditoria() {
     h('b', { title: k === 'aparelho' ? String(v) : null }, k === 'aparelho' ? device(v) : Array.isArray(v) ? v.join(', ') : v === true ? 'sim' : v === false ? 'não' : String(v)), '  ')) : '');
   const render = () => list.replaceChildren(table([
     { label: 'Quando', get: (r) => h('span', { title: when(r.at) }, when(r.at)) },
-    { label: 'Quem', get: (r) => h('b', {}, r.user_name ?? '—') },
+    { label: 'Quem', get: (r) => (r.user_id ? personLink(r.user_id, h('b', {}, r.user_name ?? '—')) : h('b', {}, r.user_name ?? '—')) },
     { label: 'O quê', get: (r) => h('span', {}, r.ok ? '' : '❌ ', r.label) },
     { label: 'Detalhes', get: (r) => h('div', { class: 'detail' }, describe(r.detail)) },
     { label: 'IP', get: (r) => h('span', { class: 'mono' }, r.ip ?? '') },
@@ -686,7 +968,7 @@ async function viewBackups() {
     try {
       const r = await api('/api/backup', { method: 'POST' });
       toast(r.output || (r.ok ? 'Backup feito.' : 'O backup falhou.'), 8000);
-      bkCache = null;
+      refreshAttention();
       openTab('backups');
     } catch (err) { toast(err.message); } finally { btn.disabled = false; }
   });
@@ -710,9 +992,9 @@ function maintenanceCard(mt) {
   const lock = h('input', { type: 'checkbox', checked: !!mt.lock });
   const on = h('button', { class: 'btn primary' }, mt.on ? 'Atualizar aviso' : 'Ligar manutenção');
   on.addEventListener('click', () => act('/api/maintenance', { on: true, message: msg.value, minutes: minutes.value, lock: lock.checked },
-    { confirmText: lock.checked ? 'Travar o acesso? Todo mundo (menos você) sai e vê a tela de manutenção até você desligar.' : null, reload: 'sistema' }));
+    { confirmText: lock.checked ? 'Travar o acesso? Todo mundo (menos você) sai e vê a tela de manutenção até você desligar.' : null, reload: 'manut' }));
   const off = h('button', { class: 'btn' }, 'Desligar');
-  off.addEventListener('click', () => act('/api/maintenance', { on: false }, { reload: 'sistema' }));
+  off.addEventListener('click', () => act('/api/maintenance', { on: false }, { reload: 'manut' }));
   return h('div', { class: 'card' },
     h('div', { class: 'row' }, h('h2', {}, '🛠️ Modo manutenção'), mt.on ? h('span', { class: `pill ${mt.lock ? 'bad' : 'warn'}` }, mt.lock ? 'ligado · acesso travado' : 'ligado · só aviso') : h('span', { class: 'pill' }, 'desligado')),
     h('p', { class: 'muted small' }, 'Mostra uma faixa de aviso no topo do Muvuca para todo mundo. Travando o acesso, todos (menos você) veem a tela "Em manutenção" até você desligar, e o Muvuca volta sozinho para eles.'),
@@ -720,25 +1002,46 @@ function maintenanceCard(mt) {
     h('div', { class: 'row section' }, h('label', { class: 'row small' }, lock, 'Travar o acesso (só o dono entra)'), h('span', { class: 'spacer' }), mt.on ? off : null, on));
 }
 
-async function viewSistema() {
-  const [s, sessions, mt] = await Promise.all([api('/api/status'), api('/api/sessions'), api('/api/maintenance')]);
-  const m = s.main ?? {};
-  const sz = s.sizes ?? {};
+// Reiniciar o Muvuca (com confirmação; se tiver gente em call, pergunta de novo)
+async function restartMuvuca(btn) {
+  if (!confirm('Reiniciar o Muvuca agora? Quem estiver conectado cai por uns 10 segundos e volta sozinho.')) return;
+  if (btn) btn.disabled = true;
+  try {
+    let r = await api('/api/restart', { method: 'POST', body: {} });
+    if (r.needsForce && confirm(`${r.output}\nReiniciar mesmo assim?`)) r = await api('/api/restart', { method: 'POST', body: { force: true } });
+    toast(r.output, 8000);
+  } catch (err) { toast(err.message); } finally { if (btn) setTimeout(() => { btn.disabled = false; }, 15000); }
+}
+
+async function viewManutencao() {
+  const mt = await api('/api/maintenance');
   const restart = h('button', { class: 'btn danger' }, 'Reiniciar o Muvuca');
-  restart.addEventListener('click', async () => {
-    if (!confirm('Reiniciar o Muvuca agora? Quem estiver conectado cai por uns 10 segundos e volta sozinho.')) return;
-    restart.disabled = true;
-    try {
-      let r = await api('/api/restart', { method: 'POST', body: {} });
-      if (r.needsForce && confirm(`${r.output}\nReiniciar mesmo assim?`)) r = await api('/api/restart', { method: 'POST', body: { force: true } });
-      toast(r.output, 8000);
-    } catch (err) { toast(err.message); } finally { setTimeout(() => { restart.disabled = false; }, 15000); }
-  });
-  const logoutAll = h('button', { class: 'btn small', onclick: async () => { await api('/api/logout-all', { method: 'POST' }); toast('Os outros aparelhos saíram do painel.'); openTab('sistema'); } }, 'Tirar os outros aparelhos');
-  const site = `https://${s.domain}${s.publicPort && s.publicPort !== '443' ? ` (IPv4: porta ${s.publicPort})` : ''}`;
+  restart.addEventListener('click', () => restartMuvuca(restart));
   return h('div', {},
     maintenanceCard(mt),
-    h('div', { class: 'section grid two' },
+    h('div', { class: 'section card row' }, h('div', {}, h('b', {}, 'Reiniciar o Muvuca'), h('div', { class: 'muted small' }, 'Reinicia o site, a voz e o HTTPS (fica registrado na auditoria). O painel continua no ar. Se tiver gente em call, ele avisa antes.')), h('span', { class: 'spacer' }), restart),
+  );
+}
+
+async function viewAparelhos() {
+  const sessions = await api('/api/sessions');
+  const logoutAll = h('button', { class: 'btn small', onclick: async () => { await api('/api/logout-all', { method: 'POST' }); toast('Os outros aparelhos saíram do painel.'); openTab('aparelhos'); } }, 'Tirar os outros aparelhos');
+  return h('div', { class: 'card' }, h('div', { class: 'row' }, h('h2', {}, 'Aparelhos conectados ao painel'), h('span', { class: 'spacer' }), logoutAll),
+    table([
+      { label: 'Aparelho', get: (x) => h('span', { title: x.ua }, x.current ? h('span', { class: 'pill good' }, 'este') : null, ' ', device(x.ua)) },
+      { label: 'IP', get: (x) => h('span', { class: 'mono' }, x.ip) },
+      { label: 'Entrou', get: (x) => when(x.created) },
+      { label: 'Último uso', get: (x) => ago(x.last) },
+    ], sessions));
+}
+
+async function viewSistema() {
+  const s = await api('/api/status');
+  const m = s.main ?? {};
+  const sz = s.sizes ?? {};
+  const site = `https://${s.domain}${s.publicPort && s.publicPort !== '443' ? ` (IPv4: porta ${s.publicPort})` : ''}`;
+  return h('div', {},
+    h('div', { class: 'grid two' },
       h('div', { class: 'card' }, h('h2', {}, 'Muvuca'), table([{ label: '', get: (r) => h('span', { class: 'muted' }, r[0]) }, { label: '', get: (r) => r[1] }], [
         ['Endereço', site],
         ['Estado', m.up && !m.error ? 'no ar' : m.error ?? 'fora do ar'],
@@ -768,14 +1071,6 @@ async function viewSistema() {
       ], s.certs ?? [], { empty: 'Nenhum certificado encontrado.' }), h('p', { class: 'muted small' }, 'O Caddy renova sozinho cerca de 30 dias antes de vencer.')),
     ),
     h('div', { class: 'section card' }, h('h2', {}, 'Processos'), processTable(s)),
-    h('div', { class: 'section card' }, h('div', { class: 'row' }, h('h2', {}, 'Aparelhos conectados ao painel'), h('span', { class: 'spacer' }), logoutAll),
-      table([
-        { label: 'Aparelho', get: (x) => h('span', { title: x.ua }, x.current ? h('span', { class: 'pill good' }, 'este') : null, ' ', device(x.ua)) },
-        { label: 'IP', get: (x) => h('span', { class: 'mono' }, x.ip) },
-        { label: 'Entrou', get: (x) => when(x.created) },
-        { label: 'Último uso', get: (x) => ago(x.last) },
-      ], sessions)),
-    h('div', { class: 'section card row' }, h('div', {}, h('b', {}, 'Reiniciar o Muvuca'), h('div', { class: 'muted small' }, 'Reinicia o site, a voz e o HTTPS (fica registrado na auditoria). O painel continua no ar. Se tiver gente em call, ele avisa antes.')), h('span', { class: 'spacer' }), restart),
   );
 }
 
@@ -1088,7 +1383,7 @@ async function viewMensagens() {
     msgQuery.q || msgQuery.user ? h('button', { class: 'btn ghost', type: 'button', onclick: () => { msgQuery = { q: '', user: '' }; openTab('mensagens'); } }, 'Limpar') : null);
   const items = list.map((m) => h('div', { class: 'msg-item' },
     h('div', { class: 'row' },
-      h('b', {}, m.name ?? '?'), h('span', { class: 'muted small' }, m.user ? `@${m.user}` : '(conta apagada)'),
+      m.user ? personLink(`@${m.user}`, h('b', {}, m.name ?? '?')) : h('b', {}, m.name ?? '?'), h('span', { class: 'muted small' }, m.user ? `@${m.user}` : '(conta apagada)'),
       h('span', { class: 'muted small' }, `· ${m.where} · ${when(m.at)}${m.edited ? ' · editada' : ''}${m.pinned ? ' · 📌 fixada' : ''}`),
       h('span', { class: 'spacer' }),
       h('button', { class: 'btn small ghost', onclick: () => deleteMessage(m) }, 'Apagar')),
@@ -1317,7 +1612,7 @@ async function xpAdjust(u) {
 
 async function viewXp() {
   const d = await api('/api/xp');
-  if (!d.ready) return h('p', { class: 'error' }, 'O XP ainda não está ativo no Muvuca (atualize o Muvuca na aba Atualizar).');
+  if (!d.ready) return h('p', { class: 'error' }, 'O XP ainda não está ativo no Muvuca (atualize em Manutenção → Atualizar o Muvuca).');
   const r = d.rules;
   const input = h('input', { type: 'search', placeholder: 'Buscar pessoa…', value: xpFilter });
   const body = h('div');
@@ -1539,7 +1834,7 @@ async function viewSeguranca() {
         { label: 'Último uso', get: (c) => (c.lastUsed ? ago(c.lastUsed) : 'nunca') },
         { label: '', get: (c) => h('button', { class: 'btn small ghost', onclick: () => act('/api/passkey/delete', { id: c.id }, { confirmText: `Apagar a passkey "${c.name}"? Esse aparelho vai precisar da senha de novo.`, reload: 'seguranca' }) }, 'Apagar') },
       ], list, { empty: 'Nenhuma passkey ainda.' })),
-    h('p', { class: 'muted small section' }, 'As sessões abertas (e o botão para tirar os outros aparelhos) ficam na aba Sistema.'));
+    h('p', { class: 'muted small section' }, 'As sessões abertas (e o botão para tirar os outros aparelhos) ficam em Aparelhos conectados.'));
 }
 
 start();

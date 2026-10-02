@@ -1,7 +1,7 @@
 // Busca de mensagens no servidor (lupa no topo): texto, e opcionalmente de quem e em qual canal
 import { $, h, makeAvatar, fmtTime, showBanner } from './util.js';
 import { icon } from './icons.js';
-import { state, currentServer, findChannel, nameOf } from './state.js';
+import { state, currentServer, findChannel, nameOf, chatChannelId } from './state.js';
 import { request } from './net.js';
 import { GIF_URL } from './richtext.js';
 import { appendRich, appendGif } from './chat-content.js';
@@ -90,7 +90,7 @@ function resultItem(msg) {
   item.title = 'Ir para a mensagem';
   item.onclick = () => {
     closeSearch();
-    if (state.view.channelId !== msg.channel) selectChannel(msg.channel);
+    if (chatChannelId() !== msg.channel) selectChannel(msg.channel);
     jumpToMessage(msg.channel, msg.id).catch((err) => showBanner(err.message, { timeout: 4000 }));
   };
   return item;

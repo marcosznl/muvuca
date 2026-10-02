@@ -6,6 +6,7 @@ import { pushServer } from './realtime.js';
 import { HttpError, readBody, sameSecret, clean, clientIp, sleep, bearer } from './util.js';
 import { sockets } from './realtime.js';
 import { audit } from './audit.js';
+import { accountLimiter } from './login-limits.js';
 
 // Limite de tentativas de login/cadastro por IP (evita adivinhar senhas)
 const authFails = new Map(); // ip -> { count, until }
@@ -24,23 +25,16 @@ async function authFailed(ip, message) {
   throw new HttpError(401, message);
 }
 
-// Limite por conta (vale de qualquer IP): 10 erros seguidos = espera de 1 min, dobrando até 15 min.
-// Assim ninguém fica tentando senhas de uma conta trocando de IP.
-const accountFails = new Map(); // usuário -> { count, until, lockMs }
+// Limite por conta (vale de qualquer IP): ver login-limits.js
+const accounts = accountLimiter();
 function checkAccountRate(username) {
-  const f = accountFails.get(username);
-  if (f && f.until > Date.now()) throw new HttpError(429, 'Muitas tentativas nessa conta. Espere alguns minutos e tente de novo.');
+  if (accounts.locked(username)) throw new HttpError(429, 'Muitas tentativas nessa conta. Espere alguns minutos e tente de novo.');
 }
-function accountFailed(username) {
-  const f = accountFails.get(username) ?? { count: 0, until: 0, lockMs: 30_000 };
-  f.count++;
-  if (f.count >= 10) { f.lockMs = Math.min(f.lockMs * 2, 15 * 60_000); f.until = Date.now() + f.lockMs; f.count = 0; }
-  accountFails.set(username, f);
-}
+const accountFailed = (username) => accounts.failed(username);
 
-export function cleanupAuthFails() {
-  for (const [name, f] of accountFails) if (f.until < Date.now() - 3_600_000) accountFails.delete(name);
-  for (const [ip, f] of authFails) if (f.until < Date.now() && f.count === 0) authFails.delete(ip);
+export function cleanupAuthFails(now = Date.now()) {
+  accounts.cleanup(now);
+  for (const [ip, f] of authFails) if (f.until < now && f.count === 0) authFails.delete(ip);
 }
 
 // POST /api/register
@@ -131,7 +125,7 @@ export async function login(req) {
   }
   audit('auth:login', { user, ip, detail: { aparelho: String(req.headers['user-agent'] ?? '').slice(0, 160) } });
   authFails.delete(ip);
-  accountFails.delete(username);
+  accounts.succeeded(username);
   // Senha temporária dada pelo painel: o site pede a nova antes de abrir
   return { token: db.createSession(user), ...(db.mustChange(user.id) ? { mustChange: true } : {}) };
 }

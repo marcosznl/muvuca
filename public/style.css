@@ -310,7 +310,28 @@ button.live-badge:hover { filter: brightness(1.15); }
 .chat-form input::placeholder { color: #6d6f78; }
 
 /* Voz */
-.voice-view { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #000; }
+.voice-view { flex: 1; min-height: 0; display: flex; background: #000; }
+.call-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+/* Chat ao lado da call: divisória arrastável e o canal de texto à direita */
+.call-split { flex: none; width: 6px; cursor: col-resize; background: var(--bg-dark); border-left: 1px solid rgba(255,255,255,.06); touch-action: none; }
+.call-split:hover, .call-split:focus-visible, .voice-view.resizing .call-split { background: var(--accent); outline: none; }
+.voice-view.resizing { cursor: col-resize; user-select: none; }
+.voice-view.resizing .stage { pointer-events: none; }
+.call-chat { flex: none; width: var(--call-chat-w, 400px); min-height: 0; display: flex; flex-direction: column; background: var(--bg-main); }
+.call-chat-head { flex: none; display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid rgba(0,0,0,.25); }
+.call-chat-hash { color: var(--muted); font-size: 20px; font-weight: 600; }
+.call-chat-head select { flex: 1; min-width: 0; background: transparent; color: var(--text-strong); border: 0; font: inherit; font-weight: 700; font-size: 15px; padding: 4px; border-radius: 6px; cursor: pointer; }
+.call-chat-head select:hover { background: var(--bg-hover); }
+.call-chat-head select option { background: var(--bg-dark); color: var(--text-strong); }
+.call-chat-slot { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.call-chat-slot .text-view { flex: 1; }
+/* Celular (tela estreita): a call em cima e o chat embaixo, metade cada */
+@media (max-width: 700px) {
+  .voice-view.split { flex-direction: column; }
+  .voice-view.split .call-split { display: none; }
+  .voice-view.split .call-chat { width: auto; flex: 1; border-top: 1px solid rgba(255,255,255,.08); }
+  .voice-view.split .call-pane { flex: 1; }
+}
 .stage {
   flex: 1; min-height: 0; padding: 12px;
   display: grid; gap: 10px;
@@ -337,9 +358,21 @@ button.live-badge:hover { filter: brightness(1.15); }
 .strip-toggle {
   flex: none; align-self: center;
   display: flex; align-items: center; gap: 4px;
-  color: var(--muted); font-size: 13px; padding: 2px 12px; border-radius: 12px;
+  color: var(--muted); font-size: 13px; padding: 2px 6px; border-radius: 12px;
 }
-.strip-toggle:hover { color: var(--text-strong); background: rgba(255,255,255,.08); }
+.strip-label { margin-right: 4px; }
+.strip-mode { color: var(--muted); font-size: 13px; padding: 2px 10px; border-radius: 12px; }
+.strip-mode:hover { color: var(--text-strong); background: rgba(255,255,255,.08); }
+.strip-mode.on { color: var(--text-strong); background: rgba(255,255,255,.14); }
+/* Sobre a tela: a live ocupa tudo e as câmeras ligadas ficam em miniatura no canto de baixo, por cima dela */
+.stage.focus.strip-over { position: relative; }
+.stage.strip-over .strip {
+  position: absolute; right: 22px; bottom: 50px; z-index: 2; height: auto; max-height: calc(100% - 80px);
+  flex-direction: column; justify-content: flex-end; overflow-y: auto; overflow-x: hidden; padding: 3px;
+}
+.stage.strip-over .strip .tile { width: clamp(120px, 16vw, 220px); height: auto; box-shadow: 0 4px 16px rgba(0,0,0,.5); }
+.stage.strip-over .strip .tile:not(.has-video) { display: none; } /* só quem está com a câmera ligada */
+.stage.strip-over .strip .tile .vol { display: none; }
 
 .tile {
   position: relative; background: var(--tile); border-radius: 8px; overflow: hidden;
@@ -2183,3 +2216,50 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .novidade li::marker { color: var(--accent); }
 #btn-settings.has-news { position: relative; }
 #btn-settings.has-news::after { content: ''; position: absolute; top: 5px; right: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
+
+/* Janela flutuante da call: live ou câmera enquanto você olha outra tela */
+.mini-player {
+  position: fixed; z-index: 90; width: min(340px, 46vw); aspect-ratio: 16 / 9; background: #000; border-radius: 10px; overflow: hidden;
+  box-shadow: 0 10px 32px rgba(0,0,0,.55); cursor: grab; touch-action: none; user-select: none;
+}
+.mini-player.dragging { cursor: grabbing; opacity: .9; }
+.mini-player video { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+.mini-player.screen video { object-fit: contain; }
+.mini-bar {
+  position: absolute; inset: auto 0 0 0; display: flex; align-items: center; gap: 2px; padding: 18px 6px 5px;
+  background: linear-gradient(transparent, rgba(0,0,0,.75)); color: #fff; opacity: 0; transition: opacity .15s;
+}
+.mini-player:hover .mini-bar, .mini-player:focus-within .mini-bar { opacity: 1; }
+@media (hover: none) { .mini-bar { opacity: 1; } }
+.mini-label { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 2px; }
+.mini-btn { display: grid; place-items: center; width: 26px; height: 26px; border: 0; border-radius: 6px; background: rgba(255,255,255,.12); color: #fff; cursor: pointer; }
+.mini-btn:hover { background: rgba(255,255,255,.28); }
+.mini-btn[hidden] { display: none; }
+
+/* Temas coloridos (theme.js): o degradê no fundo das áreas grandes, com um véu por cima para o texto
+   continuar legível (mais forte nas colunas laterais). Fixo na tela: parece um fundo só por trás de tudo. */
+:root[data-color][data-theme="dark"] { --veil-main: rgba(12,12,16,.5); --veil-side: rgba(12,12,16,.62); --veil-rail: rgba(6,6,9,.72); }
+:root[data-color][data-theme="light"] { --veil-main: rgba(255,255,255,.52); --veil-side: rgba(255,255,255,.64); --veil-rail: rgba(255,255,255,.74); }
+:root[data-color] body { background: linear-gradient(var(--veil-main), var(--veil-main)), var(--theme-gradient); background-attachment: fixed; }
+:root[data-color] .server-rail { background: linear-gradient(var(--veil-rail), var(--veil-rail)), var(--theme-gradient); background-attachment: fixed; }
+:root[data-color] .sidebar, :root[data-color] .members { background: linear-gradient(var(--veil-side), var(--veil-side)), var(--theme-gradient); background-attachment: fixed; }
+
+/* Escolha do tema (Configurações) */
+.theme-picker { display: grid; gap: 10px; }
+.theme-auto { display: flex; align-items: center; justify-content: space-between; gap: 16px; cursor: pointer; }
+.theme-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.theme-swatch {
+  position: relative; width: 46px; height: 46px; border-radius: 10px; cursor: pointer;
+  border: 1px solid rgba(127,127,127,.35); box-shadow: inset 0 0 0 1px rgba(0,0,0,.08);
+}
+.theme-swatches.colors .theme-swatch { width: 44px; height: 44px; }
+.theme-swatch:hover { transform: translateY(-1px); border-color: var(--text-strong); }
+.theme-swatch.selected { outline: 2px solid var(--accent); outline-offset: 2px; }
+.theme-swatch.selected::after {
+  content: '✓'; position: absolute; top: -7px; right: -7px; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; line-height: 18px; text-align: center;
+}
+.theme-chosen { margin-top: 2px; }
+/* Nos temas coloridos, as partes que tinham cinza fixo pegam o tom do tema */
+:root[data-color] .voice-panel, :root[data-color] .user-panel { background: var(--bg-dark); }
+:root[data-color] .chat-box, :root[data-color] .edit-input, :root[data-color] .attach-tray { background: var(--bg-hover); }
