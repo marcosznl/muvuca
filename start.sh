@@ -73,15 +73,6 @@ node server.js &
 pids+=($!)
 
 echo "Link para os amigos: $PUBLIC_URL/"
-
-# Certificado do TURN (voz para quem está em rede restrita): o LiveKit só lê o arquivo ao subir, e o
-# Caddy renova o certificado sozinho a cada ~60 dias. Quando o arquivo muda, reinicia tudo de madrugada
-# (entre 5h e 6h, depois do backup das 4h) para o LiveKit pegar o novo antes do antigo vencer.
-turn_cert=""
-[[ ! -f .modo-local ]] && turn_cert=$(sed -n 's/^ *cert_file: *"\{0,1\}\([^"]*\)"\{0,1\} *$/\1/p' livekit.yaml)
-cert_mtime() { stat -f %m "$turn_cert" 2>/dev/null; }
-turn_cert_at=$([[ -n "$turn_cert" ]] && cert_mtime)
-
 # Se qualquer parte cair (voz, HTTPS, DNS ou o app), encerra tudo: rodando como serviço,
 # o macOS sobe tudo de novo em seguida (ver malegna-service.sh)
 while sleep 5; do
@@ -91,8 +82,4 @@ while sleep 5; do
       exit 1
     fi
   done
-  if [[ -n "$turn_cert_at" && $(date +%H) == 05 && "$(cert_mtime)" != "$turn_cert_at" && -n "$(cert_mtime)" ]]; then
-    echo "[$(date '+%F %T')] certificado do TURN renovado; reiniciando tudo para a voz usar o novo"
-    exit 1
-  fi
 done
