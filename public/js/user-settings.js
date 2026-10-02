@@ -6,6 +6,7 @@ import { BASE_THEMES, COLOR_THEMES, currentTheme, setTheme, gradientOf } from '.
 import { openChangePassword } from './profile.js';
 import { enablePush, disablePush, pushEnabled } from './push.js';
 import { openNovidades, temNovidade } from './novidades.js';
+import { openSessions } from './sessions.js';
 
 // ---------- Layout: servidores na coluna da esquerda (padrão) ou em abas no topo ----------
 export const LAYOUTS = [['side', 'Na lateral', 'Coluna de ícones à esquerda'], ['top', 'No topo', 'Abas com o nome do servidor']];
@@ -116,13 +117,15 @@ export function openUserSettings() {
   content.append(group('Novidades', news));
   const account = h('div', 'user-settings-account');
   const password = button('Trocar senha', { kind: 'secondary' });
+  const devices = button('Aparelhos conectados', { kind: 'secondary' });
   const logoutBtn = button('Sair da conta', { kind: 'danger-outline' });
-  account.append(password, logoutBtn);
+  account.append(password, devices, logoutBtn);
   content.append(group('Conta', account));
   const modal = openModal({ title: 'Configurações', content });
   modalRef = modal;
   newsBtn.onclick = () => { modal.close(); openNovidades(); };
   password.onclick = () => { modal.close(); openChangePassword(); };
+  devices.onclick = () => { modal.close(); openSessions(); };
   logoutBtn.onclick = async () => {
     modal.close();
     const { logout } = await import('./app.js');

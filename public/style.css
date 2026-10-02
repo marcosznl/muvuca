@@ -2263,3 +2263,10 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 /* Nos temas coloridos, as partes que tinham cinza fixo pegam o tom do tema */
 :root[data-color] .voice-panel, :root[data-color] .user-panel { background: var(--bg-dark); }
 :root[data-color] .chat-box, :root[data-color] .edit-input, :root[data-color] .attach-tray { background: var(--bg-hover); }
+
+/* Aparelhos conectados */
+.sessions-list { display: grid; gap: 8px; }
+.session-row { display: flex; align-items: center; gap: 12px; background: var(--bg-side); border-radius: 8px; padding: 10px 12px; }
+.session-info { flex: 1; min-width: 0; }
+.session-name { color: var(--text-strong); font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.session-here { background: var(--green); color: #fff; font-size: 11px; font-weight: 700; border-radius: 8px; padding: 0 7px; }

@@ -496,6 +496,9 @@ function personDetail(url) {
     ips: safe(() => all(`SELECT ip, COUNT(*) n, MAX(at) last FROM audit_log WHERE user_id = ? AND ip IS NOT NULL AND ip != ''
       GROUP BY ip ORDER BY last DESC LIMIT 10`, id), []),
     blockedIps: safe(() => all('SELECT ip FROM blocked_ips').map((r) => r.ip), []),
+    devices: safe(() => all('SELECT created_at, last_seen, ip, ua, client FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY COALESCE(last_seen, created_at) DESC', id, now)
+      .map((r) => ({ createdAt: r.created_at, lastSeen: r.last_seen ?? r.created_at, ip: r.ip ?? null, ua: r.ua ?? null, client: (() => { try { return JSON.parse(r.client ?? 'null'); } catch { return null; } })() })), []),
+    desktopLatest: desktopLatest(),
     messages: searchMessages(new URL(`http://x/?user=${encodeURIComponent(user.username)}`)).slice(0, 8),
     audit: safe(() => all(`SELECT at, action, detail, ip, ok FROM audit_log WHERE user_id = ? ORDER BY id DESC LIMIT 12`, id)
       .map((r) => ({ ...r, label: AUDIT_LABELS[r.action] ?? r.action, detail: r.detail ? JSON.parse(r.detail) : null })), []),
@@ -508,6 +511,46 @@ function personDetail(url) {
     },
     xp7: safe(() => all('SELECT reason, SUM(amount) n FROM xp_events WHERE user_id = ? AND at > ? GROUP BY reason', id, now - 7 * DAY)
       .map((r) => ({ reason: XP_REASON[r.reason] ?? r.reason, n: r.n })), []),
+  };
+}
+
+// ---------- App do computador e erros do site ----------
+const newerVersion = (a, b) => {
+  const pa = String(a).split('.').map(Number); const pb = String(b).split('.').map(Number);
+  for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+  return false;
+};
+// Versão mais nova do app (a que o publicar.sh deixou em downloads/latest.json)
+function desktopLatest() {
+  try { return JSON.parse(fs.readFileSync(path.join(ROOT, 'downloads', 'latest.json'), 'utf8')).version ?? null; } catch { return null; }
+}
+
+// Erros do site agrupados pela mensagem: quantas vezes, quantas pessoas, em que aparelhos, quando
+function clientErrors(url) {
+  const days = Math.min(30, Math.max(1, Number(url?.searchParams.get('days')) || 7));
+  const since = Date.now() - days * DAY;
+  let rows = [];
+  try {
+    rows = all(`SELECT e.message, e.stack, e.source, e.client, e.ua, e.count, e.at, e.last_at, u.username FROM client_errors e
+      LEFT JOIN users u ON u.id = e.user_id WHERE e.last_at > ? ORDER BY e.last_at DESC`, since);
+  } catch { return { days, groups: [] }; }
+  const groups = new Map();
+  for (const r of rows) {
+    let c = {};
+    try { c = JSON.parse(r.client ?? '{}'); } catch { /* sem detalhe */ }
+    const g = groups.get(r.message) ?? { message: r.message, count: 0, people: new Set(), devices: new Set(), first: r.at, last: r.last_at, stack: r.stack, source: r.source, pages: new Set() };
+    g.count += r.count;
+    if (r.username) g.people.add(r.username);
+    g.devices.add(c.app === 'desktop' ? `App ${c.version ?? '?'} (${c.platform ?? '?'})` : c.app === 'pwa' ? `App instalado (${c.platform ?? '?'})` : `Navegador (${c.platform ?? '?'})`);
+    if (c.page) g.pages.add(c.page);
+    g.first = Math.min(g.first, r.at);
+    g.last = Math.max(g.last, r.last_at);
+    g.stack ??= r.stack;
+    groups.set(r.message, g);
+  }
+  return {
+    days,
+    groups: [...groups.values()].sort((a, b) => b.last - a.last).map((g) => ({ ...g, people: [...g.people], devices: [...g.devices], pages: [...g.pages] })),
   };
 }
 
@@ -963,6 +1006,16 @@ async function attention() {
       add('warn', `O servidor "${sv.name}" está sem dono (a conta foi excluída): passe a posse para alguém.`, 'servidores');
     }
   } catch { /* banco indisponível */ }
+  try {
+    const recent = clientErrors(new URL('http://x/?days=1')).groups.filter((g) => g.people.length >= 3 || g.count >= 20);
+    for (const g of recent.slice(0, 3)) add('warn', `Erro no site de ${g.people.length} ${g.people.length === 1 ? 'pessoa' : 'pessoas'} (${g.count} vezes em 24 h): ${g.message.slice(0, 90)}`, 'erros');
+  } catch { /* sem a tabela ainda */ }
+  const outdated = (() => {
+    const v = desktopLatest();
+    if (!v) return [];
+    return (latest.main?.users ?? []).filter((u) => (u.clients ?? []).some((c) => c.app === 'desktop' && c.version && newerVersion(v, c.version)));
+  })();
+  if (outdated.length) add('info', `${outdated.length} ${outdated.length === 1 ? 'pessoa está' : 'pessoas estão'} com o app do computador desatualizado: ${outdated.map((u) => u.name).join(', ')}.`, 'aovivo');
   const order = { bad: 0, warn: 1, info: 2 };
   return out.sort((a, b) => order[a.level] - order[b.level]);
 }
@@ -1146,7 +1199,7 @@ const { public: passkeyPublic, ...passkeyApi } = passkeyAll;
 
 const api = {
   'GET /api/me': (req, res, s) => json(res, 200, { ok: true, since: s.created, ip: s.ip, domain: DOMAIN }),
-  'GET /api/status': async (req, res) => json(res, 200, { ...latest, stoppedByPanel: stoppedByPanel(), sizes, certs: await certificates(), busy, domain: DOMAIN, publicPort: env.PUBLIC_PORT || null, minecraft: mcSummary() }),
+  'GET /api/status': async (req, res) => json(res, 200, { ...latest, stoppedByPanel: stoppedByPanel(), desktopLatest: desktopLatest(), sizes, certs: await certificates(), busy, domain: DOMAIN, publicPort: env.PUBLIC_PORT || null, minecraft: mcSummary() }),
   'GET /api/history': (req, res, s, url) => {
     const hours = Math.min(24, Math.max(1, Number(url.searchParams.get('hours')) || 1));
     const since = Date.now() - hours * 3_600_000;
@@ -1160,6 +1213,14 @@ const api = {
     return d ? json(res, 200, d) : json(res, 404, { error: 'Conta não encontrada.' });
   },
   'GET /api/servers': (req, res) => json(res, 200, serversList()),
+  'GET /api/client-errors': (req, res, s, url) => json(res, 200, clientErrors(url)),
+  'POST /api/client-errors/clear': async (req, res) => {
+    const b = await readBody(req);
+    const msg = String(b.message ?? '');
+    const n = msg ? database().prepare('DELETE FROM client_errors WHERE message = ?').run(msg).changes : database().prepare('DELETE FROM client_errors').run().changes;
+    audit('painel:service', { ip: clientIp(req), detail: { acao: 'limpar erros do site', registros: n } });
+    json(res, 200, { ok: true, message: n ? 'Erro marcado como resolvido (some da lista até acontecer de novo).' : 'Nada para limpar.' });
+  },
   // Ícone de servidor (e fotos): lidos da pasta de imagens do Muvuca
   'GET /api/img': async (req, res, s, url) => {
     const id = String(url.searchParams.get('id') ?? '');

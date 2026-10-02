@@ -3,6 +3,7 @@ import { $, store, showBanner, toast } from './util.js';
 import { eventsUpdated, onEventReminder } from './events.js';
 import { openUserSettings } from './user-settings.js';
 import { avisarNovidades } from './novidades.js';
+import { reportClientInfo } from './client-report.js';
 import { currentTheme, receiveTheme, onThemeSaved } from './theme.js';
 onThemeSaved((theme) => request({ t: 'theme:set', theme }).catch(() => {})); // vale em todos os aparelhos
 import { icon, applyStaticIcons } from './icons.js';
@@ -233,6 +234,7 @@ function handle(m) {
       if (!state.servers.length) showChannel();
       rejoinMusic(); // reconectou: volta para a sala de música em que estava
       resumeCall(); // recarregou a página no meio de uma call: entra de novo sozinho
+      reportClientInfo(); // app/versão deste aparelho (painel) e erros guardados enquanto estava sem conexão
       avisarNovidades(); // versão nova do Muvuca que a pessoa ainda não viu
       // Chegou por um link de convite já tendo conta
       const invite = pendingInvite();

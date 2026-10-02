@@ -71,6 +71,26 @@ function toast(text, ms = 4000) {
   setTimeout(() => el.remove(), ms);
 }
 
+// ---------- Tema (automático, claro ou escuro) ----------
+// O theme-boot.js já aplicou a escolha antes de desenhar; aqui ficam os botões do pé da lateral.
+const THEMES = [['auto', 'Auto'], ['light', 'Claro'], ['dark', 'Escuro']];
+const currentTheme = () => { try { return localStorage.getItem('painel-tema') || 'auto'; } catch { return 'auto'; } };
+const isDark = () => document.documentElement.dataset.theme === 'dark' || (document.documentElement.dataset.theme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+function applyTheme(t) {
+  if (t === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  try { if (t === 'auto') localStorage.removeItem('painel-tema'); else localStorage.setItem('painel-tema', t); } catch { /* sem armazenamento */ }
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', isDark() ? '#1e1f22' : '#eceef2');
+  paintThemeSeg();
+  if (!$('#app').hidden) openTab(tab); // os gráficos pegam as cores do tema ao desenhar
+}
+function paintThemeSeg() {
+  const cur = currentTheme();
+  $('#theme-seg').replaceChildren(...THEMES.map(([id, label]) => h('button', { type: 'button', class: id === cur ? 'on' : null, 'aria-pressed': String(id === cur), title: id === 'auto' ? 'Automático: segue o modo claro/escuro do aparelho' : `Painel sempre ${label.toLowerCase()}`, onclick: () => applyTheme(id) }, label)));
+}
+paintThemeSeg();
+document.querySelector('meta[name="theme-color"]')?.setAttribute('content', isDark() ? '#1e1f22' : '#eceef2');
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (currentTheme() === 'auto' && !$('#app').hidden) openTab(tab); });
+
 // ---------- Login ----------
 function showLogin() {
   stopTimers();
@@ -141,6 +161,7 @@ const TABS = {
   backups: ['Backups', viewBackups, 60000],
   manut: ['Manutenção e reiniciar', viewManutencao, 30000],
   logs: ['Logs', viewLogs, 0],
+  erros: ['Erros do site', viewErros, 30000],
   minecraft: ['Minecraft', viewMinecraft, 5000],
   seguranca: ['Login (Face ID / Touch ID)', viewSeguranca, 0],
   alertas: ['Alertas no celular', viewAlertas, 0],
@@ -155,7 +176,7 @@ const PAGES = {
   protecao: ['Segurança', ['auditoria', 'acessos', 'ips']],
   conexao: ['Conexão', ['internet', 'quedas']],
   manutencao: ['Manutenção', ['atualizar', 'backups', 'manut']],
-  logs: ['Logs', ['logs']],
+  logs: ['Logs', ['logs', 'erros']],
   minecraft: ['Minecraft', ['minecraft']],
   config: ['Configurações do painel', ['seguranca', 'alertas', 'aparelhos']],
 };
@@ -536,6 +557,7 @@ async function viewAoVivo() {
         table([
           { label: 'Pessoa', get: (u) => personLink(u.id, h('b', {}, u.name), h('span', { class: 'muted small' }, ` @${u.username}`)) },
           { label: 'Status', get: (u) => { const [k, t] = statusLabel[u.status] ?? ['', u.status]; return h('span', { class: `pill ${k}` }, t); } },
+          { label: 'Onde', get: (u) => h('div', { class: 'clients' }, (u.clients ?? []).map((c) => h('div', {}, clientLabel(c, s.desktopLatest)))) },
           { label: 'Abas', num: true, get: (u) => `${u.tabs}${u.hidden ? ' (em segundo plano)' : ''}` },
           { label: 'IP', get: (u) => h('span', { class: 'mono' }, u.ip ?? '—') },
           { label: '', get: (u) => ipBlockButton(u.ip, 'aovivo') },
@@ -806,6 +828,13 @@ async function openPessoa(ref) {
         { label: 'Último', get: (r) => ago(r.last) },
         { label: '', get: (r) => (d.blockedIps.includes(r.ip) ? h('span', { class: 'pill bad' }, 'bloqueado') : ipBlockButton(r.ip, tab)) },
       ], d.ips, { empty: 'Nenhum IP registrado.' }))),
+    h('h3', { class: 'section' }, `Aparelhos conectados (${d.devices.length})`),
+    table([
+      { label: 'Aparelho', get: (x) => clientLabel({ ...(x.client ?? { app: 'web' }), ua: x.ua }, d.desktopLatest) },
+      { label: 'Último uso', get: (x) => ago(x.lastSeen) },
+      { label: 'IP', get: (x) => h('span', { class: 'mono' }, x.ip ?? '—') },
+      { label: 'Entrou', get: (x) => when(x.createdAt) },
+    ], d.devices, { empty: 'Nenhum aparelho conectado (a conta precisa entrar de novo).' }),
     h('h3', { class: 'section' }, 'Últimas mensagens (servidores)'),
     d.messages.length ? h('div', { class: 'msg-list' }, d.messages.map((m) => h('div', { class: 'msg-item' },
       h('div', { class: 'muted small' }, `${m.where} · ${when(m.at)}`), m.text ? h('div', { class: 'msg-text' }, m.text) : h('div', { class: 'muted small' }, `📎 ${m.files.length} anexo(s)`))))
@@ -836,6 +865,23 @@ function device(ua) {
     : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : '';
   return os ? `${app} no ${os}` : app;
 }
+// "App 1.4.5 (Windows) · desatualizado", "App instalado (iPhone)", "Chrome no Mac"
+const newerVersion = (a, b) => {
+  const pa = String(a).split('.').map(Number); const pb = String(b).split('.').map(Number);
+  for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+  return false;
+};
+function clientLabel(c, latestVersion) {
+  if (!c) return h('span', { class: 'muted small' }, '—');
+  if (c.app === 'desktop') {
+    const old = latestVersion && c.version && newerVersion(latestVersion, c.version);
+    return h('span', { class: 'small', title: c.ua ?? '' }, `App ${c.version ?? '?'}${c.platform ? ` (${c.platform})` : ''}`,
+      old ? h('span', { class: 'pill warn', title: `A versão mais nova é a ${latestVersion}` }, 'desatualizado') : null);
+  }
+  if (c.app === 'pwa') return h('span', { class: 'small', title: c.ua ?? '' }, `App instalado${c.platform ? ` (${c.platform})` : ''}`);
+  return h('span', { class: 'small', title: c.ua ?? '' }, device(c.ua));
+}
+
 let auditFilters = {};
 async function viewAuditoria() {
   const labels = (await api('/api/audit?limit=1')).labels;
@@ -921,6 +967,28 @@ async function viewAcessos() {
     h('div', { class: 'section card' }, h('h2', {}, 'Erros do servidor'), table(reqCols, sum.errors, { empty: 'Nenhum erro nas últimas 24 h.' })),
     h('div', { class: 'section card' }, h('h2', {}, 'Últimos pedidos'), table(reqCols, recent)),
   );
+}
+
+// ---------- Erros do site ----------
+// O que quebrou no navegador/app de alguém, agrupado pela mensagem. "Resolvido" tira da lista (volta se acontecer de novo).
+let errDays = 7;
+async function viewErros() {
+  const d = await api(`/api/client-errors?days=${errDays}`);
+  const period = h('select', { onchange: (e) => { errDays = Number(e.target.value); openTab('erros'); } },
+    [[1, 'Últimas 24 h'], [7, '7 dias'], [30, '30 dias']].map(([v, l]) => h('option', { value: v, selected: v === errDays }, l)));
+  const clearAll = h('button', { class: 'btn small ghost', onclick: () => act('/api/client-errors/clear', {}, { confirmText: 'Limpar toda a lista de erros?', reload: 'erros' }) }, 'Limpar tudo');
+  return h('div', {},
+    h('div', { class: 'card row' }, h('div', {}, h('b', {}, 'Erros que aconteceram no site ou no app de alguém'),
+      h('div', { class: 'muted small' }, 'Chegam sozinhos, sem a pessoa precisar avisar. Extensões do navegador, falta de internet e permissões negadas ficam de fora. Guardados por 30 dias.')),
+      h('span', { class: 'spacer' }), period, d.groups.length ? clearAll : null),
+    d.groups.length ? h('div', { class: 'section err-list' }, d.groups.map((g) => h('div', { class: 'card err-card' },
+      h('div', { class: 'row' }, h('b', { class: 'err-msg' }, g.message), h('span', { class: 'spacer' }),
+        h('span', { class: `pill ${g.people.length >= 3 || g.count >= 20 ? 'bad' : 'warn'}` }, `${num(g.count)}× · ${g.people.length} ${g.people.length === 1 ? 'pessoa' : 'pessoas'}`),
+        h('button', { class: 'btn small', onclick: () => act('/api/client-errors/clear', { message: g.message }, { reload: 'erros' }) }, 'Resolvido')),
+      h('div', { class: 'muted small' }, `Primeira vez ${when(g.first)} · última ${ago(g.last)}${g.pages.length ? ` · página ${g.pages.join(', ')}` : ''}`),
+      h('div', { class: 'row small' }, 'Quem: ', g.people.map((u) => personLink(`@${u}`, h('b', {}, `@${u}`))), h('span', { class: 'muted' }, ` · ${g.devices.join(' · ')}`)),
+      g.stack || g.source ? h('details', {}, h('summary', { class: 'small' }, 'Detalhes técnicos'), h('pre', { class: 'log' }, [g.source, g.stack].filter(Boolean).join('\n'))) : null)))
+      : h('p', { class: 'empty section' }, 'Nenhum erro no período. 🎉'));
 }
 
 // ---------- Logs ----------

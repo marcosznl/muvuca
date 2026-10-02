@@ -23,3 +23,25 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+
+  # Navegador de verdade (Chromium) com voz de verdade (LiveKit): mensagens, temas, aparelhos conectados,
+  # erros no painel e calls (câmera, janela flutuante, voltar depois do F5, chat ao lado)
+  navegador:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    name: Navegador (e2e)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Chromium (Playwright)
+        run: npm install --no-save playwright@1 && npx playwright install --with-deps chromium
+      - name: LiveKit
+        run: |
+          curl -sSL -o lk.tgz https://github.com/livekit/livekit/releases/download/v1.10.0/livekit_1.10.0_linux_amd64.tar.gz
+          tar xzf lk.tgz livekit-server && sudo mv livekit-server /usr/local/bin/
+          livekit-server --version
+      - run: npm run test:e2e

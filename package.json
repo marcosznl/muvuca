@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "node --test",
+    "test:e2e": "node --test e2e/*.e2e.js",
     "start": "./start.sh"
   },
   "keywords": [],
