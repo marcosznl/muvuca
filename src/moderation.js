@@ -81,6 +81,15 @@ let maint = (() => { try { return JSON.parse(db.meta('maintenance') ?? 'null') ?
 export const maintenance = () => (maint.on ? { on: true, message: maint.message, lock: !!maint.lock, until: maint.until ?? null } : { on: false });
 export const lockedOut = (userId) => maint.on && maint.lock && userId !== ownerId();
 
+// Painel: faz todas as abas e apps abertos recarregarem a página (sem reiniciar nada no servidor).
+// Quem estava em call volta sozinho para ela (o site guarda a call antes de recarregar).
+export function reloadEveryone() {
+  const data = JSON.stringify({ t: 'reload' });
+  let tabs = 0;
+  for (const set of sockets.values()) for (const ws of set) { send(ws, data); tabs++; }
+  return { ok: true, tabs };
+}
+
 export function setMaintenance({ on, message, lock, minutes }) {
   maint = on
     ? { on: true, message: String(message || 'O Muvuca vai passar por uma manutenção rápida.').replace(/\s+/g, ' ').trim().slice(0, 200), lock: !!lock, until: Number(minutes) > 0 ? Date.now() + Math.min(Number(minutes), 24 * 60) * 60_000 : null, at: Date.now() }

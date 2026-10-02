@@ -18,7 +18,7 @@ import { AUDIT_LABELS, AUDIT_GROUPS } from '../src/audit-labels.js';
 import { mcRoutes, startMinecraft, mcSummary } from './minecraft.js';
 import { speedRoutes } from './speedtest.js';
 import { deployRoutes, deploying, pendingUpdate } from './deploy.js';
-import { startAlerts, alertRoutes, markPlanned, sendAlert, downNow, quedasSince } from './alerts.js';
+import { startAlerts, alertRoutes, markPlanned, setPlannedUntil, sendAlert, downNow, quedasSince } from './alerts.js';
 import { startUpkeep, upkeepState, restoreTest } from './upkeep.js';
 import { startPasskeys, passkeyRoutes } from './passkey.js';
 import { xpInfo, xpToNext, XP_RULES } from '../src/xp-curve.js';
@@ -912,7 +912,9 @@ async function attention() {
   const fmtGb = (b) => `${(b / 1024 ** 3).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} GB`;
   if (s.at) {
     const queda = downNow();
-    if (!m.up) add('bad', `O Muvuca está fora do ar (${m.error ?? 'sem resposta'})${queda ? ` há ${Math.max(1, Math.round((Date.now() - queda.start) / 60_000))} min` : ''}.`, 'quedas');
+    const stopped = stoppedByPanel();
+    if (!m.up && stopped) add('info', `O Muvuca está desligado pelo painel desde ${new Date(stopped.at).toLocaleString('pt-BR')}. Ligue em Manutenção → Manutenção e reiniciar.`, 'manut');
+    else if (!m.up) add('bad', `O Muvuca está fora do ar (${m.error ?? 'sem resposta'})${queda ? ` há ${Math.max(1, Math.round((Date.now() - queda.start) / 60_000))} min` : ''}.`, 'quedas');
     else if (m.error) add('warn', `Muvuca: ${m.error}`, 'sistema');
     for (const [name, label] of [['livekit', 'voz (LiveKit)'], ['caddy', 'HTTPS (Caddy)'], ['ddns', 'DuckDNS']]) {
       if (!s.procs?.[name]) add('bad', `O serviço de ${label} não está rodando.`, 'sistema');
@@ -997,6 +999,49 @@ async function doRestart(req, body) {
   child.unref();
   setTimeout(() => { busy = null; }, 20_000);
   return { ok: true, output: 'Reiniciando… o Muvuca volta em uns 10 segundos.' };
+}
+
+// ---------- Serviços (botões do painel) ----------
+// Desligado pelo painel: guardado num arquivo (o painel pode reiniciar enquanto o Muvuca está desligado)
+const STOPPED_FILE = path.join(path.dirname(DB_FILE), 'painel-desligado.json');
+const stoppedByPanel = () => { try { return JSON.parse(fs.readFileSync(STOPPED_FILE, 'utf8')); } catch { return null; } };
+if (stoppedByPanel()) setPlannedUntil(Date.now() + 365 * DAY);
+
+async function serviceAction(req, body) {
+  const what = String(body.what ?? '');
+  const ip = clientIp(req);
+  if (what === 'reload') {
+    const r = await mainPost('/internal/reload', {});
+    audit('painel:service', { ip, detail: { acao: 'recarregar o site de todos', abas: r.tabs } });
+    return { ok: true, message: `Pedido enviado para ${r.tabs} ${r.tabs === 1 ? 'aba/app aberto' : 'abas/apps abertos'}: recarregam em alguns segundos (quem está em call volta sozinho).` };
+  }
+  if (what === 'voice') {
+    if (!latest.procs?.start) throw new Error('O supervisor (start.sh) não está rodando: use "Reiniciar o Muvuca".');
+    await fsp.mkdir(LOGS, { recursive: true });
+    await fsp.writeFile(path.join(LOGS, '.reiniciar-voz'), String(Date.now()));
+    const inVoice = (latest.main?.voice ?? []).reduce((n, v) => n + v.count, 0);
+    audit('painel:service', { ip, detail: { acao: 'reiniciar só a voz', pessoasEmCall: inVoice } });
+    return { ok: true, message: 'A voz reinicia em até 5 segundos. Quem estava em call volta sozinho; o chat e os jogos não caem.' };
+  }
+  if (what === 'stop') {
+    if (String(body.confirm ?? '').trim().toUpperCase() !== 'DESLIGAR') throw new Error('Para desligar, digite DESLIGAR.');
+    if (busy) throw new Error(`Aguarde: ${busy} em andamento.`);
+    setPlannedUntil(Date.now() + 365 * DAY); // não é queda: não manda alerta enquanto estiver desligado
+    fs.writeFileSync(STOPPED_FILE, JSON.stringify({ at: Date.now(), ip }), { mode: 0o600 });
+    const r = await runScript(['./malegna-service.sh', 'parar'], 30_000);
+    audit('painel:service', { ip, ok: r.ok, detail: { acao: 'desligar o Muvuca', resultado: r.output.slice(0, 200) } });
+    if (!r.ok) { fs.rmSync(STOPPED_FILE, { force: true }); setPlannedUntil(0); throw new Error(`Não deu para desligar: ${r.output || 'erro desconhecido'}`); }
+    return { ok: true, message: 'Muvuca desligado. O painel continua no ar: ligue de novo por aqui quando quiser.' };
+  }
+  if (what === 'start') {
+    const r = await runScript(['./malegna-service.sh', 'ligar'], 30_000);
+    audit('painel:service', { ip, ok: r.ok, detail: { acao: 'ligar o Muvuca', resultado: r.output.slice(0, 200) } });
+    if (!r.ok) throw new Error(`Não deu para ligar: ${r.output || 'erro desconhecido'}`);
+    fs.rmSync(STOPPED_FILE, { force: true });
+    setPlannedUntil(Date.now() + 90_000); // uns segundos para subir sem virar "queda"
+    return { ok: true, message: 'Ligando o Muvuca: volta em uns 10 segundos.' };
+  }
+  throw new Error('Ação desconhecida.');
 }
 
 // ---------- HTTP ----------
@@ -1097,7 +1142,7 @@ const { public: passkeyPublic, ...passkeyApi } = passkeyAll;
 
 const api = {
   'GET /api/me': (req, res, s) => json(res, 200, { ok: true, since: s.created, ip: s.ip, domain: DOMAIN }),
-  'GET /api/status': async (req, res) => json(res, 200, { ...latest, sizes, certs: await certificates(), busy, domain: DOMAIN, publicPort: env.PUBLIC_PORT || null, minecraft: mcSummary() }),
+  'GET /api/status': async (req, res) => json(res, 200, { ...latest, stoppedByPanel: stoppedByPanel(), sizes, certs: await certificates(), busy, domain: DOMAIN, publicPort: env.PUBLIC_PORT || null, minecraft: mcSummary() }),
   'GET /api/history': (req, res, s, url) => {
     const hours = Math.min(24, Math.max(1, Number(url.searchParams.get('hours')) || 1));
     const since = Date.now() - hours * 3_600_000;
@@ -1285,6 +1330,9 @@ const api = {
   },
   'POST /api/backup': async (req, res) => json(res, 200, await doBackup(req)),
   'POST /api/restart': async (req, res) => json(res, 200, await doRestart(req, await readBody(req))),
+  'POST /api/service': async (req, res) => {
+    try { json(res, 200, await serviceAction(req, await readBody(req))); } catch (err) { json(res, 400, { error: err.message }); }
+  },
   ...mcRoutes({ json, readBody, clientIp, domain: DOMAIN }),
   ...speedRoutes({ json, readBody, clientIp, audit, dataDir: path.dirname(DB_FILE), activity: activityNow }),
   // ---------- Convites ----------

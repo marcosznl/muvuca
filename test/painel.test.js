@@ -138,3 +138,20 @@ test('servidor sem dono aparece em "Precisa de atenção"; cartão da pessoa mos
   const p = (await painel.get(`/api/pessoa?user=ana`)).body;
   assert.ok(p.usage7 && typeof p.usage7.callMinutes === 'number' && p.usage7.messages >= 1 && Array.isArray(p.usage7.games));
 });
+
+test('serviços: recarregar o site de todos chega em quem está conectado; desligar exige DESLIGAR', async () => {
+  const r = await painel.post('/api/service', { what: 'reload' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  await ana.waitFor('reload', () => true);
+  // Reiniciar só a voz precisa do start.sh (no teste não roda): explica em vez de fingir que fez
+  const v = await painel.post('/api/service', { what: 'voice' });
+  assert.equal(v.status, 400);
+  assert.match(v.body.error, /start\.sh/);
+  const s = await painel.post('/api/service', { what: 'stop', confirm: 'sim' });
+  assert.equal(s.status, 400);
+  assert.match(s.body.error, /DESLIGAR/);
+  assert.equal((await painel.get('/api/status')).body.stoppedByPanel, null); // nada foi desligado
+  assert.equal((await painel.post('/api/service', { what: 'nada' })).status, 400);
+  const audit = (await painel.get('/api/audit?group=painel&limit=50')).body.rows;
+  assert.ok(audit.some((x) => x.action === 'painel:service' && /recarregar/.test(x.detail?.acao)));
+});

@@ -66,6 +66,8 @@ export const downNow = () => down;
 export const quedasSince = (since) => quedas.filter((q) => !q.planned && q.end > since);
 
 export function markPlanned(ms = 90_000) { plannedUntil = Math.max(plannedUntil, Date.now() + ms); }
+// Desligado pelo painel: queda planejada até ligar de novo (aí volta ao normal, com folga para subir)
+export function setPlannedUntil(t) { plannedUntil = t; }
 
 const fmtDur = (ms) => {
   const s = Math.round(ms / 1000);

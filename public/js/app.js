@@ -22,7 +22,7 @@ import './quick-switch.js';
 import './voice-menus.js';
 import { setupPush, pushAfterLogin } from './push.js';
 import { closeEmojiPanel } from './chat-picker.js';
-import { renderStage, leaveVoice, voiceChannelId, applyAudioState, updateMediaButtons, mergeSelfIntoVoice, onBoardSound, onVoiceMove, syncMiniPlayer } from './voice.js';
+import { renderStage, leaveVoice, voiceChannelId, applyAudioState, updateMediaButtons, mergeSelfIntoVoice, onBoardSound, onVoiceMove, syncMiniPlayer, resumeCall } from './voice.js';
 import { renderMembers } from './members.js';
 import {
   joinMusic, musicChannelId, onMusicState, onMusicQueue, rejoinMusic, musicChannelGone, placeMusicView, renderAllMusic,
@@ -182,6 +182,12 @@ function handle(m) {
     case 'maintenance':
       renderMaintBar(m.maintenance);
       break;
+    // O painel pediu para todo mundo recarregar (atualização do site, algo estranho na tela de todos).
+    // Cada um recarrega num momento um pouco diferente; quem está em call volta sozinho para ela.
+    case 'reload':
+      showBanner('O Muvuca vai recarregar em instantes…', { kind: 'info', timeout: 6000 });
+      setTimeout(() => location.reload(), 2000 + Math.random() * 3000);
+      break;
     // XP da conta: barrinha atualiza; subiu de nível, comemora
     case 'xp':
       if (!state.me) break;
@@ -226,6 +232,7 @@ function handle(m) {
       else selectServer(serverById(store.get('lastServer'))?.id ?? state.servers[0]?.id);
       if (!state.servers.length) showChannel();
       rejoinMusic(); // reconectou: volta para a sala de música em que estava
+      resumeCall(); // recarregou a página no meio de uma call: entra de novo sozinho
       avisarNovidades(); // versão nova do Muvuca que a pessoa ainda não viu
       // Chegou por um link de convite já tendo conta
       const invite = pendingInvite();
