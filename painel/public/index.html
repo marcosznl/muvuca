@@ -31,40 +31,8 @@
   <div id="app" class="app" hidden>
     <nav class="side">
       <div class="brand"><img src="icon.svg" alt="" width="28" height="28"><span>Painel</span></div>
-      <!-- Abas em grupos; no celular viram uma lista só (o app.js monta a partir destes grupos) -->
-      <div class="side-group">
-        <button data-tab="geral" class="on">Visão geral</button>
-        <button data-tab="aovivo">Ao vivo</button>
-      </div>
-      <div class="side-group" data-label="Pessoas">
-        <button data-tab="usuarios">Usuários</button>
-        <button data-tab="convites">Convites</button>
-        <button data-tab="xp">XP e níveis</button>
-      </div>
-      <div class="side-group" data-label="Conversas">
-        <button data-tab="mensagens">Mensagens</button>
-        <button data-tab="arquivos">Arquivos</button>
-        <button data-tab="resumo">Resumo da semana</button>
-      </div>
-      <div class="side-group" data-label="Segurança">
-        <button data-tab="auditoria">Auditoria</button>
-        <button data-tab="acessos">Acessos ao site</button>
-        <button data-tab="seguranca">Login do painel</button>
-      </div>
-      <div class="side-group" data-label="Mac e internet">
-        <button data-tab="sistema">Sistema</button>
-        <button data-tab="internet">Internet</button>
-        <button data-tab="quedas">Quedas</button>
-        <button data-tab="alertas">Alertas no celular</button>
-        <button data-tab="logs">Logs</button>
-      </div>
-      <div class="side-group" data-label="Manutenção">
-        <button data-tab="atualizar">Atualizar o Muvuca</button>
-        <button data-tab="backups">Backups</button>
-      </div>
-      <div class="side-group" data-label="Jogos">
-        <button data-tab="minecraft">Minecraft</button>
-      </div>
+      <!-- Abas (páginas): montadas pelo app.js; no celular viram o seletor abaixo -->
+      <div id="side-pages" class="side-pages"></div>
       <select id="tab-select" class="tab-select" aria-label="Escolher aba"></select>
       <div class="side-foot">
         <span id="updated" class="muted small"></span>
@@ -73,6 +41,7 @@
     </nav>
     <section class="content">
       <header class="top"><h1 id="title">Visão geral</h1><div id="top-status"></div></header>
+      <nav id="subtabs" class="subtabs" hidden></nav>
       <div id="view"></div>
     </section>
   </div>

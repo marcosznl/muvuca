@@ -114,7 +114,7 @@ async function slowChecks() {
   // Backup: a última linha do log diz "FALHOU", ou faz mais de 26 h sem backup
   const last = await ctx.lastBackup();
   if (last && /FALHOU/.test(last.line) && once(`backup-fail-${last.at}`, 365 * 86_400_000)) {
-    sendAlert('backup', { title: '⚠️ O backup falhou', body: 'Veja o motivo na aba Backups.', url: '/#backups', urgent: true });
+    sendAlert('backup', { title: '⚠️ O backup falhou', body: 'Veja o motivo em Manutenção → Backups.', url: '/#backups', urgent: true });
   } else if (last && Date.now() - last.at > 26 * 3_600_000 && once('backup-late', 24 * 3_600_000)) {
     sendAlert('backup', { title: '⚠️ Backup atrasado', body: `O último backup foi há ${fmtDur(Date.now() - last.at)}.`, url: '/#backups' });
   }

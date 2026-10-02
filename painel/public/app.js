@@ -119,70 +119,76 @@ $('#logout').addEventListener('click', async () => {
 });
 
 // ---------- Abas ----------
+// Cada aba da lateral (página) tem uma ou mais sub-abas. Os ids das sub-abas são os antigos endereços
+// (#quedas, #backups…), então os links dos alertas no celular continuam abrindo o lugar certo.
 const TABS = {
-  geral: ['Visão geral', viewGeral, 5000],
-  aovivo: ['Ao vivo', viewAoVivo, 5000],
-  usuarios: ['Usuários', viewUsuarios, 30000],
+  geral: ['Agora', viewGeral, 5000],
+  sistema: ['Sistema', viewSistema, 30000],
   resumo: ['Resumo da semana', viewResumo, 300000],
+  aovivo: ['Ao vivo', viewAoVivo, 5000],
+  usuarios: ['Contas', viewUsuarios, 30000],
+  convites: ['Convites', viewConvites, 60000],
+  xp: ['XP e níveis', viewXp, 30000],
   mensagens: ['Mensagens', viewMensagens, 0],
   arquivos: ['Arquivos pesados', viewArquivos, 60000],
-  xp: ['XP e níveis', viewXp, 30000],
   auditoria: ['Auditoria', viewAuditoria, 0],
   acessos: ['Acessos ao site', viewAcessos, 60000],
-  logs: ['Logs', viewLogs, 0],
-  backups: ['Backups', viewBackups, 60000],
-  atualizar: ['Atualizar o Muvuca', viewAtualizar, 4000],
-  minecraft: ['Minecraft', viewMinecraft, 5000],
+  ips: ['IPs bloqueados', viewIps, 60000],
   internet: ['Internet', viewInternet, 4000],
+  quedas: ['Quedas', viewQuedas, 30000],
+  atualizar: ['Atualizar o Muvuca', viewAtualizar, 4000],
+  backups: ['Backups', viewBackups, 60000],
+  manut: ['Manutenção e reiniciar', viewManutencao, 30000],
+  logs: ['Logs', viewLogs, 0],
+  minecraft: ['Minecraft', viewMinecraft, 5000],
+  seguranca: ['Login (Face ID / Touch ID)', viewSeguranca, 0],
   alertas: ['Alertas no celular', viewAlertas, 0],
-  quedas: ['Histórico de quedas', viewQuedas, 30000],
-  convites: ['Convites', viewConvites, 60000],
-  seguranca: ['Login do painel', viewSeguranca, 0],
-  sistema: ['Sistema', viewSistema, 30000],
+  aparelhos: ['Aparelhos conectados', viewAparelhos, 30000],
 };
+const PAGES = {
+  geral: ['Visão geral', ['geral', 'sistema', 'resumo']],
+  aovivo: ['Ao vivo', ['aovivo']],
+  pessoas: ['Pessoas', ['usuarios', 'convites', 'xp']],
+  conteudo: ['Conteúdo', ['mensagens', 'arquivos']],
+  protecao: ['Segurança', ['auditoria', 'acessos', 'ips']],
+  conexao: ['Conexão', ['internet', 'quedas']],
+  manutencao: ['Manutenção', ['atualizar', 'backups', 'manut']],
+  logs: ['Logs', ['logs']],
+  minecraft: ['Minecraft', ['minecraft']],
+  config: ['Configurações do painel', ['seguranca', 'alertas', 'aparelhos']],
+};
+const pageOf = (sub) => Object.keys(PAGES).find((p) => PAGES[p][1].includes(sub));
 let tab = 'geral';
 let timer = null;
 let status = null;
 const stopTimers = () => { clearInterval(timer); timer = null; };
 
-document.querySelectorAll('.side button[data-tab]').forEach((b) => b.addEventListener('click', () => openTab(b.dataset.tab)));
-// No celular: as abas viram uma lista só, separada pelos mesmos grupos da lateral
+// Lateral: uma linha por página (com a bolinha de pendências); no celular, a mesma lista num seletor
 const tabSelect = $('#tab-select');
-for (const g of document.querySelectorAll('.side-group')) {
-  const parent = g.dataset.label ? tabSelect.appendChild(h('optgroup', { label: g.dataset.label })) : tabSelect;
-  for (const b of g.querySelectorAll('button[data-tab]')) parent.append(h('option', { value: b.dataset.tab }, b.textContent));
+for (const [id, [label]] of Object.entries(PAGES)) {
+  $('#side-pages').append(h('button', { 'data-page': id, onclick: () => openTab(id) }, h('span', {}, label), h('span', { class: 'side-badge', hidden: true })));
+  tabSelect.append(h('option', { value: id }, label));
 }
 tabSelect.addEventListener('change', () => openTab(tabSelect.value));
 
-// Grupos da lateral retráteis (como tópicos): clicar no título abre ou fecha. Lembra o que você abriu;
-// o grupo da aba aberta sempre aparece aberto.
-let openGroups = new Set();
-try { openGroups = new Set(JSON.parse(localStorage.getItem('painel-grupos') || '[]')); } catch { /* sem armazenamento */ }
-const saveGroups = () => { try { localStorage.setItem('painel-grupos', JSON.stringify([...openGroups])); } catch { /* sem armazenamento */ } };
-function paintGroup(g) {
-  const open = openGroups.has(g.dataset.label);
-  g.classList.toggle('closed', !open);
-  g.querySelector('.side-label').setAttribute('aria-expanded', String(open));
-}
-for (const g of document.querySelectorAll('.side-group[data-label]')) {
-  const label = h('button', { type: 'button', class: 'side-label' }, h('span', { class: 'side-arrow', 'aria-hidden': 'true' }, '▸'), g.dataset.label);
-  label.addEventListener('click', () => {
-    if (openGroups.has(g.dataset.label)) openGroups.delete(g.dataset.label); else openGroups.add(g.dataset.label);
-    saveGroups();
-    paintGroup(g);
-  });
-  g.prepend(label);
-  paintGroup(g);
-}
+// Última sub-aba usada em cada página (volta nela ao clicar na página)
+let lastSub = {};
+try { lastSub = JSON.parse(localStorage.getItem('painel-subabas') || '{}'); } catch { /* sem armazenamento */ }
+
+// name: uma sub-aba (ex.: 'quedas') ou uma página (ex.: 'conexao', abre a última sub-aba usada nela)
 function openTab(name) {
-  tab = TABS[name] ? name : 'geral';
-  try { localStorage.setItem('painel-tab', tab); } catch { /* sem armazenamento */ }
-  document.querySelectorAll('.side button[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
-  tabSelect.value = tab;
-  const group = document.querySelector(`.side button[data-tab="${tab}"]`)?.closest('.side-group[data-label]');
-  if (group && !openGroups.has(group.dataset.label)) { openGroups.add(group.dataset.label); saveGroups(); paintGroup(group); }
-  const [title, fn, every] = TABS[tab];
-  $('#title').textContent = title;
+  if (!TABS[name]) name = PAGES[name] ? (PAGES[name][1].includes(lastSub[name]) ? lastSub[name] : PAGES[name][1][0]) : 'geral';
+  tab = name;
+  const page = pageOf(tab);
+  lastSub[page] = tab;
+  try { localStorage.setItem('painel-tab', tab); localStorage.setItem('painel-subabas', JSON.stringify(lastSub)); } catch { /* sem armazenamento */ }
+  document.querySelectorAll('.side button[data-page]').forEach((b) => b.classList.toggle('on', b.dataset.page === page));
+  tabSelect.value = page;
+  const [pageTitle, subs] = PAGES[page];
+  $('#title').textContent = pageTitle;
+  $('#subtabs').replaceChildren(...(subs.length > 1 ? subs.map((id) => h('button', { class: id === tab ? 'on' : null, onclick: () => openTab(id) }, TABS[id][0])) : []));
+  $('#subtabs').hidden = subs.length < 2;
+  const [, fn, every] = TABS[tab];
   const view = $('#view');
   // Mesma aba (ex.: trocou o período do gráfico): mantém o conteúdo até o novo chegar, sem piscar
   if (view.dataset.tab !== name) {
@@ -217,7 +223,7 @@ async function start() {
   let saved = 'geral';
   try { saved = localStorage.getItem('painel-tab') || 'geral'; } catch { /* sem armazenamento */ }
   const fromLink = location.hash.slice(1); // alerta tocado no celular: abre a aba certa (#quedas, #backups…)
-  if (TABS[fromLink]) { saved = fromLink; history.replaceState(null, '', '/'); }
+  if (TABS[fromLink] || PAGES[fromLink]) { saved = fromLink; history.replaceState(null, '', '/'); }
   openTab(saved);
   refreshTop();
   setInterval(refreshTop, 15000);
@@ -399,7 +405,6 @@ async function viewGeral(first) {
       h('div', { class: 'card' }, h('h2', {}, 'Jogos mais jogados (7 dias)'),
         table([{ label: 'Jogo', get: (r) => r.game }, { label: 'Partidas', num: true, get: (r) => num(r.n) }], ov.games7, { empty: 'Nenhuma partida nesta semana.' })),
     ),
-    h('div', { class: 'section card' }, h('h2', {}, 'Processos'), processTable(s)),
   );
 }
 
@@ -489,7 +494,7 @@ async function ipsCard() {
   const add = h('button', { class: 'btn small primary' }, 'Bloquear');
   add.addEventListener('click', () => ip.value.trim() && act('/api/ips/block', { ip: ip.value.trim(), block: true }, { confirmText: `Bloquear o IP ${ip.value.trim()}?`, askReason: 'Motivo (opcional):', reload: tab }));
   return h('div', { class: 'card' }, h('h2', {}, 'IPs bloqueados'),
-    h('p', { class: 'muted small' }, `IP bloqueado não abre nada do Muvuca (site, app, calls). Seu IP agora: ${d.you}. Dá para bloquear também pelas abas Ao vivo e Acessos.`),
+    h('p', { class: 'muted small' }, `IP bloqueado não abre nada do Muvuca (site, app, calls). Seu IP agora: ${d.you}. Dá para bloquear também em Ao vivo e em Acessos ao site.`),
     table([
       { label: 'IP', get: (r) => h('span', { class: 'mono' }, r.ip) },
       { label: 'Motivo', get: (r) => r.reason ?? '—' },
@@ -533,8 +538,10 @@ async function viewUsuarios() {
   input.addEventListener('input', () => { userFilter = input.value; render(); });
   render();
   box.append(h('div', { class: 'row' }, h('h2', {}, `${users.length} contas`), h('span', { class: 'spacer' }), input), body);
-  return h('div', {}, box, h('div', { class: 'section' }, await ipsCard()));
+  return box;
 }
+
+async function viewIps() { return ipsCard(); }
 
 // Senha temporária: você escolhe (ou usa a sugerida), passa para a pessoa, e ela troca no primeiro login
 function resetPasswordFor(u) {
@@ -733,9 +740,9 @@ function maintenanceCard(mt) {
   const lock = h('input', { type: 'checkbox', checked: !!mt.lock });
   const on = h('button', { class: 'btn primary' }, mt.on ? 'Atualizar aviso' : 'Ligar manutenção');
   on.addEventListener('click', () => act('/api/maintenance', { on: true, message: msg.value, minutes: minutes.value, lock: lock.checked },
-    { confirmText: lock.checked ? 'Travar o acesso? Todo mundo (menos você) sai e vê a tela de manutenção até você desligar.' : null, reload: 'sistema' }));
+    { confirmText: lock.checked ? 'Travar o acesso? Todo mundo (menos você) sai e vê a tela de manutenção até você desligar.' : null, reload: 'manut' }));
   const off = h('button', { class: 'btn' }, 'Desligar');
-  off.addEventListener('click', () => act('/api/maintenance', { on: false }, { reload: 'sistema' }));
+  off.addEventListener('click', () => act('/api/maintenance', { on: false }, { reload: 'manut' }));
   return h('div', { class: 'card' },
     h('div', { class: 'row' }, h('h2', {}, '🛠️ Modo manutenção'), mt.on ? h('span', { class: `pill ${mt.lock ? 'bad' : 'warn'}` }, mt.lock ? 'ligado · acesso travado' : 'ligado · só aviso') : h('span', { class: 'pill' }, 'desligado')),
     h('p', { class: 'muted small' }, 'Mostra uma faixa de aviso no topo do Muvuca para todo mundo. Travando o acesso, todos (menos você) veem a tela "Em manutenção" até você desligar, e o Muvuca volta sozinho para eles.'),
@@ -743,25 +750,46 @@ function maintenanceCard(mt) {
     h('div', { class: 'row section' }, h('label', { class: 'row small' }, lock, 'Travar o acesso (só o dono entra)'), h('span', { class: 'spacer' }), mt.on ? off : null, on));
 }
 
-async function viewSistema() {
-  const [s, sessions, mt] = await Promise.all([api('/api/status'), api('/api/sessions'), api('/api/maintenance')]);
-  const m = s.main ?? {};
-  const sz = s.sizes ?? {};
+// Reiniciar o Muvuca (com confirmação; se tiver gente em call, pergunta de novo)
+async function restartMuvuca(btn) {
+  if (!confirm('Reiniciar o Muvuca agora? Quem estiver conectado cai por uns 10 segundos e volta sozinho.')) return;
+  if (btn) btn.disabled = true;
+  try {
+    let r = await api('/api/restart', { method: 'POST', body: {} });
+    if (r.needsForce && confirm(`${r.output}\nReiniciar mesmo assim?`)) r = await api('/api/restart', { method: 'POST', body: { force: true } });
+    toast(r.output, 8000);
+  } catch (err) { toast(err.message); } finally { if (btn) setTimeout(() => { btn.disabled = false; }, 15000); }
+}
+
+async function viewManutencao() {
+  const mt = await api('/api/maintenance');
   const restart = h('button', { class: 'btn danger' }, 'Reiniciar o Muvuca');
-  restart.addEventListener('click', async () => {
-    if (!confirm('Reiniciar o Muvuca agora? Quem estiver conectado cai por uns 10 segundos e volta sozinho.')) return;
-    restart.disabled = true;
-    try {
-      let r = await api('/api/restart', { method: 'POST', body: {} });
-      if (r.needsForce && confirm(`${r.output}\nReiniciar mesmo assim?`)) r = await api('/api/restart', { method: 'POST', body: { force: true } });
-      toast(r.output, 8000);
-    } catch (err) { toast(err.message); } finally { setTimeout(() => { restart.disabled = false; }, 15000); }
-  });
-  const logoutAll = h('button', { class: 'btn small', onclick: async () => { await api('/api/logout-all', { method: 'POST' }); toast('Os outros aparelhos saíram do painel.'); openTab('sistema'); } }, 'Tirar os outros aparelhos');
-  const site = `https://${s.domain}${s.publicPort && s.publicPort !== '443' ? ` (IPv4: porta ${s.publicPort})` : ''}`;
+  restart.addEventListener('click', () => restartMuvuca(restart));
   return h('div', {},
     maintenanceCard(mt),
-    h('div', { class: 'section grid two' },
+    h('div', { class: 'section card row' }, h('div', {}, h('b', {}, 'Reiniciar o Muvuca'), h('div', { class: 'muted small' }, 'Reinicia o site, a voz e o HTTPS (fica registrado na auditoria). O painel continua no ar. Se tiver gente em call, ele avisa antes.')), h('span', { class: 'spacer' }), restart),
+  );
+}
+
+async function viewAparelhos() {
+  const sessions = await api('/api/sessions');
+  const logoutAll = h('button', { class: 'btn small', onclick: async () => { await api('/api/logout-all', { method: 'POST' }); toast('Os outros aparelhos saíram do painel.'); openTab('aparelhos'); } }, 'Tirar os outros aparelhos');
+  return h('div', { class: 'card' }, h('div', { class: 'row' }, h('h2', {}, 'Aparelhos conectados ao painel'), h('span', { class: 'spacer' }), logoutAll),
+    table([
+      { label: 'Aparelho', get: (x) => h('span', { title: x.ua }, x.current ? h('span', { class: 'pill good' }, 'este') : null, ' ', device(x.ua)) },
+      { label: 'IP', get: (x) => h('span', { class: 'mono' }, x.ip) },
+      { label: 'Entrou', get: (x) => when(x.created) },
+      { label: 'Último uso', get: (x) => ago(x.last) },
+    ], sessions));
+}
+
+async function viewSistema() {
+  const s = await api('/api/status');
+  const m = s.main ?? {};
+  const sz = s.sizes ?? {};
+  const site = `https://${s.domain}${s.publicPort && s.publicPort !== '443' ? ` (IPv4: porta ${s.publicPort})` : ''}`;
+  return h('div', {},
+    h('div', { class: 'grid two' },
       h('div', { class: 'card' }, h('h2', {}, 'Muvuca'), table([{ label: '', get: (r) => h('span', { class: 'muted' }, r[0]) }, { label: '', get: (r) => r[1] }], [
         ['Endereço', site],
         ['Estado', m.up && !m.error ? 'no ar' : m.error ?? 'fora do ar'],
@@ -791,14 +819,6 @@ async function viewSistema() {
       ], s.certs ?? [], { empty: 'Nenhum certificado encontrado.' }), h('p', { class: 'muted small' }, 'O Caddy renova sozinho cerca de 30 dias antes de vencer.')),
     ),
     h('div', { class: 'section card' }, h('h2', {}, 'Processos'), processTable(s)),
-    h('div', { class: 'section card' }, h('div', { class: 'row' }, h('h2', {}, 'Aparelhos conectados ao painel'), h('span', { class: 'spacer' }), logoutAll),
-      table([
-        { label: 'Aparelho', get: (x) => h('span', { title: x.ua }, x.current ? h('span', { class: 'pill good' }, 'este') : null, ' ', device(x.ua)) },
-        { label: 'IP', get: (x) => h('span', { class: 'mono' }, x.ip) },
-        { label: 'Entrou', get: (x) => when(x.created) },
-        { label: 'Último uso', get: (x) => ago(x.last) },
-      ], sessions)),
-    h('div', { class: 'section card row' }, h('div', {}, h('b', {}, 'Reiniciar o Muvuca'), h('div', { class: 'muted small' }, 'Reinicia o site, a voz e o HTTPS (fica registrado na auditoria). O painel continua no ar. Se tiver gente em call, ele avisa antes.')), h('span', { class: 'spacer' }), restart),
   );
 }
 
@@ -1340,7 +1360,7 @@ async function xpAdjust(u) {
 
 async function viewXp() {
   const d = await api('/api/xp');
-  if (!d.ready) return h('p', { class: 'error' }, 'O XP ainda não está ativo no Muvuca (atualize o Muvuca na aba Atualizar).');
+  if (!d.ready) return h('p', { class: 'error' }, 'O XP ainda não está ativo no Muvuca (atualize em Manutenção → Atualizar o Muvuca).');
   const r = d.rules;
   const input = h('input', { type: 'search', placeholder: 'Buscar pessoa…', value: xpFilter });
   const body = h('div');
@@ -1562,7 +1582,7 @@ async function viewSeguranca() {
         { label: 'Último uso', get: (c) => (c.lastUsed ? ago(c.lastUsed) : 'nunca') },
         { label: '', get: (c) => h('button', { class: 'btn small ghost', onclick: () => act('/api/passkey/delete', { id: c.id }, { confirmText: `Apagar a passkey "${c.name}"? Esse aparelho vai precisar da senha de novo.`, reload: 'seguranca' }) }, 'Apagar') },
       ], list, { empty: 'Nenhuma passkey ainda.' })),
-    h('p', { class: 'muted small section' }, 'As sessões abertas (e o botão para tirar os outros aparelhos) ficam na aba Sistema.'));
+    h('p', { class: 'muted small section' }, 'As sessões abertas (e o botão para tirar os outros aparelhos) ficam em Aparelhos conectados.'));
 }
 
 start();

@@ -44,18 +44,20 @@ input:focus, select:focus, .btn:focus-visible, .side button:focus-visible { outl
 .app { display: grid; grid-template-columns: 200px 1fr; min-height: 100%; }
 .side { background: var(--side); border-right: 1px solid var(--line); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; padding: 0 8px 14px; }
-.side button[data-tab] { text-align: left; border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 600; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
-.side button[data-tab]:hover { background: var(--line); color: var(--text); }
-.side button[data-tab].on { background: var(--accent-soft); color: var(--text); }
-.side-group { display: flex; flex-direction: column; gap: 2px; }
-.side-label { display: flex; align-items: center; gap: 6px; border: 0; background: transparent; cursor: pointer; text-align: left; text-transform: uppercase; letter-spacing: .04em; font: inherit; font-size: 11px; font-weight: 700; color: var(--muted); padding: 12px 10px 4px; border-radius: 6px; }
-.side-label:hover { color: var(--text); }
-.side-label:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.side-arrow { display: inline-block; transition: transform .15s; font-size: 10px; }
-.side-group:not(.closed) .side-arrow { transform: rotate(90deg); }
-.side-group.closed button[data-tab] { display: none; }
-.side-group[data-label] button[data-tab] { padding-left: 22px; } /* subtópicos um pouco para dentro */
+.side button[data-page] { text-align: left; border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 600; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.side button[data-page]:hover { background: var(--line); color: var(--text); }
+.side button[data-page].on { background: var(--accent-soft); color: var(--text); }
+.side-pages { display: flex; flex-direction: column; gap: 2px; }
+.side button[data-page] { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.side-badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; color: #fff; background: var(--warn); }
+.side-badge.bad { background: var(--bad); }
 .tab-select { display: none; }
+/* Sub-abas no topo de cada página */
+.subtabs { display: flex; gap: 4px; flex-wrap: wrap; margin: -6px 0 16px; border-bottom: 1px solid var(--line); }
+.subtabs button { border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 600; padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.subtabs button:hover { color: var(--text); }
+.subtabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+.subtabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .side-foot { margin-top: auto; display: grid; gap: 8px; padding: 8px; }
 .content { padding: 20px 24px 40px; min-width: 0; }
 .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
@@ -117,7 +119,7 @@ pre.log { background: var(--side); border: 1px solid var(--line); border-radius:
   .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   .side { position: static; height: auto; overflow: visible; flex-direction: row; flex-wrap: wrap; align-content: flex-start; padding: 10px 16px; border-right: 0; border-bottom: 1px solid var(--line); }
   .brand { width: 100%; padding-bottom: 6px; }
-  .side-group { display: none; }
+  .side-pages { display: none; }
   .tab-select { display: block; width: 100%; margin-bottom: 8px; font-weight: 600; }
   .side-foot { margin: 0; padding: 0; width: 100%; display: flex; justify-content: space-between; align-items: center; }
   .content { padding: 16px; }
