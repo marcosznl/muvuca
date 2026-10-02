@@ -529,6 +529,7 @@ export function openProfileEditor() {
   if (!state.me) return;
   closeProfileCard();
   const draft = { ...state.me };
+  const uploaded = []; // imagens enviadas nesta edição (descartadas se fechar sem salvar)
   const layout = h('div', 'profile-editor');
   const form = h('div', 'form profile-form');
   const previewBox = h('div', 'profile-preview');
@@ -540,7 +541,7 @@ export function openProfileEditor() {
     removeBanner.hidden = !draft.bannerImage;
   };
 
-  // Foto (troca na hora, como no Discord)
+  // Foto e banner: a imagem enviada só aparece na prévia; vale para os outros quando clicar em Salvar
   const photoField = h('div', 'field');
   const photoBtns = h('div', 'profile-buttons');
   const changePhoto = button('Trocar foto', { kind: 'secondary' });
@@ -551,18 +552,13 @@ export function openProfileEditor() {
   changePhoto.onclick = () => pickImage(async (file) => {
     changePhoto.disabled = true;
     try {
-      const res = await upload('/api/image', { for: 'avatar' }, file);
-      draft.avatar = state.me.avatar = res.id;
+      const res = await upload('/api/image', { for: 'avatar', pending: '1' }, file);
+      uploaded.push(res.id);
+      draft.avatar = res.id;
       paintPreview();
     } finally { changePhoto.disabled = false; }
   });
-  removePhoto.onclick = async () => {
-    try {
-      await request({ t: 'avatar:remove' });
-      draft.avatar = state.me.avatar = null;
-      paintPreview();
-    } catch (err) { showBanner(err.message, { timeout: 4000 }); }
-  };
+  removePhoto.onclick = () => { draft.avatar = null; paintPreview(); };
 
   // Nome de exibição
   const nameField = h('label', 'field');
@@ -572,7 +568,7 @@ export function openProfileEditor() {
   nameField.append(h('span', 'field-label', 'Nome de exibição'), name,
     h('span', 'muted small', `Seu usuário continua @${draft.username} (é com ele que você entra).`));
 
-  // Banner: imagem ou GIF (troca na hora, como a foto); a cor aparece quando não há imagem
+  // Banner: imagem ou GIF; a cor aparece quando não há imagem
   const bannerField = h('div', 'field');
   const bannerBtns = h('div', 'profile-buttons');
   const changeBanner = button('Trocar banner', { kind: 'secondary' });
@@ -588,18 +584,13 @@ export function openProfileEditor() {
   changeBanner.onclick = () => pickImage(async (file) => {
     changeBanner.disabled = true;
     try {
-      const res = await upload('/api/image', { for: 'banner' }, file);
-      draft.bannerImage = state.me.bannerImage = res.id;
+      const res = await upload('/api/image', { for: 'banner', pending: '1' }, file);
+      uploaded.push(res.id);
+      draft.bannerImage = res.id;
       paintPreview();
     } finally { changeBanner.disabled = false; }
   }, prepareBanner);
-  removeBanner.onclick = async () => {
-    try {
-      await request({ t: 'banner:remove' });
-      draft.bannerImage = state.me.bannerImage = null;
-      paintPreview();
-    } catch (err) { showBanner(err.message, { timeout: 4000 }); }
-  };
+  removeBanner.onclick = () => { draft.bannerImage = null; paintPreview(); };
 
   // Sobre mim
   const bioField = h('label', 'field');
@@ -616,13 +607,20 @@ export function openProfileEditor() {
 
   const save = button('Salvar');
   const cancel = button('Cancelar', { kind: 'link' });
-  const modal = openModal({ title: 'Editar perfil', content: layout, actions: [cancel, save], wide: true });
+  let saved = false;
+  // Fechou sem salvar (Cancelar, X, Esc ou clicando fora): nada muda e as imagens enviadas são descartadas
+  const modal = openModal({ title: 'Editar perfil', content: layout, actions: [cancel, save], wide: true,
+    onClose: () => { if (!saved && uploaded.length) request({ t: 'image:discard', ids: uploaded }).catch(() => {}); } });
   cancel.onclick = () => modal.close();
   save.onclick = async () => {
     if (!name.value.trim()) return name.focus();
     save.disabled = true;
     try {
-      await request({ t: 'profile:update', name: name.value.trim(), bio: bio.value, banner: picker.value ?? '' });
+      const images = {};
+      if (draft.avatar !== state.me.avatar) images.avatar = draft.avatar ?? null;
+      if (draft.bannerImage !== state.me.bannerImage) images.bannerImage = draft.bannerImage ?? null;
+      await request({ t: 'profile:update', name: name.value.trim(), bio: bio.value, banner: picker.value ?? '', ...images });
+      saved = true;
       modal.close();
       toast('Perfil atualizado!');
     } catch (err) {

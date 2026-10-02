@@ -21,7 +21,26 @@ export async function removeImage(id) {
   await removeStored(IMAGE_DIR, id);
 }
 
+// Foto e banner do editor de perfil ficam "pendentes" até a pessoa clicar em Salvar (profile:update aplica).
+// Fechou sem salvar: a imagem é descartada (na hora, se o site avisar; senão em até 1 hora).
+const PENDING_MS = 3_600_000;
+const pendingImages = new Map(); // id -> { userId, target, at }
+
+export function takePendingImage(userId, target, id) {
+  const p = pendingImages.get(id);
+  if (!p || p.userId !== userId || p.target !== target) return false;
+  pendingImages.delete(id);
+  return true;
+}
+
+setInterval(() => {
+  for (const [id, p] of pendingImages) {
+    if (Date.now() - p.at > PENDING_MS) { pendingImages.delete(id); removeImage(id).catch(() => {}); }
+  }
+}, 10 * 60_000).unref();
+
 // POST /api/image?for=avatar   ou   ?for=banner   ou   ?for=server&server=…
+// (?pending=1 na foto e no banner: só guarda; quem aplica é o Salvar do editor de perfil)
 export async function uploadImage(req, url) {
   const user = requireUser(req);
   const target = url.searchParams.get('for');
@@ -43,6 +62,10 @@ export async function uploadImage(req, url) {
   }
   const id = db.addImage(kind.mime);
   await upload.save(id);
+  if (!serverId && url.searchParams.get('pending') === '1') {
+    pendingImages.set(id, { userId: user.id, target, at: Date.now() });
+    return { id };
+  }
   if (serverId) {
     await removeImage(db.setServerIcon(serverId, id));
     pushServer(serverId);
@@ -71,6 +94,14 @@ export async function serveImage(res, id) {
 }
 
 export const imageActions = {
+  // Editor de perfil fechado sem salvar: descarta as imagens enviadas
+  async 'image:discard'(user, m) {
+    for (const id of [].concat(m.ids ?? [])) {
+      const p = pendingImages.get(id);
+      if (p?.userId === user.id) { pendingImages.delete(id); await removeImage(id); }
+    }
+  },
+
   async 'avatar:remove'(user) {
     await removeImage(db.setAvatar(user.id, null));
     pushUser(user.id);
