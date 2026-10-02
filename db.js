@@ -360,6 +360,17 @@ function migrate(db) {
   if (!userCols.includes('banner')) db.exec('ALTER TABLE users ADD COLUMN banner TEXT');
   // Banner com imagem (ou GIF), como no Discord; a cor fica por baixo enquanto carrega
   if (!userCols.includes('banner_image')) db.exec('ALTER TABLE users ADD COLUMN banner_image TEXT');
+  // Aparelhos conectados: de onde é cada sessão (navegador/app, versão, IP) e quando foi usada
+  const sessCols = db.prepare('PRAGMA table_info(sessions)').all().map((c) => c.name);
+  if (!sessCols.includes('ua')) db.exec('ALTER TABLE sessions ADD COLUMN ua TEXT');
+  if (!sessCols.includes('ip')) db.exec('ALTER TABLE sessions ADD COLUMN ip TEXT');
+  if (!sessCols.includes('last_seen')) db.exec('ALTER TABLE sessions ADD COLUMN last_seen INTEGER');
+  if (!sessCols.includes('client')) db.exec('ALTER TABLE sessions ADD COLUMN client TEXT');
+  // Erros que aconteceram no site de alguém (o painel mostra; repetidos viram contagem)
+  db.exec(`CREATE TABLE IF NOT EXISTS client_errors (
+    id INTEGER PRIMARY KEY, at INTEGER NOT NULL, last_at INTEGER NOT NULL, user_id INTEGER, message TEXT NOT NULL,
+    stack TEXT, source TEXT, client TEXT, ua TEXT, count INTEGER NOT NULL DEFAULT 1
+  ); CREATE INDEX IF NOT EXISTS client_errors_by_time ON client_errors(last_at);`);
   // Tema escolhido pela pessoa (vale em todos os aparelhos dela): 'auto', 'dark', 'color:menta'…
   if (!userCols.includes('theme')) db.exec('ALTER TABLE users ADD COLUMN theme TEXT');
   // Qualidade do áudio por canal de voz (kbps; NULL = padrão)
@@ -532,7 +543,7 @@ function groupReactions(rows) {
 // Escritas só nestas tabelas não mudam o snapshot (nenhuma tabela do snapshot depende delas):
 const OUTSIDE_SNAPSHOT = new Set([
   'sessions', 'invites', 'messages', 'music_plays', 'files', 'images', 'reactions', 'read_state', 'game_results',
-  'game_players', 'poll_votes', 'mutes', 'friends', 'game_words', 'audit_log', 'xp_events', 'blocked_ips', 'push_subs',
+  'game_players', 'poll_votes', 'mutes', 'friends', 'game_words', 'audit_log', 'xp_events', 'blocked_ips', 'push_subs', 'client_errors',
 ]);
 // Colunas de users que não aparecem no snapshot
 const USER_COLS_OUTSIDE = new Set(['last_seen', 'password_hash', 'must_change', 'theme']);
@@ -842,12 +853,56 @@ class Store {
     return (await verifyPassword(password, row.password_hash)) ? publicUser(row) : null;
   }
 
-  createSession(user) {
+  createSession(user, { ua = null, ip = null } = {}) {
     const token = crypto.randomBytes(32).toString('base64url');
     const now = Date.now();
     this.q.insertSession.run(hashToken(token), unum(user.id), now, now + SESSION_DAYS * 86_400_000);
+    this.db.prepare('UPDATE sessions SET ua = ?, ip = ?, last_seen = ? WHERE token_hash = ?').run(ua ? String(ua).slice(0, 300) : null, ip, now, hashToken(token));
     return token;
   }
+
+  // ---------- Aparelhos conectados ----------
+  // Abriu o site com esta sessão: anota quando, de onde e em que app/navegador (client: { app, version, platform })
+  touchSession(token, { ip, ua, client } = {}) {
+    if (!token) return;
+    const sets = ['last_seen = ?'];
+    const args = [Date.now()];
+    if (ip) { sets.push('ip = ?'); args.push(ip); }
+    if (ua) { sets.push('ua = ?'); args.push(String(ua).slice(0, 300)); }
+    if (client) { sets.push('client = ?'); args.push(JSON.stringify(client)); }
+    this.db.prepare(`UPDATE sessions SET ${sets.join(', ')} WHERE token_hash = ?`).run(...args, hashToken(String(token)));
+  }
+  // Sessões válidas da pessoa (id = começo do hash: identifica sem expor o token)
+  sessionsOf(userId, currentToken) {
+    const cur = currentToken ? hashToken(String(currentToken)) : null;
+    return this.db.prepare('SELECT token_hash, created_at, last_seen, ip, ua, client FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY COALESCE(last_seen, created_at) DESC')
+      .all(unum(userId), Date.now()).map((r) => ({
+        id: r.token_hash.slice(0, 16), current: r.token_hash === cur, createdAt: r.created_at, lastSeen: r.last_seen ?? r.created_at,
+        ip: r.ip ?? null, ua: r.ua ?? null, client: (() => { try { return r.client ? JSON.parse(r.client) : null; } catch { return null; } })(),
+      }));
+  }
+  // Tira um aparelho (ou todos menos o atual): devolve os hashes apagados, para derrubar as conexões deles
+  endSessions(userId, { id = null, exceptToken = null } = {}) {
+    const keep = exceptToken ? hashToken(String(exceptToken)) : null;
+    const rows = this.db.prepare('SELECT token_hash FROM sessions WHERE user_id = ?').all(unum(userId))
+      .filter((r) => (id ? r.token_hash.startsWith(String(id)) && String(id).length >= 16 : r.token_hash !== keep));
+    for (const r of rows) this.db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(r.token_hash);
+    return rows.map((r) => r.token_hash);
+  }
+  sessionHash(token) { return token ? hashToken(String(token)) : null; }
+
+  // ---------- Erros do site (para o painel) ----------
+  // O mesmo erro da mesma pessoa em 24 h vira contagem; no máximo 50 erros novos por pessoa por hora
+  logClientError(userId, e) {
+    const now = Date.now();
+    const same = this.db.prepare('SELECT id FROM client_errors WHERE user_id IS ? AND message = ? AND last_at > ?').get(userId ? unum(userId) : null, e.message, now - 86_400_000);
+    if (same) return this.db.prepare('UPDATE client_errors SET count = count + 1, last_at = ?, client = ?, stack = COALESCE(?, stack) WHERE id = ?').run(now, e.client, e.stack, same.id);
+    const recent = this.db.prepare('SELECT COUNT(*) n FROM client_errors WHERE user_id IS ? AND at > ?').get(userId ? unum(userId) : null, now - 3_600_000).n;
+    if (recent >= 50) return null;
+    return this.db.prepare('INSERT INTO client_errors (at, last_at, user_id, message, stack, source, client, ua) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(now, now, userId ? unum(userId) : null, e.message, e.stack, e.source, e.client, e.ua);
+  }
+  purgeClientErrors(before) { this.db.prepare('DELETE FROM client_errors WHERE last_at < ?').run(before); }
 
   // Sessão válida → a pessoa. Usar renova o prazo (30 dias a partir do último uso, como no Discord):
   // quem abre o Muvuca pelo menos uma vez por mês nunca precisa digitar a senha de novo

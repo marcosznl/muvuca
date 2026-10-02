@@ -178,6 +178,7 @@ function welcome(ws, token) {
   const firstSocket = !sockets.has(user.id);
   if (firstSocket) sockets.set(user.id, new Set());
   sockets.get(user.id).add(ws);
+  db.touchSession(ws.sessionToken, { ip: ws.ip, ua: ws.ua }); // "aparelhos conectados": último uso e de onde
   presencePref.set(user.id, user.presence);
   db.touchUser(user.id);
   const presence = presenceMessage();
@@ -229,6 +230,7 @@ async function runAction(ws, user, m, actionTimes) {
 
 wss.on('connection', (ws, req) => {
   ws.ip = clientIp(req);
+  ws.ua = String(req.headers['user-agent'] ?? '').slice(0, 300) || null;
   if (ipBlocked(ws.ip)) { ws.close(); return; }
   let user = null;
   const actionTimes = [];
@@ -272,7 +274,7 @@ setInterval(() => {
   }
   cleanupAuthFails();
 }, 30_000);
-setInterval(() => { db.purgeExpiredSessions(); purgeAudit(); db.purgeXpEvents(Date.now() - 90 * 86_400_000); }, 3_600_000);
+setInterval(() => { db.purgeExpiredSessions(); purgeAudit(); db.purgeXpEvents(Date.now() - 90 * 86_400_000); db.purgeClientErrors(Date.now() - 30 * 86_400_000); }, 3_600_000);
 setInterval(cleanupFiles, 30 * 60_000); // anexos abandonados e de mensagens apagadas
 
 server.listen(PORT, HOST, () => {

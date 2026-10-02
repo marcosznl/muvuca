@@ -41,7 +41,8 @@ export function internalStats(startedAt) {
     const u = db.userById(id);
     if (!u) continue;
     users.push({ id, username: u.username, name: u.name, status: statusOf(id), tabs: set.size,
-      hidden: [...set].every((ws) => ws.hidden), ip: [...set][0]?.ip ?? null });
+      hidden: [...set].every((ws) => ws.hidden), ip: [...set][0]?.ip ?? null,
+      clients: [...set].map((ws) => ({ ...(ws.client ?? { app: 'web' }), ua: ws.ua ?? null })) }); // app/versão de cada aba
   }
   const channels = new Map(db.voiceChannels().map((c) => [c.id, c]));
   const voice = [];

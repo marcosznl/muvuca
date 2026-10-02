@@ -73,7 +73,7 @@ export async function register(req) {
   audit('auth:register', { user, ip, serverId, detail: { via: viaAccessCode ? 'código de acesso' : `convite ${inviteInfo.code}` } });
   pushServer(serverId); // quem já está online vê o membro novo na hora
   announceJoin(serverId, user);
-  return { token: db.createSession(user), serverId };
+  return { token: db.createSession(user, { ua: req.headers['user-agent'], ip: clientIp(req) }), serverId };
 }
 
 // POST /api/login
@@ -127,5 +127,5 @@ export async function login(req) {
   authFails.delete(ip);
   accounts.succeeded(username);
   // Senha temporária dada pelo painel: o site pede a nova antes de abrir
-  return { token: db.createSession(user), ...(db.mustChange(user.id) ? { mustChange: true } : {}) };
+  return { token: db.createSession(user, { ua: req.headers['user-agent'], ip: clientIp(req) }), ...(db.mustChange(user.id) ? { mustChange: true } : {}) };
 }

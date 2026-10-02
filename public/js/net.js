@@ -92,6 +92,9 @@ export function disconnect() {
 }
 
 // Envia sem esperar resposta (erros chegam como { t: 'error' } no handler)
+// Conectado agora? (para quem prefere guardar e mandar depois em vez de mostrar "sem conexão")
+export const connected = () => ws?.readyState === WebSocket.OPEN;
+
 export function send(msg) {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
   else showBanner('Sem conexão com o servidor.', { timeout: 3000 });
