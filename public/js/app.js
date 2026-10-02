@@ -3,6 +3,8 @@ import { $, store, showBanner, toast } from './util.js';
 import { eventsUpdated, onEventReminder } from './events.js';
 import { openUserSettings } from './user-settings.js';
 import { avisarNovidades } from './novidades.js';
+import { currentTheme, receiveTheme, onThemeSaved } from './theme.js';
+onThemeSaved((theme) => request({ t: 'theme:set', theme }).catch(() => {})); // vale em todos os aparelhos
 import { icon, applyStaticIcons } from './icons.js';
 import {
   state, serverById, findChannel, upsertServer, removeServer, rememberTextChannel, rememberedTextChannel, chatChannelId,
@@ -195,6 +197,9 @@ function handle(m) {
       pushAfterLogin(); // notificações: refaz a inscrição perdida e convida no celular (uma vez)
       renderMaintBar(m.maintenance);
       state.me = { ...m.you, xpRank: m.xpRank ?? null };
+      // Tema da conta (escolhido em qualquer aparelho); conta ainda sem tema: leva o deste aparelho
+      if (m.you.theme) receiveTheme(m.you.theme);
+      else if (currentTheme() !== 'dark') send({ t: 'theme:set', theme: currentTheme() });
       state.servers = m.servers;
       state.online = new Set(m.online);
       state.status = m.status ?? {};
@@ -313,6 +318,9 @@ function handle(m) {
       break;
     case 'event:reminder':
       onEventReminder(m);
+      break;
+    case 'theme': // escolheu outro tema em outro aparelho (ou aba)
+      receiveTheme(m.theme);
       break;
     case 'servers:order':
       applyServerOrder(m.ids);

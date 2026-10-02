@@ -2223,3 +2223,31 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .mini-btn { display: grid; place-items: center; width: 26px; height: 26px; border: 0; border-radius: 6px; background: rgba(255,255,255,.12); color: #fff; cursor: pointer; }
 .mini-btn:hover { background: rgba(255,255,255,.28); }
 .mini-btn[hidden] { display: none; }
+
+/* Temas coloridos (theme.js): o degradê no fundo das áreas grandes, com um véu por cima para o texto
+   continuar legível (mais forte nas colunas laterais). Fixo na tela: parece um fundo só por trás de tudo. */
+:root[data-color][data-theme="dark"] { --veil-main: rgba(12,12,16,.5); --veil-side: rgba(12,12,16,.62); --veil-rail: rgba(6,6,9,.72); }
+:root[data-color][data-theme="light"] { --veil-main: rgba(255,255,255,.52); --veil-side: rgba(255,255,255,.64); --veil-rail: rgba(255,255,255,.74); }
+:root[data-color] body { background: linear-gradient(var(--veil-main), var(--veil-main)), var(--theme-gradient); background-attachment: fixed; }
+:root[data-color] .server-rail { background: linear-gradient(var(--veil-rail), var(--veil-rail)), var(--theme-gradient); background-attachment: fixed; }
+:root[data-color] .sidebar, :root[data-color] .members { background: linear-gradient(var(--veil-side), var(--veil-side)), var(--theme-gradient); background-attachment: fixed; }
+
+/* Escolha do tema (Configurações) */
+.theme-picker { display: grid; gap: 10px; }
+.theme-auto { display: flex; align-items: center; justify-content: space-between; gap: 16px; cursor: pointer; }
+.theme-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.theme-swatch {
+  position: relative; width: 46px; height: 46px; border-radius: 10px; cursor: pointer;
+  border: 1px solid rgba(127,127,127,.35); box-shadow: inset 0 0 0 1px rgba(0,0,0,.08);
+}
+.theme-swatches.colors .theme-swatch { width: 44px; height: 44px; }
+.theme-swatch:hover { transform: translateY(-1px); border-color: var(--text-strong); }
+.theme-swatch.selected { outline: 2px solid var(--accent); outline-offset: 2px; }
+.theme-swatch.selected::after {
+  content: '✓'; position: absolute; top: -7px; right: -7px; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; line-height: 18px; text-align: center;
+}
+.theme-chosen { margin-top: 2px; }
+/* Nos temas coloridos, as partes que tinham cinza fixo pegam o tom do tema */
+:root[data-color] .voice-panel, :root[data-color] .user-panel { background: var(--bg-dark); }
+:root[data-color] .chat-box, :root[data-color] .edit-input, :root[data-color] .attach-tray { background: var(--bg-hover); }

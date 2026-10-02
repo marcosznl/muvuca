@@ -52,4 +52,12 @@ export default {
     db.setStatusText(user.id, clean(m.text, 60));
     pushUser(user.id);
   },
+
+  // Tema do site (só da própria pessoa): fica na conta e os outros aparelhos dela trocam na hora
+  'theme:set'(user, m) {
+    const theme = String(m.theme ?? '');
+    if (!/^(auto|light|dark|darker|black|color:[a-z-]{2,24})$/.test(theme)) fail('Tema inválido.');
+    db.setTheme(user.id, theme);
+    sendToUser(user.id, { t: 'theme', theme });
+  },
 };

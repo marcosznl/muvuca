@@ -360,6 +360,8 @@ function migrate(db) {
   if (!userCols.includes('banner')) db.exec('ALTER TABLE users ADD COLUMN banner TEXT');
   // Banner com imagem (ou GIF), como no Discord; a cor fica por baixo enquanto carrega
   if (!userCols.includes('banner_image')) db.exec('ALTER TABLE users ADD COLUMN banner_image TEXT');
+  // Tema escolhido pela pessoa (vale em todos os aparelhos dela): 'auto', 'dark', 'color:menta'…
+  if (!userCols.includes('theme')) db.exec('ALTER TABLE users ADD COLUMN theme TEXT');
   // Qualidade do áudio por canal de voz (kbps; NULL = padrão)
   if (!db.prepare('PRAGMA table_info(channels)').all().some((c) => c.name === 'user_limit')) db.exec('ALTER TABLE channels ADD COLUMN user_limit INTEGER');
   // Canal privado (só cargos escolhidos) e modo lento (segundos entre mensagens de cada pessoa)
@@ -465,6 +467,7 @@ const publicUser = (row) => row && {
   id: uid(row.id), username: row.username, name: row.display_name,
   avatar: row.avatar ?? null, bio: row.bio ?? '', banner: row.banner ?? null, bannerImage: row.banner_image ?? null,
   presence: row.presence ?? 'online', statusText: row.status_text ?? '',
+  theme: row.theme ?? null,
 };
 
 // Tipos de mensagem de sistema (coluna messages.system)
@@ -532,7 +535,7 @@ const OUTSIDE_SNAPSHOT = new Set([
   'game_players', 'poll_votes', 'mutes', 'friends', 'game_words', 'audit_log', 'xp_events', 'blocked_ips', 'push_subs',
 ]);
 // Colunas de users que não aparecem no snapshot
-const USER_COLS_OUTSIDE = new Set(['last_seen', 'password_hash', 'must_change']);
+const USER_COLS_OUTSIDE = new Set(['last_seen', 'password_hash', 'must_change', 'theme']);
 const SNAPSHOT_TTL = 60_000; // os eventos que já passaram somem com o tempo, mesmo sem escrita
 
 // A instrução SQL pode mudar algum snapshot? Na dúvida, sim.
@@ -743,6 +746,7 @@ class Store {
       setWelcome: p('UPDATE servers SET welcome_on = ?, welcome_channel = ?, welcome_text = ?, leave_text = ?, game_announce = ? WHERE id = ?'),
       setPresence: p('UPDATE users SET presence = ? WHERE id = ?'),
       setStatusText: p('UPDATE users SET status_text = ? WHERE id = ?'),
+      setTheme: p('UPDATE users SET theme = ? WHERE id = ?'),
       insertSystemMeta: p("INSERT INTO messages (channel_id, user_id, author_name, text, created_at, system, meta) VALUES (?, NULL, '', ?, ?, ?, ?)"),
       // placar dos jogos
       insertResult: p('INSERT INTO game_results (game, winner_id, created_at) VALUES (?, ?, ?)'),
@@ -1374,6 +1378,7 @@ class Store {
   }
   setPresence(userId, presence) { this.q.setPresence.run(presence, unum(userId)); }
   setStatusText(userId, text) { this.q.setStatusText.run(text || null, unum(userId)); }
+  setTheme(userId, theme) { this.q.setTheme.run(theme, unum(userId)); }
 
   // ---------- Mensagens diretas ----------
 

@@ -6,10 +6,17 @@
   <title>Muvuca</title>
   <meta name="theme-color" content="#1e1f22">
   <script>
-    // Tema claro/automático antes de desenhar a página (sem piscar escuro)
+    // Tema da pessoa antes de desenhar a página (sem piscar): o theme.js guarda o último aplicado
     try {
       var t = localStorage.getItem('calldireta:theme');
-      if (t === 'light' || (t === 'auto' && matchMedia('(prefers-color-scheme: light)').matches)) document.documentElement.dataset.theme = 'light';
+      var boot = JSON.parse(localStorage.getItem('calldireta:themeBoot') || 'null');
+      var r = document.documentElement;
+      if (t === 'auto') boot = null; // automático: decide pelo sistema
+      if (boot) {
+        r.dataset.theme = boot.mode;
+        if (boot.color) r.dataset.color = boot.color;
+        for (var k in boot.props) if (boot.props[k]) r.style.setProperty(k, boot.props[k]);
+      } else if (t === 'light' || (t === 'auto' && matchMedia('(prefers-color-scheme: light)').matches)) r.dataset.theme = 'light';
     } catch (e) {}
   </script>
   <link rel="manifest" href="/manifest.webmanifest">

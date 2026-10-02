@@ -257,6 +257,27 @@ test('foto de perfil: enviar, ver e remover', async () => {
   assert.equal((await ana.upload('/api/image', { for: 'server', server: home }, PNG)).status, 403); // ícone: só quem gerencia
 });
 
+test('tema: fica na conta e vale em todos os aparelhos da pessoa', async () => {
+  const pc = await new Person(server, 'tema1').register();
+  const phone = new Person(server, 'tema1');
+  phone.token = (await phone.post('/api/login', { username: 'tema1', password: 'senha-123' })).body.token;
+  await phone.connect();
+  assert.equal(pc.me.theme, null); // conta nova: sem tema escolhido
+  assert.equal((await pc.request({ t: 'theme:set', theme: 'color:<script>' })).t, 'error');
+  assert.equal((await pc.request({ t: 'theme:set', theme: 'roxo' })).t, 'error');
+  await pc.request({ t: 'theme:set', theme: 'color:aurora' });
+  const ev = await phone.waitFor('theme', (e) => e.theme === 'color:aurora'); // o outro aparelho troca na hora
+  assert.ok(ev);
+  // Abrindo de novo (outro aparelho, outro dia): o tema vem junto
+  const later = new Person(server, 'tema1');
+  later.token = (await later.post('/api/login', { username: 'tema1', password: 'senha-123' })).body.token;
+  await later.connect();
+  assert.equal(later.me.theme, 'color:aurora');
+  // Os outros não veem o tema de ninguém
+  assert.ok(!snap(dono).members.some((m) => 'theme' in m));
+  pc.close(); phone.close(); later.close();
+});
+
 test('editor de perfil: foto e banner enviados só valem depois de Salvar', async () => {
   const before = { avatar: ana.me.avatar, bannerImage: ana.me.bannerImage ?? null };
   const up = await ana.upload('/api/image', { for: 'banner', pending: '1' }, PNG);

@@ -9,8 +9,9 @@ export const NOVIDADES = [
   {
     versao: '2026-10-02',
     data: '2026-10-02',
-    titulo: 'Call com chat ao lado e janela flutuante',
+    titulo: 'Temas coloridos, chat ao lado da call e janela flutuante',
     itens: [
+      'Temas novos em Configurações → Tema: claro, escuro, mais escuro, preto e 22 temas coloridos em degradê (Menta, Crepúsculo, Oceano, Aurora…). Cada pessoa escolhe o seu, e ele vale em todos os seus aparelhos.',
       'Live e câmera numa janelinha flutuante: em call, dá para ir para o chat, outro servidor ou os jogos e continuar vendo a transmissão no canto da tela. Dá para arrastar, trocar de pessoa nas setas, abrir a call com um toque ou soltar a janela por cima de outros programas.',
       'Chat ao lado da call: o botão de balão nos controles da call divide a tela entre a call e um canal de texto (dá para escolher qual e arrastar a divisória). No celular fica um embaixo do outro.',
       'Editar perfil: a foto e o banner novos só valem quando você clica em Salvar. Cancelou ou fechou, nada muda.',
