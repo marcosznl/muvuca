@@ -19,7 +19,7 @@ import './quick-switch.js';
 import './voice-menus.js';
 import { setupPush, pushAfterLogin } from './push.js';
 import { closeEmojiPanel } from './chat-picker.js';
-import { renderStage, leaveVoice, voiceChannelId, applyAudioState, updateMediaButtons, mergeSelfIntoVoice, onBoardSound, onVoiceMove } from './voice.js';
+import { renderStage, leaveVoice, voiceChannelId, applyAudioState, updateMediaButtons, mergeSelfIntoVoice, onBoardSound, onVoiceMove, syncMiniPlayer } from './voice.js';
 import { renderMembers } from './members.js';
 import {
   joinMusic, musicChannelId, onMusicState, onMusicQueue, rejoinMusic, musicChannelGone, placeMusicView, renderAllMusic,
@@ -138,6 +138,7 @@ function showChannel() {
     if (matchMedia('(pointer: fine)').matches && channel.type === 'text') $('chat-input').focus();
   }
   if (isVoice) renderStage();
+  syncMiniPlayer(); // fora da tela da call: live/câmera numa janelinha flutuante
   renderAll();
   renderCallBar();
   if (friendsHome) renderFriendsView();
