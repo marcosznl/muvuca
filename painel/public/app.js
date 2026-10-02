@@ -390,7 +390,8 @@ function quickActions(mt) {
     ? h('button', { class: 'btn', onclick: () => act('/api/maintenance', { on: false }, { reload: 'geral' }) }, 'Desligar manutenção')
     : h('button', { class: 'btn', onclick: () => act('/api/maintenance', { on: true, message: 'O Muvuca vai reiniciar para uma atualização. Volta em instantes!', minutes: 0, lock: false },
       { confirmText: 'Ligar o aviso de manutenção no topo do Muvuca para todo mundo? (Mais opções em Manutenção.)', reload: 'geral' }) }, 'Ligar aviso de manutenção');
-  return h('div', { class: 'card row quick' }, h('b', {}, 'Ações rápidas'), h('span', { class: 'spacer' }), backup, maint, restart);
+  const reload = h('button', { class: 'btn', onclick: reloadAll }, 'Recarregar o site de todos');
+  return h('div', { class: 'card row quick' }, h('b', {}, 'Ações rápidas'), h('span', { class: 'spacer' }), backup, reload, maint, restart);
 }
 
 // Ação com confirmação (e motivo opcional) que chama o painel e mostra o resultado
@@ -491,6 +492,11 @@ function processTable(s) {
     { label: 'RAM', num: true, get: (r) => (r.p ? bytes(r.p.rss) : '—') },
     { label: 'Ligado há', num: true, get: (r) => r.p?.etime ?? '—' },
     { label: 'PID', num: true, get: (r) => r.p?.pid ?? '—' },
+    { label: '', get: (r) => ({
+      muvuca: h('button', { class: 'btn small ghost', onclick: reloadAll, title: 'Faz todas as abas e apps recarregarem a página' }, 'Recarregar o site de todos'),
+      livekit: h('button', { class: 'btn small ghost', onclick: restartVoice, title: 'Reinicia só a voz; as calls voltam sozinhas' }, 'Reiniciar só a voz'),
+      start: h('button', { class: 'btn small ghost', onclick: () => openTab('manut'), title: 'Reiniciar, desligar ou ligar o Muvuca' }, 'Reiniciar/desligar…'),
+    }[r.k] ?? null) },
   ], rows);
 }
 
@@ -1013,12 +1019,35 @@ async function restartMuvuca(btn) {
   } catch (err) { toast(err.message); } finally { if (btn) setTimeout(() => { btn.disabled = false; }, 15000); }
 }
 
+// Serviços: recarregar o site de todos, reiniciar só a voz, desligar e ligar o Muvuca
+const reloadAll = () => act('/api/service', { what: 'reload' }, { confirmText: 'Recarregar o Muvuca em todas as abas e apps abertos? Quem está em call volta sozinho para a call; mensagem que alguém estava digitando pode se perder.' });
+const restartVoice = () => {
+  const inVoice = (status?.main?.voice ?? []).reduce((n, v) => n + v.count, 0);
+  return act('/api/service', { what: 'voice' }, { confirmText: `Reiniciar só a voz (LiveKit)? ${inVoice ? `As ${inVoice} pessoas em call caem por uns segundos e voltam sozinhas.` : 'Ninguém está em call agora.'} O chat, os jogos e a música continuam.`, reload: tab });
+};
+function stopMuvuca() {
+  const typed = prompt('DESLIGAR o Muvuca?\n\nTodo mundo sai (site, calls, jogos) até você ligar de novo por aqui. O painel continua funcionando. Para um aviso rápido, use o modo manutenção.\n\nPara confirmar, digite DESLIGAR:', '');
+  if (typed === null) return;
+  act('/api/service', { what: 'stop', confirm: typed }, { reload: tab });
+}
+const startMuvuca = () => act('/api/service', { what: 'start' }, { reload: tab });
+
 async function viewManutencao() {
   const mt = await api('/api/maintenance');
   const restart = h('button', { class: 'btn danger' }, 'Reiniciar o Muvuca');
   restart.addEventListener('click', () => restartMuvuca(restart));
+  const s = await api('/api/status').catch(() => ({}));
+  const off = !!s.stoppedByPanel;
+  const svc = (title, text, btn) => h('div', { class: 'section card row' }, h('div', {}, h('b', {}, title), h('div', { class: 'muted small' }, text)), h('span', { class: 'spacer' }), btn);
   return h('div', {},
+    off ? h('div', { class: 'alerts' }, h('div', { class: 'alert warn' }, `O Muvuca está desligado pelo painel desde ${when(s.stoppedByPanel.at)}.`)) : null,
     maintenanceCard(mt),
+    svc('Recarregar o site de todos', 'Faz todas as abas e apps abertos recarregarem a página (nada reinicia no servidor). Útil depois de publicar uma atualização do site ou se algo ficou estranho na tela de todo mundo. Quem está em call volta sozinho.',
+      h('button', { class: 'btn', onclick: reloadAll }, 'Recarregar o site de todos')),
+    svc('Reiniciar só a voz', 'Reinicia só o LiveKit (calls, câmeras e lives). As calls caem por uns segundos e voltam sozinhas; o chat, os jogos e a música não caem. Bom para voz travada ou alguém que não consegue entrar.',
+      h('button', { class: 'btn', onclick: restartVoice }, 'Reiniciar só a voz')),
+    svc(off ? 'Ligar o Muvuca' : 'Desligar o Muvuca', off ? 'Liga o site, a voz e o HTTPS de novo (uns 10 segundos).' : 'Desliga tudo (site, voz, HTTPS) até você ligar de novo por aqui. Para manutenções longas; para avisos rápidos, use o modo manutenção.',
+      off ? h('button', { class: 'btn primary', onclick: startMuvuca }, 'Ligar o Muvuca') : h('button', { class: 'btn danger-ghost', onclick: stopMuvuca }, 'Desligar o Muvuca')),
     h('div', { class: 'section card row' }, h('div', {}, h('b', {}, 'Reiniciar o Muvuca'), h('div', { class: 'muted small' }, 'Reinicia o site, a voz e o HTTPS (fica registrado na auditoria). O painel continua no ar. Se tiver gente em call, ele avisa antes.')), h('span', { class: 'spacer' }), restart),
   );
 }

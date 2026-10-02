@@ -182,6 +182,12 @@ function handle(m) {
     case 'maintenance':
       renderMaintBar(m.maintenance);
       break;
+    // O painel pediu para todo mundo recarregar (atualização do site, algo estranho na tela de todos).
+    // Cada um recarrega num momento um pouco diferente; quem está em call volta sozinho para ela.
+    case 'reload':
+      showBanner('O Muvuca vai recarregar em instantes…', { kind: 'info', timeout: 6000 });
+      setTimeout(() => location.reload(), 2000 + Math.random() * 3000);
+      break;
     // XP da conta: barrinha atualiza; subiu de nível, comemora
     case 'xp':
       if (!state.me) break;
