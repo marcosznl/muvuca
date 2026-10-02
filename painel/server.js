@@ -17,8 +17,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { AUDIT_LABELS, AUDIT_GROUPS } from '../src/audit-labels.js';
 import { mcRoutes, startMinecraft, mcSummary } from './minecraft.js';
 import { speedRoutes } from './speedtest.js';
-import { deployRoutes, deploying } from './deploy.js';
-import { startAlerts, alertRoutes, markPlanned, sendAlert } from './alerts.js';
+import { deployRoutes, deploying, pendingUpdate } from './deploy.js';
+import { startAlerts, alertRoutes, markPlanned, sendAlert, downNow, quedasSince } from './alerts.js';
 import { startUpkeep, upkeepState, restoreTest } from './upkeep.js';
 import { startPasskeys, passkeyRoutes } from './passkey.js';
 import { xpInfo, xpToNext, XP_RULES } from '../src/xp-curve.js';
@@ -722,6 +722,72 @@ async function backups() {
   };
 }
 
+// ---------- Precisa de atenção ----------
+// O que pede ação agora, cada item com a sub-aba onde se resolve (o painel mostra na Visão geral e
+// como bolinha na lateral). level: 'bad' (urgente), 'warn' (olhar logo) ou 'info' (só para saber).
+let slowCache = { at: 0, data: null }; // backups (du), certificados e atualização pendente: no máximo 1 vez por minuto
+async function slowAttentionData() {
+  if (slowCache.data && Date.now() - slowCache.at < 60_000) return slowCache.data;
+  const [bk, certs, upd] = await Promise.all([backups().catch(() => null), certificates().catch(() => []), pendingUpdate()]);
+  slowCache = { at: Date.now(), data: { bk, certs, upd } };
+  return slowCache.data;
+}
+
+async function attention() {
+  const out = [];
+  const add = (level, text, tab) => out.push({ level, text, tab });
+  const s = latest;
+  const m = s.main ?? {};
+  const fmtGb = (b) => `${(b / 1024 ** 3).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} GB`;
+  if (s.at) {
+    const queda = downNow();
+    if (!m.up) add('bad', `O Muvuca está fora do ar (${m.error ?? 'sem resposta'})${queda ? ` há ${Math.max(1, Math.round((Date.now() - queda.start) / 60_000))} min` : ''}.`, 'quedas');
+    else if (m.error) add('warn', `Muvuca: ${m.error}`, 'sistema');
+    for (const [name, label] of [['livekit', 'voz (LiveKit)'], ['caddy', 'HTTPS (Caddy)'], ['ddns', 'DuckDNS']]) {
+      if (!s.procs?.[name]) add('bad', `O serviço de ${label} não está rodando.`, 'sistema');
+    }
+    const memPct = s.mem ? (s.mem.used / s.mem.total) * 100 : 0;
+    if (memPct > 90) add('warn', `Memória do Mac em ${Math.round(memPct)}%.`, 'sistema');
+    if (s.cpu > 85) add('warn', `Processador em ${Math.round(s.cpu)}%.`, 'sistema');
+    if (s.disk && s.disk.free < 5 * 1024 ** 3) add('bad', `Disco quase cheio: só ${fmtGb(s.disk.free)} livres.`, 'sistema');
+    else if (s.disk && s.disk.free < 15 * 1024 ** 3) add('warn', `Pouco espaço em disco: ${fmtGb(s.disk.free)} livres.`, 'sistema');
+    const inCall = (m.voice ?? []).flatMap((v) => v.people ?? []);
+    const badNet = inCall.filter((p) => p.net && (p.net.q === 'poor' || p.net.q === 'lost'));
+    if (badNet.length) add('warn', `Conexão ruim na call: ${badNet.map((p) => p.name).join(', ')}.`, 'aovivo');
+    const limited = inCall.filter((p) => p.net?.pub?.some((x) => x.limit === 'bandwidth' || x.limit === 'cpu'));
+    if (limited.length) add('warn', `Live ou câmera com qualidade reduzida: ${limited.map((p) => p.name).join(', ')}.`, 'aovivo');
+    if (m.loopDelayMs > 100) add('warn', `O Muvuca está respondendo devagar (atraso médio de ${m.loopDelayMs} ms).`, 'sistema');
+  }
+  const caidas = quedasSince(Date.now() - DAY);
+  if (caidas.length && m.up) add('warn', `O Muvuca caiu ${caidas.length === 1 ? '1 vez' : `${caidas.length} vezes`} nas últimas 24 h.`, 'quedas');
+  let ov = null;
+  try { ov = overview(); } catch { /* banco indisponível */ }
+  if (ov?.failed24 > 10) add('warn', `${ov.failed24} tentativas que falharam (senha errada etc.) nas últimas 24 h.`, 'auditoria');
+  if (ov && !ov.auditReady) add('warn', 'A auditoria ainda não está ativa: reinicie o Muvuca uma vez para criar o registro.', 'manut');
+  const { bk, certs, upd } = await slowAttentionData();
+  for (const c of certs) {
+    if (!c.name.endsWith('duckdns.org')) continue;
+    const days = Math.floor((c.validTo - Date.now()) / DAY);
+    if (days < 14) add(days < 5 ? 'bad' : 'warn', `Certificado HTTPS de ${c.name} vence em ${days} dias (o Caddy renova sozinho; se não renovar, confira os logs).`, 'sistema');
+  }
+  if (bk) {
+    const last = bk.local?.[0]?.at;
+    if (!last || Date.now() - last > 26 * 3_600_000) add('warn', `O último backup é de ${last ? `${Math.round((Date.now() - last) / 3_600_000)} h atrás` : 'nunca'}.`, 'backups');
+    const lastWarn = (bk.warnings ?? []).find((w) => w.startsWith('[backup'));
+    if (lastWarn) add('warn', `Último backup com aviso: ${lastWarn.replace(/^\[backup [^\]]+\]\s*/, '')}`, 'backups');
+  }
+  const restore = upkeepState()?.restore;
+  if (restore && !restore.ok) add('bad', `O teste de restauração do backup falhou: ${restore.error ?? 'veja os detalhes'}.`, 'backups');
+  const files = upd ? upd.site.length + upd.server.length : 0;
+  if (files && !deploying()) add('info', `Tem atualização esperando para ir ao ar (${files} ${files === 1 ? 'arquivo mudou' : 'arquivos mudaram'}).`, 'atualizar');
+  try {
+    const mt = maintenanceState();
+    if (mt.on) add(mt.lock ? 'warn' : 'info', mt.lock ? 'Modo manutenção ligado com o acesso travado: só você entra.' : 'Modo manutenção ligado (aviso no topo do Muvuca).', 'manut');
+  } catch { /* banco indisponível */ }
+  const order = { bad: 0, warn: 1, info: 2 };
+  return out.sort((a, b) => order[a.level] - order[b.level]);
+}
+
 // ---------- Ações ----------
 
 let busy = null;
@@ -864,6 +930,7 @@ const api = {
     json(res, 200, rows.filter((_, i) => i % step === 0));
   },
   'GET /api/overview': (req, res) => json(res, 200, overview()),
+  'GET /api/atencao': async (req, res) => json(res, 200, { items: await attention() }),
   'GET /api/users': (req, res) => json(res, 200, usersList()),
   'GET /api/files': (req, res, s, url) => json(res, 200, heavyFiles(url)),
   'GET /api/file': previewFile,

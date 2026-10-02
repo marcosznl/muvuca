@@ -61,6 +61,10 @@ function once(key, everyMs) {
 }
 
 // O painel vai reiniciar o Muvuca (botão Reiniciar/Atualizar): a queda de agora é esperada
+// Queda em andamento (null se está no ar) e quedas não planejadas desde `since`
+export const downNow = () => down;
+export const quedasSince = (since) => quedas.filter((q) => !q.planned && q.end > since);
+
 export function markPlanned(ms = 90_000) { plannedUntil = Math.max(plannedUntil, Date.now() + ms); }
 
 const fmtDur = (ms) => {

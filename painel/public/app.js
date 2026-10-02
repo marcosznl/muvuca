@@ -231,6 +231,7 @@ async function start() {
 
 async function refreshTop() {
   if ($('#app').hidden) return;
+  refreshAttention();
   try { status = await api('/api/status'); } catch { return; }
   const m = status.main ?? {};
   const ok = m.up && !m.error;
@@ -281,40 +282,58 @@ function lineChart(times, series, { format = (v) => v, max } = {}) {
 }
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-// ---------- Alertas (o que merece atenção agora) ----------
-function alerts(s, ov, bk) {
-  const out = [];
-  const m = s.main ?? {};
-  if (!m.up) out.push(['bad', `O Muvuca está fora do ar (${m.error ?? 'sem resposta'}).`]);
-  else if (m.error) out.push(['warn', `Muvuca: ${m.error}`]);
-  for (const [name, label] of [['livekit', 'voz (LiveKit)'], ['caddy', 'HTTPS (Caddy)'], ['ddns', 'DuckDNS']]) {
-    if (!s.procs?.[name]) out.push(['bad', `O serviço de ${label} não está rodando.`]);
+// ---------- Precisa de atenção ----------
+// A lista vem do painel (/api/atencao): o que pede ação agora e em qual sub-aba se resolve.
+// Também vira a bolinha com o número de pendências ao lado de cada aba da lateral.
+let attentionItems = [];
+function paintBadges() {
+  for (const b of document.querySelectorAll('.side button[data-page]')) {
+    const mine = attentionItems.filter((i) => pageOf(i.tab) === b.dataset.page);
+    const badge = b.querySelector('.side-badge');
+    badge.hidden = !mine.length;
+    badge.textContent = mine.length;
+    badge.className = `side-badge ${mine.some((i) => i.level === 'bad') ? 'bad' : mine.some((i) => i.level === 'warn') ? '' : 'info'}`;
+    b.title = mine.map((i) => i.text).join('\n');
+    // No celular (lista em vez da lateral): o número vai junto do nome
+    const opt = tabSelect.querySelector(`option[value="${b.dataset.page}"]`);
+    if (opt) opt.textContent = `${PAGES[b.dataset.page][0]}${mine.length ? ` (${mine.length})` : ''}`;
   }
-  const memPct = s.mem ? (s.mem.used / s.mem.total) * 100 : 0;
-  if (memPct > 90) out.push(['warn', `Memória do Mac em ${pct(memPct)}.`]);
-  if (s.cpu > 85) out.push(['warn', `Processador em ${pct(s.cpu)}.`]);
-  if (s.disk && s.disk.free < 5 * 1024 ** 3) out.push(['bad', `Disco quase cheio: só ${bytes(s.disk.free)} livres.`]);
-  else if (s.disk && s.disk.free < 15 * 1024 ** 3) out.push(['warn', `Pouco espaço em disco: ${bytes(s.disk.free)} livres.`]);
-  const inCall = (m.voice ?? []).flatMap((v) => v.people ?? []);
-  const bad = inCall.filter((p) => p.net && (p.net.q === 'poor' || p.net.q === 'lost'));
-  if (bad.length) out.push(['warn', `Conexão ruim na call: ${bad.map((p) => p.name).join(', ')} (veja em Ao vivo).`]);
-  const limited = inCall.filter((p) => p.net?.pub?.some((x) => x.limit === 'bandwidth' || x.limit === 'cpu'));
-  if (limited.length) out.push(['warn', `Live/câmera com qualidade reduzida: ${limited.map((p) => `${p.name} (${p.net.pub.find((x) => x.limit).limit === 'cpu' ? 'processador' : 'internet'} de quem transmite)`).join(', ')}.`]);
-  if (m.loopDelayMs > 100) out.push(['warn', `O Muvuca está respondendo devagar (atraso médio de ${m.loopDelayMs} ms).`]);
-  for (const c of s.certs ?? []) {
-    if (!c.name.endsWith('duckdns.org')) continue;
-    const days = Math.floor((c.validTo - Date.now()) / 86400000);
-    if (days < 14) out.push([days < 5 ? 'bad' : 'warn', `Certificado HTTPS de ${c.name} vence em ${days} dias (o Caddy renova sozinho; se não renovar, confira os logs).`]);
-  }
-  if (ov?.failed24 > 10) out.push(['warn', `${ov.failed24} tentativas que falharam (senha errada etc.) nas últimas 24 h — veja a Auditoria.`]);
-  if (ov && !ov.auditReady) out.push(['warn', 'A auditoria ainda não está ativa: reinicie o Muvuca uma vez para criar o registro.']);
-  if (bk) {
-    const last = bk.local?.[0]?.at;
-    if (!last || Date.now() - last > 26 * 3600000) out.push(['warn', `O último backup é de ${last ? ago(last) : 'nunca'}.`]);
-    const lastWarn = (bk.warnings ?? []).find((w) => w.startsWith('[backup'));
-    if (lastWarn) out.push(['warn', `Último backup com aviso: ${lastWarn.replace(/^\[backup [^\]]+\]\s*/, '')}`]);
-  }
-  return out;
+}
+async function refreshAttention() {
+  try { attentionItems = (await api('/api/atencao')).items; } catch { return attentionItems; }
+  paintBadges();
+  return attentionItems;
+}
+
+function attentionCard(items) {
+  return h('div', { class: 'card attention' },
+    h('h2', {}, 'Precisa de atenção'),
+    items.length
+      ? h('div', { class: 'alerts' }, items.map((i) => h('button', { class: `alert ${i.level} alert-link`, onclick: () => openTab(i.tab) },
+        h('span', {}, i.text), h('span', { class: 'alert-go' }, `${TABS[i.tab]?.[0] ?? 'Abrir'} →`))))
+      : h('div', { class: 'alert good' }, 'Tudo certo ✅ Nada pedindo ação agora.'));
+}
+
+// Ações rápidas (as mesmas de Manutenção, para uma emergência pelo celular)
+async function backupNow(btn) {
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = 'Fazendo backup…';
+  try {
+    const r = await api('/api/backup', { method: 'POST' });
+    toast(r.output || (r.ok ? 'Backup feito.' : 'O backup falhou.'), 8000);
+  } catch (err) { toast(err.message); } finally { btn.disabled = false; btn.textContent = label; refreshAttention(); }
+}
+function quickActions(mt) {
+  const restart = h('button', { class: 'btn danger' }, 'Reiniciar o Muvuca');
+  restart.addEventListener('click', () => restartMuvuca(restart));
+  const backup = h('button', { class: 'btn' }, 'Fazer backup agora');
+  backup.addEventListener('click', () => backupNow(backup));
+  const maint = mt.on
+    ? h('button', { class: 'btn', onclick: () => act('/api/maintenance', { on: false }, { reload: 'geral' }) }, 'Desligar manutenção')
+    : h('button', { class: 'btn', onclick: () => act('/api/maintenance', { on: true, message: 'O Muvuca vai reiniciar para uma atualização. Volta em instantes!', minutes: 0, lock: false },
+      { confirmText: 'Ligar o aviso de manutenção no topo do Muvuca para todo mundo? (Mais opções em Manutenção.)', reload: 'geral' }) }, 'Ligar aviso de manutenção');
+  return h('div', { class: 'card row quick' }, h('b', {}, 'Ações rápidas'), h('span', { class: 'spacer' }), backup, maint, restart);
 }
 
 // Ação com confirmação (e motivo opcional) que chama o painel e mostra o resultado
@@ -335,21 +354,14 @@ const ipBlockButton = (ip, reload) => (ip ? h('button', { class: 'btn small ghos
 
 // ---------- Visão geral ----------
 let range = 1;
-let bkCache = null;
 async function viewGeral(first) {
-  const [s, ov, hist] = await Promise.all([api('/api/status'), api('/api/overview'), api(`/api/history?hours=${range}`)]);
+  const [s, ov, hist, items, mt] = await Promise.all([api('/api/status'), api('/api/overview'), api(`/api/history?hours=${range}`), refreshAttention(), api('/api/maintenance')]);
   status = s;
-  // Backups entram nos alertas sem segurar a tela: usa o que já tem e atualiza por trás
-  if (!bkCache || Date.now() - bkCache.t > 60000) {
-    bkCache = { t: Date.now(), data: bkCache?.data ?? null };
-    api('/api/backups').then((d) => { bkCache = { t: Date.now(), data: d }; }).catch(() => {});
-  }
   const m = s.main ?? {};
   const inVoice = (m.voice ?? []).reduce((n, v) => n + v.count, 0);
   const lives = (m.voice ?? []).reduce((n, v) => n + (v.people ?? []).filter((p) => p.streaming).length, 0);
   const memPct = s.mem ? (s.mem.used / s.mem.total) * 100 : 0;
   const diskPct = s.disk ? (1 - s.disk.free / s.disk.total) * 100 : 0;
-  const al = alerts(s, ov, bkCache.data);
 
   const times = hist.map((p) => p.t);
   const rangeSel = h('div', { class: 'row' }, h('span', { class: 'muted small' }, 'Período:'),
@@ -359,8 +371,9 @@ async function viewGeral(first) {
   const days = Array.from({ length: 14 }, (_, i) => ov.perDay.find((d) => d.d === i)?.n ?? 0);
 
   return h('div', {},
-    h('div', { class: 'alerts' }, al.length ? al.map(([k, t]) => h('div', { class: `alert ${k}` }, t)) : h('div', { class: 'alert good' }, 'Tudo certo: nenhum alerta agora.')),
-    h('div', { class: 'grid cards' },
+    attentionCard(items),
+    h('div', { class: 'section' }, quickActions(mt)),
+    h('div', { class: 'section grid cards' },
       stat('Muvuca', m.up && !m.error ? 'No ar' : 'Fora', m.upSince ? `há ${duration((Date.now() - m.upSince) / 1000)}` : m.error ?? ''),
       stat('Online agora', num(m.users?.length ?? 0), `${num(m.connections ?? 0)} abas/apps conectados`),
       stat('Em call', num(inVoice), `${num((m.voice ?? []).length)} canais · ${num(lives)} ${lives === 1 ? 'live' : 'lives'}`),
@@ -716,7 +729,7 @@ async function viewBackups() {
     try {
       const r = await api('/api/backup', { method: 'POST' });
       toast(r.output || (r.ok ? 'Backup feito.' : 'O backup falhou.'), 8000);
-      bkCache = null;
+      refreshAttention();
       openTab('backups');
     } catch (err) { toast(err.message); } finally { btn.disabled = false; }
   });

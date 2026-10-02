@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
 import WebSocket from 'ws';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -37,6 +38,58 @@ export async function startServer() {
   return {
     base,
     dir,
+    output: () => output,
+    async stop() {
+      proc.kill();
+      await new Promise((r) => proc.once('exit', r));
+      fs.rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+// Sobe o painel de verdade apontando para o servidor de teste (mesmo banco), com login próprio.
+// O HOME vai para uma pasta temporária (backups e certificados do Caddy ficam vazios).
+export const PAINEL_USER = 'admin';
+export const PAINEL_PASS = 'senha-do-painel-de-teste';
+export async function startPainel(server) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'muvuca-painel-'));
+  const salt = crypto.randomBytes(16);
+  const params = { N: 2 ** 10, r: 8, p: 1 };
+  const hash = crypto.scryptSync(PAINEL_PASS, salt, 64, params);
+  fs.writeFileSync(path.join(dir, 'auth.json'), JSON.stringify({ user: PAINEL_USER, salt: salt.toString('hex'), hash: hash.toString('hex'), ...params }));
+  const port = 41000 + Math.floor(Math.random() * 9000);
+  const proc = spawn(process.execPath, ['painel/server.js'], {
+    cwd: ROOT,
+    env: {
+      PATH: process.env.PATH, HOME: dir,
+      PAINEL_PORT: String(port), DB_FILE: path.join(server.dir, 'teste.db'), PAINEL_AUTH: path.join(dir, 'auth.json'), MAIN_URL: server.base,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let output = '';
+  proc.stdout.on('data', (d) => { output += d; });
+  proc.stderr.on('data', (d) => { output += d; });
+  const base = `http://127.0.0.1:${port}`;
+  for (let i = 0; i < 100; i++) {
+    try { await fetch(`${base}/`); break; } catch { await new Promise((r) => setTimeout(r, 100)); }
+    if (proc.exitCode !== null) throw new Error(`O painel não subiu:\n${output}`);
+  }
+  let cookie = '';
+  const call = async (pathname, body) => {
+    const res = await fetch(`${base}${pathname}`, {
+      method: body ? 'POST' : 'GET',
+      headers: { 'x-painel': '1', cookie, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return { status: res.status, body: await res.json().catch(() => null), headers: res.headers };
+  };
+  const login = await call('/api/login', { user: PAINEL_USER, password: PAINEL_PASS });
+  if (login.status !== 200) throw new Error(`Login no painel falhou: ${JSON.stringify(login.body)}`);
+  cookie = login.headers.get('set-cookie').split(';')[0];
+  return {
+    base, dir, call, cookie: () => cookie,
+    get: (pathname) => call(pathname),
+    post: (pathname, body = {}) => call(pathname, body),
     output: () => output,
     async stop() {
       proc.kill();

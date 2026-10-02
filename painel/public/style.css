@@ -51,6 +51,13 @@ input:focus, select:focus, .btn:focus-visible, .side button:focus-visible { outl
 .side button[data-page] { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .side-badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; color: #fff; background: var(--warn); }
 .side-badge.bad { background: var(--bad); }
+.side-badge.info { background: var(--accent); }
+.on .side-badge { box-shadow: 0 0 0 2px var(--accent-soft); }
+/* Precisa de atenção: cada item leva para onde se resolve */
+.alert-link { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; font: inherit; cursor: pointer; border: 0; }
+.alert-link:hover { filter: brightness(.97); }
+.alert-go { margin-left: auto; white-space: nowrap; font-weight: 700; font-size: 12px; opacity: .8; }
+.quick .btn { white-space: nowrap; }
 .tab-select { display: none; }
 /* Sub-abas no topo de cada página */
 .subtabs { display: flex; gap: 4px; flex-wrap: wrap; margin: -6px 0 16px; border-bottom: 1px solid var(--line); }
@@ -89,6 +96,7 @@ input:focus, select:focus, .btn:focus-visible, .side button:focus-visible { outl
 .alert.bad { background: var(--bad-soft); color: var(--bad); }
 .alert.warn { background: var(--warn-soft); color: var(--warn); }
 .alert.good { background: var(--good-soft); color: var(--good); }
+.alert.info { background: var(--accent-soft); color: var(--text); }
 
 /* Tabelas */
 .table-wrap { overflow-x: auto; }
