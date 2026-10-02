@@ -71,6 +71,26 @@ function toast(text, ms = 4000) {
   setTimeout(() => el.remove(), ms);
 }
 
+// ---------- Tema (automático, claro ou escuro) ----------
+// O theme-boot.js já aplicou a escolha antes de desenhar; aqui ficam os botões do pé da lateral.
+const THEMES = [['auto', 'Auto'], ['light', 'Claro'], ['dark', 'Escuro']];
+const currentTheme = () => { try { return localStorage.getItem('painel-tema') || 'auto'; } catch { return 'auto'; } };
+const isDark = () => document.documentElement.dataset.theme === 'dark' || (document.documentElement.dataset.theme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+function applyTheme(t) {
+  if (t === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  try { if (t === 'auto') localStorage.removeItem('painel-tema'); else localStorage.setItem('painel-tema', t); } catch { /* sem armazenamento */ }
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', isDark() ? '#1e1f22' : '#eceef2');
+  paintThemeSeg();
+  if (!$('#app').hidden) openTab(tab); // os gráficos pegam as cores do tema ao desenhar
+}
+function paintThemeSeg() {
+  const cur = currentTheme();
+  $('#theme-seg').replaceChildren(...THEMES.map(([id, label]) => h('button', { type: 'button', class: id === cur ? 'on' : null, 'aria-pressed': String(id === cur), title: id === 'auto' ? 'Automático: segue o modo claro/escuro do aparelho' : `Painel sempre ${label.toLowerCase()}`, onclick: () => applyTheme(id) }, label)));
+}
+paintThemeSeg();
+document.querySelector('meta[name="theme-color"]')?.setAttribute('content', isDark() ? '#1e1f22' : '#eceef2');
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (currentTheme() === 'auto' && !$('#app').hidden) openTab(tab); });
+
 // ---------- Login ----------
 function showLogin() {
   stopTimers();
