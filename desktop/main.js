@@ -145,7 +145,9 @@ function setupPermissions() {
     }
     callback(true);
   });
-  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => ALLOWED.has(permission) && requestingOrigin === origin());
+  // O Electron manda a origem com barra no fim ("https://…/"): compara pela origem do URL. A comparação exata
+  // de antes negava sempre, e aí o Chromium escondia os nomes dos microfones (só aparecia "Padrão do sistema")
+  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => ALLOWED.has(permission) && trusted(requestingOrigin));
 
   // "Transmitir tela": o seletor nativo do macOS quando existe; senão, a nossa janelinha de escolha
   ses.setDisplayMediaRequestHandler(async (request, callback) => {

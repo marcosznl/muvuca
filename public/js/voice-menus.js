@@ -59,7 +59,15 @@ function deviceExpander(kind, title, current, set) {
         const unlock = h('button', 'am-option', 'Permitir o microfone para ver os nomes');
         unlock.type = 'button';
         unlock.onclick = async () => {
-          try { await unlockDeviceNames(); devices = await listDevices(kind); paint(); } catch { showBanner('O navegador não deixou usar o microfone.', { timeout: 4000 }); }
+          try {
+            await unlockDeviceNames();
+            devices = await listDevices(kind);
+            paint();
+            // App do computador até a 1.4.5: negava a consulta de permissão e os nomes nunca apareciam
+            if (window.muvucaDesktop && !devices.some((d) => d.label)) {
+              showBanner('Para escolher outro microfone, atualize o app do Muvuca (ele avisa quando a versão nova estiver pronta; se não avisar, feche e abra o app de novo).', { kind: 'info', timeout: 10000 });
+            }
+          } catch { showBanner('O navegador não deixou usar o microfone.', { timeout: 4000 }); }
         };
         list.append(unlock);
       }

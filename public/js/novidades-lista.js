@@ -14,6 +14,7 @@ export const NOVIDADES = [
       'Live e câmera numa janelinha flutuante: em call, dá para ir para o chat, outro servidor ou os jogos e continuar vendo a transmissão no canto da tela. Dá para arrastar, trocar de pessoa nas setas, abrir a call com um toque ou soltar a janela por cima de outros programas.',
       'Chat ao lado da call: o botão de balão nos controles da call divide a tela entre a call e um canal de texto (dá para escolher qual e arrastar a divisória). No celular fica um embaixo do outro.',
       'Editar perfil: a foto e o banner novos só valem quando você clica em Salvar. Cancelou ou fechou, nada muda.',
+      'App do computador 1.4.6: a lista de microfones e saídas de som volta a aparecer (antes só mostrava "Padrão do sistema"). O app se atualiza sozinho.',
       'Nova aba Novidades (aqui!): tudo o que mudou em cada versão do Muvuca.',
       'Mensagens chegam mais rápido para todo mundo, com menos esforço do servidor.',
       'A voz continua funcionando em redes mais fechadas (4G, trabalho) mesmo depois de meses sem reiniciar o servidor.',
