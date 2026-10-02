@@ -62,7 +62,7 @@ export async function startPainel(server) {
     cwd: ROOT,
     env: {
       PATH: process.env.PATH, HOME: dir,
-      PAINEL_PORT: String(port), DB_FILE: path.join(server.dir, 'teste.db'), PAINEL_AUTH: path.join(dir, 'auth.json'), MAIN_URL: server.base,
+      PAINEL_SANDBOX: '1', PAINEL_LOGS: path.join(dir, 'logs'), PAINEL_PORT: String(port), DB_FILE: path.join(server.dir, 'teste.db'), PAINEL_AUTH: path.join(dir, 'auth.json'), MAIN_URL: server.base,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

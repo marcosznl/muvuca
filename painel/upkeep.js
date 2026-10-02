@@ -10,6 +10,7 @@ import path from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
+import { SANDBOX } from './sandbox.js';
 
 const run = promisify(execFile);
 const ROTATE_AT = 5 * 1024 * 1024;
@@ -54,6 +55,7 @@ export async function livekitStartedAt() {
 
 let emptyChecks = 0;
 async function certCheck() {
+  if (SANDBOX) return;
   const cert = ctx.certFile();
   if (!cert) return;
   let renewedAt;

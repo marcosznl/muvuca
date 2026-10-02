@@ -20,6 +20,7 @@ import { speedRoutes } from './speedtest.js';
 import { deployRoutes, deploying, pendingUpdate } from './deploy.js';
 import { startAlerts, alertRoutes, markPlanned, setPlannedUntil, sendAlert, downNow, quedasSince } from './alerts.js';
 import { startUpkeep, upkeepState, restoreTest } from './upkeep.js';
+import { SANDBOX, realOnly } from './sandbox.js';
 import { startPasskeys, passkeyRoutes } from './passkey.js';
 import { xpInfo, xpToNext, XP_RULES } from '../src/xp-curve.js';
 import { PERM_INFO, PERMS, can } from '../public/js/permissions.js';
@@ -36,7 +37,7 @@ const KEY_FILE = path.join(path.dirname(DB_FILE), 'painel-key');
 const HISTORY_FILE = path.join(path.dirname(DB_FILE), 'painel-historico.json');
 const MAIN_URL = process.env.MAIN_URL || 'http://127.0.0.1:3000';
 const PUBLIC = path.join(HERE, 'public');
-const LOGS = path.join(ROOT, 'logs');
+const LOGS = process.env.PAINEL_LOGS || path.join(ROOT, 'logs'); // teste: pasta própria
 const BACKUP_DIR = path.join(os.homedir(), 'Backups/Muvuca'); // onde o backup.sh guarda (fora do projeto)
 const CADDY_CERTS = path.join(os.homedir(), 'Library/Application Support/Caddy/certificates');
 const env = readEnvPublic();
@@ -970,6 +971,7 @@ async function attention() {
 
 let busy = null;
 function runScript(args, timeoutMs) {
+  if (SANDBOX) return Promise.resolve({ ok: false, output: 'Painel de teste: não mexe no Muvuca de verdade.' });
   return new Promise((resolve) => {
     execFile('/bin/zsh', args, { cwd: ROOT, timeout: timeoutMs, env: { ...process.env, PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin' } },
       (err, stdout, stderr) => resolve({ ok: !err, output: scrub(`${stdout}${stderr}`).trim().split('\n').slice(-10).join('\n') }));
@@ -988,6 +990,7 @@ async function doBackup(req) {
 }
 
 async function doRestart(req, body) {
+  realOnly();
   if (busy) return { ok: false, output: `Aguarde: ${busy} em andamento.` };
   const inVoice = (latest.main?.voice ?? []).reduce((n, v) => n + v.count, 0);
   if (inVoice > 0 && !body.force) return { ok: false, needsForce: true, output: `Tem ${inVoice} ${inVoice === 1 ? 'pessoa' : 'pessoas'} em call agora: a call cai por alguns segundos.` };
@@ -1016,7 +1019,8 @@ async function serviceAction(req, body) {
     return { ok: true, message: `Pedido enviado para ${r.tabs} ${r.tabs === 1 ? 'aba/app aberto' : 'abas/apps abertos'}: recarregam em alguns segundos (quem está em call volta sozinho).` };
   }
   if (what === 'voice') {
-    if (!latest.procs?.start) throw new Error('O supervisor (start.sh) não está rodando: use "Reiniciar o Muvuca".');
+    // (no painel de teste, o start.sh que roda neste Mac é o de verdade: nunca mexe nele)
+    if (SANDBOX || !latest.procs?.start) throw new Error('O supervisor (start.sh) não está rodando: use "Reiniciar o Muvuca".');
     await fsp.mkdir(LOGS, { recursive: true });
     await fsp.writeFile(path.join(LOGS, '.reiniciar-voz'), String(Date.now()));
     const inVoice = (latest.main?.voice ?? []).reduce((n, v) => n + v.count, 0);

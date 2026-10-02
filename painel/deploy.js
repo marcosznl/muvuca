@@ -14,6 +14,7 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
+import { realOnly } from './sandbox.js';
 
 const run = promisify(execFile);
 const ENV = { ...process.env, PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin' };
@@ -307,6 +308,7 @@ export function deployRoutes({ json, readBody, clientIp, root, mainUrl, auditFn,
       });
     },
     'POST /api/deploy': async (req, res) => {
+      realOnly();
       const b = await readBody(req);
       const busy = inUse();
       const p = await pending();
@@ -316,6 +318,7 @@ export function deployRoutes({ json, readBody, clientIp, root, mainUrl, auditFn,
       json(res, 200, { ok: true, message: 'Atualização começou: acompanhe abaixo.' });
     },
     'POST /api/rollback': async (req, res) => {
+      realOnly();
       const b = await readBody(req);
       const busy = inUse();
       if (busy.length && !b.force) return json(res, 200, { ok: false, needsForce: true, message: `Tem gente usando agora (${busy.join(', ')}): a call cai por uns 10 segundos durante o reinício.` });
