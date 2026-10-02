@@ -23,6 +23,46 @@ function openServerFor(userId, serverId) {
   sendToUser(userId, { t: 'voice', voice: voiceFor(userId) });
 }
 
+// Excluir um servidor (pelo dono no site ou pelo painel administrativo)
+export async function deleteServerNow(snap) {
+  if (snap.id === HOME_SERVER) fail('O servidor principal não pode ser excluído.');
+  for (const ch of snap.channels.filter((c) => c.type === 'music')) music.dropChannel(ch.id);
+  const emojiIds = db.emojiIds(snap.id);
+  const soundIds = db.soundIds(snap.id);
+  db.deleteServer(snap.id);
+  for (const id of emojiIds) removeEmojiFile(id);
+  for (const id of soundIds) removeSoundFile(id);
+  removeImage(snap.icon);
+  for (const mem of snap.members) sendToUser(mem.id, { t: 'server:removed', serverId: snap.id, reason: 'O servidor foi excluído.' });
+  for (const ch of snap.channels.filter((c) => c.type === 'voice')) await closeVoiceRoom(ch.id);
+}
+
+// Passar a posse para outro membro. fromId: quem passou (null = pelo painel administrativo, sem limite
+// de servidores por dono: é o jeito de resolver servidor sem dono ou dono que sumiu)
+export async function transferServer(snap, targetId, { fromId = null } = {}) {
+  if (snap.kind === 'dm') fail('Conversa privada não tem dono.');
+  const target = snap.members.find((x) => x.id === targetId);
+  if (!target || target.id === snap.ownerId) fail('Escolha um membro do servidor que não seja o dono atual.');
+  const next = db.userById(target.id);
+  if (fromId && db.ownedCount(next) >= LIMITS.serversOwned) fail(`${target.name} já é dono do máximo de ${LIMITS.serversOwned} servidores.`);
+  db.setOwner(snap.id, next);
+  pushServer(snap.id);
+  await syncVoicePermissions(snap.id); // o novo dono ganha tudo na voz na hora
+  const text = snap.channels.find((c) => c.id === snap.welcome?.channelId && c.type === 'text') ?? snap.channels.find((c) => c.type === 'text');
+  const say = fromId ? `<@${fromId}> passou a posse do servidor para <@${target.id}>.` : `A administração passou a posse do servidor para <@${target.id}>.`;
+  if (text) sendToServer(snap.id, { t: 'msg', msg: db.addSystemMessage(text.id, say, SYSTEM.owner) });
+}
+
+// Renomear (pelo painel administrativo; no site é o server:update)
+export function renameServer(snap, name) {
+  if (snap.kind === 'dm') fail('Conversa privada não tem nome de servidor.');
+  const clean_ = clean(name, LIMITS.serverName);
+  if (!clean_) fail('Dê um nome ao servidor.');
+  db.updateServer(snap.id, { name: clean_, color: snap.color });
+  pushServer(snap.id);
+  return clean_;
+}
+
 export default {
   'server:create'(user, m) {
     const name = clean(m.name, LIMITS.serverName);
@@ -60,16 +100,7 @@ export default {
   async 'server:delete'(user, m) {
     const ctx = requireServer(user, m.serverId);
     if (ctx.snap.ownerId !== user.id) fail('Só o dono pode excluir o servidor.');
-    if (ctx.snap.id === HOME_SERVER) fail('O servidor principal não pode ser excluído.');
-    for (const ch of ctx.snap.channels.filter((c) => c.type === 'music')) music.dropChannel(ch.id);
-    const emojiIds = db.emojiIds(ctx.snap.id);
-    const soundIds = db.soundIds(ctx.snap.id);
-    db.deleteServer(ctx.snap.id);
-    for (const id of emojiIds) removeEmojiFile(id);
-    for (const id of soundIds) removeSoundFile(id);
-    removeImage(ctx.snap.icon);
-    for (const mem of ctx.snap.members) sendToUser(mem.id, { t: 'server:removed', serverId: ctx.snap.id, reason: 'O servidor foi excluído.' });
-    for (const ch of ctx.snap.channels.filter((c) => c.type === 'voice')) await closeVoiceRoom(ch.id);
+    await deleteServerNow(ctx.snap);
   },
 
   // Passar a posse do servidor para outro membro (só o dono; o servidor principal fica de fora).
@@ -79,15 +110,8 @@ export default {
     if (ctx.snap.kind === 'dm') fail('Conversa privada não tem dono.');
     if (ctx.snap.id === HOME_SERVER) fail('O dono do servidor principal só muda pelo painel.');
     if (ctx.snap.ownerId !== user.id) fail('Só o dono pode passar a posse do servidor.');
-    const target = ctx.snap.members.find((x) => x.id === m.userId);
-    if (!target || target.id === user.id) fail('Membro não encontrado.');
-    const next = db.userById(target.id);
-    if (db.ownedCount(next) >= LIMITS.serversOwned) fail(`${target.name} já é dono do máximo de ${LIMITS.serversOwned} servidores.`);
-    db.setOwner(ctx.snap.id, next);
-    pushServer(ctx.snap.id);
-    await syncVoicePermissions(ctx.snap.id); // o novo dono ganha tudo na voz na hora
-    const text = ctx.snap.channels.find((c) => c.id === ctx.snap.welcome?.channelId && c.type === 'text') ?? ctx.snap.channels.find((c) => c.type === 'text');
-    if (text) sendToServer(ctx.snap.id, { t: 'msg', msg: db.addSystemMessage(text.id, `<@${user.id}> passou a posse do servidor para <@${target.id}>.`, SYSTEM.owner) });
+    if (!ctx.snap.members.some((x) => x.id === m.userId) || m.userId === user.id) fail('Membro não encontrado.');
+    await transferServer(ctx.snap, m.userId, { fromId: user.id });
   },
 
   async 'server:leave'(user, m) {

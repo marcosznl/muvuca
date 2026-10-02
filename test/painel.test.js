@@ -72,5 +72,69 @@ test('busca única: pessoas, mensagens e IPs', async () => {
   assert.ok(ips.body.ips.some((r) => r.ip.startsWith('127.0') && r.who.includes('ana')), JSON.stringify(ips.body.ips));
   // Caracteres especiais do LIKE não viram curinga
   assert.deepEqual((await painel.get('/api/busca?q=%25%25')).body.users, []);
-  assert.deepEqual((await painel.get('/api/busca?q=a')).body, { users: [], ips: [], messages: [] });
+  assert.deepEqual((await painel.get('/api/busca?q=a')).body, { users: [], ips: [], messages: [], servers: [], channels: [] });
+});
+
+// ---------- Servidores ----------
+
+test('servidores: lista, detalhe, busca e planilhas', async () => {
+  const list = (await painel.get('/api/servers')).body;
+  const home = list.find((s) => s.home);
+  assert.ok(home, JSON.stringify(list));
+  assert.ok(home.members >= 1 && home.channels.text >= 1);
+  const d = (await painel.get(`/api/server?id=${home.id}`)).body;
+  assert.ok(d.channels.some((c) => c.type === 'text' && c.msgs7 >= 1)); // a mensagem da ana
+  assert.ok(d.members.some((m) => m.username === 'ana'));
+  assert.ok(d.roles.some((r) => r.isDefault && r.perms.length));
+  assert.equal(d.perDay.length, 14);
+  assert.equal((await painel.get('/api/server?id=nada')).status, 404);
+  // Busca acha servidor e canal ("#geral")
+  const b = (await painel.get('/api/busca?q=%23geral')).body;
+  assert.ok(b.channels.some((c) => c.name === 'geral' && c.server_id === home.id));
+  // Planilhas
+  const contas = await fetch(`${painel.base}/api/users.csv`, { headers: { 'x-painel': '1', cookie: painel.cookie() } });
+  assert.match(contas.headers.get('content-type'), /text\/csv/);
+  assert.match(await contas.text(), /ana/);
+  const geral = d.channels.find((c) => c.name === 'geral');
+  const msgs = await fetch(`${painel.base}/api/channel.csv?id=${geral.id}`, { headers: { 'x-painel': '1', cookie: painel.cookie() } });
+  assert.match(await msgs.text(), /abacaxi/);
+});
+
+test('servidores pelo painel: renomear, passar a posse e excluir (todo mundo vê na hora)', async () => {
+  const bia = await new Person(server, 'bia_sv').register();
+  const sv = (await bia.request({ t: 'server:create', name: 'Turma da Bia' }), await bia.waitFor('server', (e) => e.server.name === 'Turma da Bia')).server;
+  const code = (await bia.request({ t: 'invite:create', serverId: sv.id })).code;
+  await ana.request({ t: 'invite:accept', code });
+  await ana.waitFor('server', (e) => e.server.id === sv.id);
+  // Renomear
+  assert.equal((await painel.post('/api/server/rename', { id: sv.id, name: 'Turma Nova' })).status, 200);
+  await bia.waitFor('server', (e) => e.server.id === sv.id && e.server.name === 'Turma Nova');
+  // Passar a posse para a ana
+  const ana_ = Number(ana.me.id.slice(1));
+  assert.equal((await painel.post('/api/server/transfer', { id: sv.id, userId: ana_ })).status, 200);
+  await bia.waitFor('server', (e) => e.server.id === sv.id && e.server.ownerId === ana.me.id);
+  // Excluir: precisa do nome certo
+  assert.equal((await painel.post('/api/server/delete', { id: sv.id, confirm: 'turma' })).status, 400);
+  assert.equal((await painel.post('/api/server/delete', { id: sv.id, confirm: 'Turma Nova' })).status, 200);
+  await bia.waitFor('server:removed', (e) => e.serverId === sv.id);
+  assert.ok(!(await painel.get('/api/servers')).body.some((x) => x.id === sv.id));
+  // O principal não pode ser excluído
+  const home = (await painel.get('/api/servers')).body.find((x) => x.home);
+  assert.equal((await painel.post('/api/server/delete', { id: home.id, confirm: home.name })).status, 500);
+  // Ficou na auditoria
+  const audit = (await painel.get('/api/audit?group=painel&limit=50')).body.rows.map((r) => r.action);
+  for (const a of ['painel:server:rename', 'painel:server:transfer', 'painel:server:delete']) assert.ok(audit.includes(a), a);
+  bia.close();
+});
+
+test('servidor sem dono aparece em "Precisa de atenção"; cartão da pessoa mostra o uso da semana', async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const path = await import('node:path');
+  const dbx = new DatabaseSync(path.join(server.dir, 'teste.db'));
+  dbx.prepare("INSERT INTO servers (id, name, color, owner_id, created_at, kind) VALUES ('s-orfao', 'Órfão', '#123456', NULL, ?, 'server')").run(Date.now());
+  dbx.close();
+  const items = (await painel.get('/api/atencao')).body.items;
+  assert.ok(items.some((i) => i.tab === 'servidores' && /Órfão/.test(i.text)), JSON.stringify(items));
+  const p = (await painel.get(`/api/pessoa?user=ana`)).body;
+  assert.ok(p.usage7 && typeof p.usage7.callMinutes === 'number' && p.usage7.messages >= 1 && Array.isArray(p.usage7.games));
 });

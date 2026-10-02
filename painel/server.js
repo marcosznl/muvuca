@@ -22,6 +22,7 @@ import { startAlerts, alertRoutes, markPlanned, sendAlert, downNow, quedasSince 
 import { startUpkeep, upkeepState, restoreTest } from './upkeep.js';
 import { startPasskeys, passkeyRoutes } from './passkey.js';
 import { xpInfo, xpToNext, XP_RULES } from '../src/xp-curve.js';
+import { PERM_INFO, PERMS, can } from '../public/js/permissions.js';
 
 const run = promisify(execFile);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -497,15 +498,134 @@ function personDetail(url) {
     messages: searchMessages(new URL(`http://x/?user=${encodeURIComponent(user.username)}`)).slice(0, 8),
     audit: safe(() => all(`SELECT at, action, detail, ip, ok FROM audit_log WHERE user_id = ? ORDER BY id DESC LIMIT 12`, id)
       .map((r) => ({ ...r, label: AUDIT_LABELS[r.action] ?? r.action, detail: r.detail ? JSON.parse(r.detail) : null })), []),
+    // Uso nos últimos 7 dias: minutos em call (contados pelo XP de call, 1 por minuto) e jogos
+    usage7: {
+      callMinutes: safe(() => one("SELECT COUNT(*) n FROM xp_events WHERE user_id = ? AND reason = 'voice' AND at > ?", id, now - 7 * DAY).n, 0),
+      messages: safe(() => one('SELECT COUNT(*) n FROM messages WHERE user_id = ? AND created_at > ? AND system = 0', id, now - 7 * DAY).n, 0),
+      games: safe(() => all(`SELECT r.game, COUNT(*) n, SUM(r.winner_id = ?) wins FROM game_players p JOIN game_results r ON r.id = p.result_id
+        WHERE p.user_id = ? AND r.created_at > ? GROUP BY r.game ORDER BY n DESC`, id, id, now - 7 * DAY), []),
+    },
     xp7: safe(() => all('SELECT reason, SUM(amount) n FROM xp_events WHERE user_id = ? AND at > ? GROUP BY reason', id, now - 7 * DAY)
       .map((r) => ({ reason: XP_REASON[r.reason] ?? r.reason, n: r.n })), []),
   };
 }
 
+// ---------- Servidores do Muvuca (as conversas privadas ficam de fora) ----------
+const onlineNums = () => new Set((latest.main?.users ?? []).map((u) => Number(String(u.id).replace(/^u/, ''))));
+const inCallByChannel = () => new Map((latest.main?.voice ?? []).filter((v) => !v.private).map((v) => [v.id, v]));
+const homeServerId = () => { try { return one("SELECT value FROM meta WHERE key = 'home_server'")?.value ?? null; } catch { return null; } };
+
+function serversList() {
+  const now = Date.now();
+  const online = onlineNums();
+  const calls = inCallByChannel();
+  const home = homeServerId();
+  const rows = all(`SELECT s.id, s.name, s.color, s.icon, s.created_at, s.owner_id, u.username owner_user, u.display_name owner_name,
+      (SELECT COUNT(*) FROM channels c WHERE c.server_id = s.id AND c.type = 'text') texts,
+      (SELECT COUNT(*) FROM channels c WHERE c.server_id = s.id AND c.type = 'voice') voices,
+      (SELECT COUNT(*) FROM channels c WHERE c.server_id = s.id AND c.type = 'music') musics,
+      (SELECT COUNT(*) FROM messages m JOIN channels c ON c.id = m.channel_id WHERE c.server_id = s.id AND m.created_at > ? AND m.system = 0) msgs7,
+      (SELECT COALESCE(SUM(f.size), 0) FROM files f JOIN channels c ON c.id = f.channel_id WHERE c.server_id = s.id) bytes
+    FROM servers s LEFT JOIN users u ON u.id = s.owner_id WHERE s.kind = 'server' ORDER BY s.created_at`, now - 7 * DAY);
+  const members = new Map();
+  for (const r of all("SELECT m.server_id, m.user_id FROM members m JOIN servers s ON s.id = m.server_id WHERE s.kind = 'server'")) {
+    if (!members.has(r.server_id)) members.set(r.server_id, []);
+    members.get(r.server_id).push(r.user_id);
+  }
+  const voiceIds = new Map();
+  for (const r of all("SELECT id, server_id FROM channels WHERE type = 'voice'")) voiceIds.set(r.id, r.server_id);
+  return rows.map((r) => {
+    const mem = members.get(r.id) ?? [];
+    const inCall = [...calls.values()].filter((v) => voiceIds.get(v.id) === r.id).reduce((n, v) => n + v.count, 0);
+    return {
+      id: r.id, name: r.name, color: r.color, icon: r.icon ?? null, createdAt: r.created_at, home: r.id === home,
+      owner: r.owner_id ? { id: r.owner_id, username: r.owner_user, name: r.owner_name } : null,
+      members: mem.length, online: mem.filter((id) => online.has(id)).length, inCall,
+      channels: { text: r.texts, voice: r.voices, music: r.musics }, msgs7: r.msgs7, bytes: r.bytes,
+    };
+  });
+}
+
+function serverDetail(url) {
+  const id = String(url.searchParams.get('id') ?? '');
+  const base = serversList().find((x) => x.id === id);
+  if (!base) return null;
+  const now = Date.now();
+  const safe = (fn, fallback) => { try { return fn(); } catch { return fallback; } };
+  const online = onlineNums();
+  const calls = inCallByChannel();
+  const roles = all('SELECT id, name, color, position, permissions, is_default FROM roles WHERE server_id = ? ORDER BY position DESC', id);
+  const roleName = new Map(roles.map((r) => [r.id, r.is_default ? '@everyone' : r.name]));
+  const privRoles = new Map();
+  for (const r of safe(() => all('SELECT cr.channel_id, cr.role_id FROM channel_roles cr JOIN channels c ON c.id = cr.channel_id WHERE c.server_id = ?', id), [])) {
+    if (!privRoles.has(r.channel_id)) privRoles.set(r.channel_id, []);
+    privRoles.get(r.channel_id).push(roleName.get(r.role_id) ?? '?');
+  }
+  const channels = all(`SELECT c.id, c.name, c.type, c.private, c.slowmode, c.user_limit, k.name category,
+      (SELECT COUNT(*) FROM messages m WHERE m.channel_id = c.id AND m.created_at > ? AND m.system = 0) msgs7,
+      (SELECT MAX(m.created_at) FROM messages m WHERE m.channel_id = c.id AND m.system = 0) lastAt
+    FROM channels c LEFT JOIN categories k ON k.id = c.category_id WHERE c.server_id = ?
+    ORDER BY COALESCE(k.position, -1), c.position, c.created_at`, now - 7 * DAY, id).map((c) => ({
+    id: c.id, name: c.name, type: c.type, category: c.category ?? null, msgs7: c.msgs7, lastAt: c.lastAt ?? null,
+    private: !!c.private, roles: privRoles.get(c.id) ?? [], slowmode: c.slowmode ?? 0, userLimit: c.user_limit ?? 0,
+    inCall: (calls.get(c.id)?.people ?? []).map((p) => p.name),
+  }));
+  const memberRoles = new Map();
+  for (const r of all('SELECT user_id, role_id FROM member_roles WHERE server_id = ?', id)) {
+    if (!memberRoles.has(r.user_id)) memberRoles.set(r.user_id, []);
+    memberRoles.get(r.user_id).push(roleName.get(r.role_id) ?? '?');
+  }
+  const members = all(`SELECT u.id, u.username, u.display_name name, m.nick, m.joined_at FROM members m JOIN users u ON u.id = m.user_id
+    WHERE m.server_id = ? ORDER BY m.joined_at`, id).map((m) => ({
+    id: m.id, username: m.username, name: m.name, nick: m.nick ?? null, joinedAt: m.joined_at,
+    roles: memberRoles.get(m.id) ?? [], online: online.has(m.id), owner: base.owner?.id === m.id,
+  }));
+  const perDay = all(`SELECT CAST((m.created_at - ?) / ${DAY} AS INTEGER) d, COUNT(*) n FROM messages m JOIN channels c ON c.id = m.channel_id
+    WHERE c.server_id = ? AND m.created_at > ? AND m.system = 0 GROUP BY d`, now - 14 * DAY, id, now - 14 * DAY);
+  const invites = safe(() => all(`SELECT i.code, i.created_at, i.expires_at, i.uses, i.max_uses, u.username FROM invites i LEFT JOIN users u ON u.id = i.created_by
+    WHERE i.server_id = ? AND (i.expires_at IS NULL OR i.expires_at > ?) AND (i.max_uses IS NULL OR i.uses < i.max_uses) ORDER BY i.created_at DESC`, id, now), []);
+  return {
+    ...base,
+    channels, members, invites,
+    roles: roles.map((r) => ({
+      name: r.is_default ? '@everyone' : r.name, color: r.color ?? null, isDefault: !!r.is_default,
+      perms: can(r.permissions, PERMS.ADMINISTRATOR) ? ['Administrador (pode tudo)'] : PERM_INFO.filter(([key]) => can(r.permissions, PERMS[key])).map(([, label]) => label),
+      count: r.is_default ? members.length : members.filter((m) => m.roles.includes(r.name)).length,
+    })),
+    perDay: Array.from({ length: 14 }, (_, i) => perDay.find((d) => d.d === i)?.n ?? 0),
+    emojis: safe(() => one('SELECT COUNT(*) n FROM emojis WHERE server_id = ?', id).n, 0),
+    sounds: safe(() => one('SELECT COUNT(*) n FROM sounds WHERE server_id = ?', id).n, 0),
+  };
+}
+
+// Planilhas (CSV para Excel/Numbers): contas e mensagens de um canal de servidor
+const csvLine = (cells) => cells.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(';');
+function usersCsv() {
+  const lines = [csvLine(['usuario', 'nome', 'conta criada', 'visto por ultimo', 'nivel', 'xp', 'mensagens', 'anexos (MB)', 'servidores', 'aparelhos', 'bloqueada'])];
+  for (const u of usersList()) {
+    lines.push(csvLine([u.username, u.name, new Date(u.created_at).toLocaleString('pt-BR'), u.last_seen ? new Date(u.last_seen).toLocaleString('pt-BR') : '',
+      u.level?.level ?? '', u.level?.total ?? '', u.messages, (u.bytes / 1024 / 1024).toFixed(1), u.servers, u.sessions, u.blocked_at ? 'sim' : 'não']));
+  }
+  return `﻿${lines.join('\n')}`;
+}
+function channelCsv(id) {
+  const ch = one("SELECT c.name, s.name server FROM channels c JOIN servers s ON s.id = c.server_id WHERE c.id = ? AND s.kind = 'server'", id);
+  if (!ch) return null;
+  const lines = [csvLine(['quando', 'usuario', 'nome', 'mensagem', 'anexos'])];
+  for (const m of all(`SELECT m.created_at, m.text, m.attachments, u.username, COALESCE(u.display_name, m.author_name) name FROM messages m
+      LEFT JOIN users u ON u.id = m.user_id WHERE m.channel_id = ? AND m.system = 0 ORDER BY m.id`, id)) {
+    let files = '';
+    try { files = m.attachments ? JSON.parse(m.attachments).map((a) => a.name).join(', ') : ''; } catch { /* sem anexos legíveis */ }
+    lines.push(csvLine([new Date(m.created_at).toLocaleString('pt-BR'), m.username ?? '', m.name ?? '', m.text, files]));
+  }
+  return { csv: `﻿${lines.join('\n')}`, name: `${ch.server}-${ch.name}` };
+}
+const fileSafe = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w.-]+/g, '-').slice(0, 60);
+
 // Busca única do painel: contas (nome ou @), IPs (da auditoria) e mensagens dos servidores
 function globalSearch(url) {
   const q = String(url.searchParams.get('q') ?? '').trim().slice(0, 100);
-  if (q.length < 2) return { users: [], ips: [], messages: [] };
+  if (q.length < 2) return { users: [], ips: [], messages: [], servers: [], channels: [] };
   const like = `%${q.replace(/^@/, '').replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
   const safe = (fn) => { try { return fn(); } catch { return []; } };
   const online = new Set((latest.main?.users ?? []).map((u) => u.id));
@@ -518,7 +638,12 @@ function globalSearch(url) {
       .map((r) => ({ ip: r.ip, last: r.last, n: r.n, who: r.who ? r.who.split(',').slice(0, 5) : [] })))
     : [];
   const messages = q.length >= 3 ? searchMessages(new URL(`http://x/?q=${encodeURIComponent(q)}`)).slice(0, 8) : [];
-  return { users, ips, messages };
+  // Servidores pelo nome; canais pelo nome ("#jogos" também vale)
+  const chLike = `%${q.replace(/^#/, '').replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+  const servers = safe(() => all(`SELECT id, name FROM servers WHERE kind = 'server' AND name LIKE ? ESCAPE '\\' ORDER BY created_at LIMIT 6`, like));
+  const channels = safe(() => all(`SELECT c.id, c.name, c.type, s.id server_id, s.name server FROM channels c JOIN servers s ON s.id = c.server_id
+    WHERE s.kind = 'server' AND c.name LIKE ? ESCAPE '\\' ORDER BY s.created_at, c.position LIMIT 8`, chLike));
+  return { users, ips, messages, servers, channels };
 }
 
 function searchMessages(url) {
@@ -830,6 +955,11 @@ async function attention() {
     const mt = maintenanceState();
     if (mt.on) add(mt.lock ? 'warn' : 'info', mt.lock ? 'Modo manutenção ligado com o acesso travado: só você entra.' : 'Modo manutenção ligado (aviso no topo do Muvuca).', 'manut');
   } catch { /* banco indisponível */ }
+  try {
+    for (const sv of all("SELECT name FROM servers WHERE kind = 'server' AND owner_id IS NULL")) {
+      add('warn', `O servidor "${sv.name}" está sem dono (a conta foi excluída): passe a posse para alguém.`, 'servidores');
+    }
+  } catch { /* banco indisponível */ }
   const order = { bad: 0, warn: 1, info: 2 };
   return out.sort((a, b) => order[a.level] - order[b.level]);
 }
@@ -979,6 +1109,58 @@ const api = {
   'GET /api/pessoa': (req, res, s, url) => {
     const d = personDetail(url);
     return d ? json(res, 200, d) : json(res, 404, { error: 'Conta não encontrada.' });
+  },
+  'GET /api/servers': (req, res) => json(res, 200, serversList()),
+  // Ícone de servidor (e fotos): lidos da pasta de imagens do Muvuca
+  'GET /api/img': async (req, res, s, url) => {
+    const id = String(url.searchParams.get('id') ?? '');
+    const img = /^i-[0-9a-f]{10}$/.test(id) ? one('SELECT id, mime FROM images WHERE id = ?', id) : null;
+    if (!img || !/^image\/(png|jpeg|gif|webp)$/.test(img.mime)) return json(res, 404, { error: 'Imagem não encontrada' });
+    try {
+      const data = await fsp.readFile(path.join(path.dirname(DB_FILE), 'images', img.id));
+      res.writeHead(200, { 'Content-Type': img.mime, 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
+      res.end(data);
+    } catch { json(res, 404, { error: 'Imagem não encontrada' }); }
+  },
+  'GET /api/server': (req, res, s, url) => {
+    const d = serverDetail(url);
+    return d ? json(res, 200, d) : json(res, 404, { error: 'Servidor não encontrado.' });
+  },
+  'POST /api/server/rename': async (req, res) => {
+    const b = await readBody(req);
+    const before = one("SELECT name FROM servers WHERE id = ? AND kind = 'server'", String(b.id ?? ''));
+    if (!before) return json(res, 404, { error: 'Servidor não encontrado.' });
+    const r = await mainPost('/internal/server/rename', { serverId: b.id, name: String(b.name ?? '') });
+    audit('painel:server:rename', { ip: clientIp(req), detail: { de: before.name, para: r.name } });
+    json(res, 200, { ok: true, message: `Servidor renomeado para "${r.name}".` });
+  },
+  'POST /api/server/transfer': async (req, res) => {
+    const b = await readBody(req);
+    const sv = one("SELECT s.name, u.username dono FROM servers s LEFT JOIN users u ON u.id = s.owner_id WHERE s.id = ? AND s.kind = 'server'", String(b.id ?? ''));
+    const to = one('SELECT id, username FROM users WHERE id = ?', Number(String(b.userId ?? '').replace(/^u/, '')));
+    if (!sv || !to) return json(res, 404, { error: 'Servidor ou pessoa não encontrados.' });
+    await mainPost('/internal/server/transfer', { serverId: b.id, userId: `u${to.id}` });
+    audit('painel:server:transfer', { ip: clientIp(req), detail: { servidor: sv.name, de: sv.dono ?? '(sem dono)', para: to.username } });
+    json(res, 200, { ok: true, message: `@${to.username} agora é dono de "${sv.name}".` });
+  },
+  'POST /api/server/delete': async (req, res) => {
+    const b = await readBody(req);
+    const sv = one("SELECT name FROM servers WHERE id = ? AND kind = 'server'", String(b.id ?? ''));
+    if (!sv) return json(res, 404, { error: 'Servidor não encontrado.' });
+    if (String(b.confirm ?? '').trim() !== sv.name) return json(res, 400, { error: 'Para excluir, digite o nome do servidor exatamente como ele é.' });
+    await mainPost('/internal/server/delete', { serverId: b.id });
+    audit('painel:server:delete', { ip: clientIp(req), detail: { servidor: sv.name } });
+    json(res, 200, { ok: true, message: `Servidor "${sv.name}" excluído.` });
+  },
+  'GET /api/users.csv': (req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="contas-${new Date().toISOString().slice(0, 10)}.csv"`, 'Cache-Control': 'no-store' });
+    res.end(usersCsv());
+  },
+  'GET /api/channel.csv': (req, res, s, url) => {
+    const r = channelCsv(String(url.searchParams.get('id') ?? ''));
+    if (!r) return json(res, 404, { error: 'Canal não encontrado.' });
+    res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="mensagens-${fileSafe(r.name)}.csv"`, 'Cache-Control': 'no-store' });
+    res.end(r.csv);
   },
   'GET /api/busca': (req, res, s, url) => json(res, 200, globalSearch(url)),
   'GET /api/atencao': async (req, res) => json(res, 200, { items: await attention() }),

@@ -129,6 +129,7 @@ const TABS = {
   usuarios: ['Contas', viewUsuarios, 30000],
   convites: ['Convites', viewConvites, 60000],
   xp: ['XP e níveis', viewXp, 30000],
+  servidores: ['Servidores', viewServidores, 30000],
   mensagens: ['Mensagens', viewMensagens, 0],
   arquivos: ['Arquivos pesados', viewArquivos, 60000],
   auditoria: ['Auditoria', viewAuditoria, 0],
@@ -149,6 +150,7 @@ const PAGES = {
   geral: ['Visão geral', ['geral', 'sistema', 'resumo']],
   aovivo: ['Ao vivo', ['aovivo']],
   pessoas: ['Pessoas', ['usuarios', 'convites', 'xp']],
+  servidoresPg: ['Servidores', ['servidores']],
   conteudo: ['Conteúdo', ['mensagens', 'arquivos']],
   protecao: ['Segurança', ['auditoria', 'acessos', 'ips']],
   conexao: ['Conexão', ['internet', 'quedas']],
@@ -286,6 +288,7 @@ const css = (name) => getComputedStyle(document.documentElement).getPropertyValu
 // Digita um nome, @usuário, IP ou trecho de mensagem: pessoas abrem o cartão, IPs abrem a Auditoria
 // filtrada, mensagens abrem Conteúdo → Mensagens com a busca. Ctrl+K (ou /) foca a busca.
 const buscaInput = $('#busca');
+buscaInput.placeholder = 'Buscar pessoa, servidor, #canal, IP ou mensagem… (Ctrl+K)';
 const buscaRes = $('#busca-res');
 let buscaTimer = null;
 let buscaSeq = 0;
@@ -302,6 +305,8 @@ async function buscar() {
   const sec = (title, rows) => (rows.length ? [h('div', { class: 'busca-sec' }, title), ...rows] : []);
   const rows = [
     ...sec('Pessoas', d.users.map((u) => item(() => openPessoa(u.id), h('b', {}, u.name), h('span', { class: 'muted small' }, ` @${u.username}`), u.online ? h('span', { class: 'pill good' }, 'online') : null))),
+    ...sec('Servidores', (d.servers ?? []).map((sv) => item(() => openServerDetail(sv.id), h('b', {}, sv.name)))),
+    ...sec('Canais', (d.channels ?? []).map((c) => item(() => openServerDetail(c.server_id), h('b', {}, `${{ text: '#', voice: '🔊', music: '🎵' }[c.type] ?? '#'}${c.name}`), h('span', { class: 'muted small' }, ` · ${c.server}`)))),
     ...sec('IPs', d.ips.map((r) => item(() => { auditFilters = { ip: r.ip }; openTab('auditoria'); }, h('span', { class: 'mono' }, r.ip), h('span', { class: 'muted small' }, ` · ${r.who.join(', ') || 'sem conta'} · ${ago(r.last)}`)))),
     ...sec('Mensagens', d.messages.map((m) => item(() => { msgQuery = { q, user: '' }; openTab('mensagens'); }, h('b', {}, m.name ?? '?'), h('span', { class: 'muted small' }, ` · ${m.where}`), h('div', { class: 'busca-trecho' }, (m.text || '📎 anexo').slice(0, 120))))),
   ];
@@ -396,11 +401,14 @@ async function act(path, body, { confirmText, askReason, reload } = {}) {
     if (reason === null) return;
     body = { ...body, reason };
   }
+  let ok = false;
   try {
     const r = await api(path, { method: 'POST', body });
     toast(r.message ?? 'Feito.', 5000);
+    ok = true;
   } catch (err) { toast(err.message, 6000); }
   if (reload) openTab(reload);
+  return ok;
 }
 const ipBlockButton = (ip, reload) => (ip ? h('button', { class: 'btn small ghost', title: `Bloquear ${ip}`, onclick: (e) => { e.stopPropagation(); act('/api/ips/block', { ip, block: true }, { confirmText: `Bloquear o IP ${ip}? Ele não vai conseguir abrir o Muvuca nem entrar nas calls.`, askReason: 'Motivo (opcional):', reload }); } }, 'Bloquear IP') : null);
 
@@ -602,7 +610,8 @@ async function viewUsuarios() {
   };
   input.addEventListener('input', () => { userFilter = input.value; render(); });
   render();
-  box.append(h('div', { class: 'row' }, h('h2', {}, `${users.length} contas`), h('span', { class: 'spacer' }), input), body);
+  box.append(h('div', { class: 'row' }, h('h2', {}, `${users.length} contas`), h('span', { class: 'spacer' }), input,
+    h('a', { class: 'btn small', href: '/api/users.csv', title: 'Baixar a lista de contas (abre no Excel/Numbers)' }, 'Exportar planilha')), body);
   return box;
 }
 
@@ -626,6 +635,102 @@ function deleteAccountOf(u) {
   if (typed === null) return;
   closePessoa();
   act('/api/users/delete', { id: u.id, confirm: typed }, { reload: tab });
+}
+
+// ---------- Servidores ----------
+// Lista (um cartão por servidor) e, ao clicar, tudo do servidor: canais, membros, cargos, convites e
+// movimento, com as ações de renomear, passar a posse e excluir (pelo Muvuca, fica na auditoria).
+let serverSel = null;
+function openServerDetail(id) { serverSel = id; openTab('servidores'); }
+const serverIcon = (sv, size = 40) => (sv.icon
+  ? h('img', { class: 'sv-icon', src: `/api/img?id=${encodeURIComponent(sv.icon)}`, alt: '', width: size, height: size })
+  : h('span', { class: 'sv-icon sv-initials', style: `background:${sv.color ?? '#5865f2'};width:${size}px;height:${size}px` }, sv.name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase()));
+
+async function viewServidores() {
+  if (serverSel) return serverDetailView(serverSel);
+  const list = await api('/api/servers');
+  if (!list.length) return h('p', { class: 'empty' }, 'Nenhum servidor ainda.');
+  return h('div', {},
+    h('p', { class: 'muted small' }, 'Servidores criados no Muvuca (conversas privadas não aparecem aqui). Clique para ver tudo de um servidor.'),
+    h('div', { class: 'grid sv-grid' }, list.map((sv) => h('button', { class: 'card sv-card', onclick: () => openServerDetail(sv.id) },
+      h('div', { class: 'row' }, serverIcon(sv), h('div', {}, h('b', { class: 'sv-name' }, sv.name),
+        h('div', { class: 'muted small' }, sv.owner ? `dono: @${sv.owner.username}` : h('span', { class: 'error' }, 'sem dono'))),
+        h('span', { class: 'spacer' }), sv.home ? h('span', { class: 'pill' }, 'principal') : null),
+      h('div', { class: 'sv-stats' },
+        h('span', {}, h('b', {}, num(sv.members)), ' membros'), h('span', {}, h('b', {}, num(sv.online)), ' online'),
+        sv.inCall ? h('span', { class: 'pill good' }, `${sv.inCall} em call`) : null),
+      h('div', { class: 'muted small' }, `${sv.channels.text} texto · ${sv.channels.voice} voz · ${sv.channels.music} música · ${num(sv.msgs7)} mensagens em 7 dias · ${bytes(sv.bytes)} de anexos`),
+      h('div', { class: 'muted small' }, `criado em ${when(sv.createdAt)}`)))));
+}
+
+async function serverDetailView(id) {
+  let d;
+  try { d = await api(`/api/server?id=${encodeURIComponent(id)}`); } catch (err) { serverSel = null; throw err; }
+  const back = h('button', { class: 'btn small ghost', onclick: () => { serverSel = null; openTab('servidores'); } }, '← Todos os servidores');
+  const typeIcon = { text: '#', voice: '🔊', music: '🎵' };
+  const maxDay = Math.max(1, ...d.perDay);
+  const top = [...d.channels].sort((a, b) => b.msgs7 - a.msgs7)[0];
+  const rename = () => {
+    const name = prompt('Novo nome do servidor:', d.name);
+    if (name === null || !name.trim() || name.trim() === d.name) return;
+    act('/api/server/rename', { id: d.id, name: name.trim() }, { reload: 'servidores' });
+  };
+  const transferSel = h('select', {}, h('option', { value: '' }, 'Escolha o novo dono…'),
+    d.members.filter((m) => !m.owner).map((m) => h('option', { value: m.id }, `${m.name} (@${m.username})`)));
+  const transfer = () => {
+    const m = d.members.find((x) => String(x.id) === transferSel.value);
+    if (!m) return toast('Escolha quem vai ser o novo dono.');
+    act('/api/server/transfer', { id: d.id, userId: m.id }, { confirmText: `Passar a posse de "${d.name}" para ${m.name} (@${m.username})? ${d.owner ? `@${d.owner.username} continua no servidor, com os cargos que já tem.` : ''}`, reload: 'servidores' });
+  };
+  const remove = () => {
+    const typed = prompt(`EXCLUIR o servidor "${d.name}"?\n\nApaga para sempre os canais, as mensagens, os emojis e os sons dele, e todo mundo sai. Não dá para desfazer (só voltando um backup).\n\nPara confirmar, digite o nome do servidor:`, '');
+    if (typed === null) return;
+    act('/api/server/delete', { id: d.id, confirm: typed }, {}).then((ok) => { if (ok) { serverSel = null; openTab('servidores'); } });
+  };
+  return h('div', {},
+    h('div', { class: 'row' }, back),
+    h('div', { class: 'card section row' }, serverIcon(d, 56),
+      h('div', {}, h('h2', { class: 'sv-title' }, d.name, d.home ? h('span', { class: 'pill' }, 'principal') : null),
+        h('div', { class: 'muted small' }, d.owner ? h('span', {}, 'dono: ', personLink(d.owner.id, h('b', {}, `${d.owner.name} (@${d.owner.username})`))) : h('span', { class: 'error' }, 'sem dono (a conta foi excluída)'),
+          ` · criado em ${when(d.createdAt)} · ${num(d.members.length)} membros (${num(d.members.filter((m) => m.online).length)} online)`)),
+      h('span', { class: 'spacer' }),
+      h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: rename }, 'Renomear'), transferSel, h('button', { class: 'btn small', onclick: transfer }, 'Passar a posse'),
+        d.home ? null : h('button', { class: 'btn small danger-ghost', onclick: remove }, 'Excluir servidor'))),
+    h('div', { class: 'section grid cards' },
+      stat('Mensagens (7 dias)', num(d.channels.reduce((n, c) => n + c.msgs7, 0)), top?.msgs7 ? `mais movimentado: ${typeIcon[top.type]}${top.name}` : 'nenhuma ainda'),
+      stat('Em call agora', num(d.channels.reduce((n, c) => n + c.inCall.length, 0)), d.channels.filter((c) => c.inCall.length).map((c) => c.name).join(', ') || 'ninguém'),
+      stat('Anexos', bytes(d.bytes)),
+      stat('Emojis e sons', `${num(d.emojis)} · ${num(d.sounds)}`, 'emojis próprios · sons do soundboard')),
+    h('div', { class: 'section card' }, h('h2', {}, 'Mensagens por dia (14 dias)'),
+      h('div', { class: 'bars' }, d.perDay.map((n) => h('div', { title: `${n} mensagens`, style: `height:${Math.max(2, (n / maxDay) * 100)}%` }))),
+      h('div', { class: 'legend' }, h('span', {}, 'há 14 dias'), h('span', { class: 'spacer' }), h('span', {}, 'hoje'))),
+    h('div', { class: 'section card' }, h('h2', {}, `Canais (${d.channels.length})`), table([
+      { label: 'Canal', get: (c) => h('span', {}, h('b', {}, `${typeIcon[c.type]} ${c.name}`), c.category ? h('span', { class: 'muted small' }, ` · ${c.category}`) : null) },
+      { label: 'Quem vê', get: (c) => (c.private ? h('span', { class: 'pill warn', title: 'Canal privado' }, `🔒 ${c.roles.join(', ') || 'só administradores'}`) : h('span', { class: 'muted small' }, 'todos')) },
+      { label: 'Regras', get: (c) => [c.slowmode ? `modo lento ${c.slowmode} s` : null, c.userLimit ? `até ${c.userLimit} pessoas` : null].filter(Boolean).join(' · ') || '—' },
+      { label: 'Mensagens (7 d)', num: true, get: (c) => (c.type === 'voice' ? '—' : num(c.msgs7)) },
+      { label: 'Agora', get: (c) => (c.inCall.length ? h('span', { class: 'pill good' }, c.inCall.join(', ')) : '') },
+      { label: '', get: (c) => (c.type === 'voice' ? null : h('a', { class: 'btn small ghost', href: `/api/channel.csv?id=${encodeURIComponent(c.id)}`, title: 'Baixar as mensagens deste canal (abre no Excel/Numbers)' }, 'Planilha')) },
+    ], d.channels)),
+    h('div', { class: 'section grid two' },
+      h('div', { class: 'card' }, h('h2', {}, `Membros (${d.members.length})`), table([
+        { label: 'Pessoa', get: (m) => personLink(m.id, h('b', {}, m.nick ?? m.name), h('span', { class: 'muted small' }, ` @${m.username}`)) },
+        { label: 'Cargos', get: (m) => [m.owner ? h('span', { class: 'pill' }, 'dono') : null, ...m.roles.map((r) => h('span', { class: 'pill' }, r))] },
+        { label: 'Entrou', get: (m) => when(m.joinedAt) },
+        { label: '', get: (m) => (m.online ? h('span', { class: 'pill good' }, 'online') : '') },
+      ], d.members)),
+      h('div', { class: 'card' }, h('h2', {}, 'Cargos e permissões'),
+        d.roles.map((r) => h('div', { class: 'sv-role' },
+          h('div', {}, h('b', { style: r.color ? `color:${r.color}` : null }, r.name), h('span', { class: 'muted small' }, ` · ${num(r.count)} ${r.count === 1 ? 'pessoa' : 'pessoas'}`)),
+          h('div', { class: 'muted small' }, r.perms.length ? r.perms.join(' · ') : 'sem permissões extras'))),
+        h('h2', { class: 'section' }, `Convites valendo (${d.invites.length})`),
+        table([
+          { label: 'Código', get: (i) => h('span', { class: 'mono' }, i.code) },
+          { label: 'Criado por', get: (i) => (i.username ? `@${i.username}` : '—') },
+          { label: 'Usos', num: true, get: (i) => `${i.uses}${i.max_uses ? `/${i.max_uses}` : ''}` },
+          { label: 'Vence', get: (i) => (i.expires_at ? when(i.expires_at) : 'nunca') },
+        ], d.invites, { empty: 'Nenhum convite valendo (crie em Pessoas → Convites).' }))),
+  );
 }
 
 // ---------- Cartão da pessoa ----------
@@ -680,6 +785,13 @@ async function openPessoa(ref) {
       h('div', {}, h('h3', {}, 'Servidores'), d.servers.length
         ? h('ul', { class: 'plain' }, d.servers.map((x) => h('li', {}, x.name, x.nick ? h('span', { class: 'muted small' }, ` (apelido: ${x.nick})`) : null, x.owner ? h('span', { class: 'pill' }, 'dono') : null)))
         : h('p', { class: 'empty' }, 'Em nenhum servidor.'),
+      h('h3', { class: 'section' }, 'Uso nos últimos 7 dias'),
+      h('ul', { class: 'plain' },
+        h('li', {}, 'Tempo em call: ', h('b', {}, d.usage7.callMinutes >= 60 ? `${Math.floor(d.usage7.callMinutes / 60)} h ${d.usage7.callMinutes % 60} min` : `${d.usage7.callMinutes} min`)),
+        h('li', {}, 'Mensagens: ', h('b', {}, num(d.usage7.messages))),
+        d.usage7.games.length
+          ? h('li', {}, 'Jogos: ', h('b', {}, d.usage7.games.map((g) => `${g.game} (${g.n}${g.wins ? `, ${g.wins} ${g.wins === 1 ? 'vitória' : 'vitórias'}` : ''})`).join(', ')))
+          : h('li', { class: 'muted' }, 'Nenhuma partida.')),
       h('h3', { class: 'section' }, 'XP nos últimos 7 dias'), d.xp7.length
         ? h('ul', { class: 'plain' }, d.xp7.map((x) => h('li', {}, `${x.reason}: `, h('b', {}, num(x.n)))))
         : h('p', { class: 'empty' }, 'Nada nos últimos 7 dias.')),
