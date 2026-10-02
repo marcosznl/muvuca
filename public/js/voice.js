@@ -207,12 +207,76 @@ function askSecondDevice(otherChannel, channelId) {
   });
 }
 
-export async function joinVoice(channelId, { moved = false } = {}) {
+// ---------- Call que continua depois de recarregar a página (como no Discord) ----------
+// Em call, a aba guarda o canal (sessionStorage: some ao fechar a aba). Recarregou (F5, atualização do
+// Muvuca, "recarregar para todos" do painel): ao abrir de novo, entra sozinho na mesma call. Caiu sem
+// ninguém pedir (internet, voz reiniciada): tenta voltar por cerca de 1 minuto. Sair de propósito esquece.
+const RESUME_KEY = 'muvuca:call';
+const RESUME_MS = 2 * 60_000;
+let pageLeaving = false;
+let retryTimer = null;
+const readCall = () => { try { return JSON.parse(sessionStorage.getItem(RESUME_KEY) ?? 'null'); } catch { return null; } };
+function rememberCall() {
+  if (!room || !roomChannel) return;
+  try { sessionStorage.setItem(RESUME_KEY, JSON.stringify({ channelId: roomChannel, second: secondDevice, at: Date.now() })); } catch {}
+}
+function forgetCall() {
+  clearTimeout(retryTimer);
+  retryTimer = null;
+  try { sessionStorage.removeItem(RESUME_KEY); } catch {}
+}
+// O LiveKit desliga a call já no beforeunload (antes do pagehide): os dois marcam que a página está saindo
+// (se a página não fechar de verdade — ex.: clicou num link de download —, a marca some sozinha)
+for (const ev of ['beforeunload', 'pagehide']) {
+  window.addEventListener(ev, () => { pageLeaving = true; rememberCall(); setTimeout(() => { pageLeaving = false; }, 3000); }, { capture: true });
+}
+window.addEventListener('pageshow', () => { pageLeaving = false; });
+
+// Chamado quando o site abre e conecta (welcome): volta para a call em que a aba estava
+export function resumeCall() {
+  if (room || joining || retryTimer) return;
+  const c = readCall();
+  if (!c || Date.now() - c.at > RESUME_MS || !findChannel(c.channelId).channel) return forgetCall();
+  joinVoice(c.channelId, { resume: true, second: c.second });
+}
+
+// Queda: tenta de novo em 1,5 s, 3 s, 6 s… (até ~1 min); para se a pessoa entrar em outra call ou sair
+function retryCall(channelId, second) {
+  const delays = [1500, 3000, 6000, 10_000, 15_000, 20_000];
+  let i = 0;
+  showBanner('A voz caiu. Reconectando…', { kind: 'info', timeout: 4000 });
+  const attempt = async () => {
+    retryTimer = null;
+    if (room || !readCall() || !findChannel(channelId).channel) return;
+    await joinVoice(channelId, { resume: true, second, quiet: i < delays.length - 1 });
+    if (room) { showBanner('Voz reconectada.', { kind: 'info', timeout: 2500 }); return; }
+    if (i < delays.length) retryTimer = setTimeout(attempt, delays[i++]);
+    else forgetCall();
+  };
+  retryTimer = setTimeout(attempt, delays[i++]);
+}
+
+// Depois de recarregar, o navegador pode segurar o som até o primeiro clique ou tecla: libera nessa hora
+function unlockAudioOnGesture() {
+  const unlock = () => {
+    meterCtx?.resume().catch(() => {});
+    callCtx?.resume().catch(() => {});
+    applyDeafenToContext();
+    room?.startAudio().catch(() => {});
+  };
+  unlock();
+  window.addEventListener('pointerdown', unlock, { once: true, capture: true });
+  window.addEventListener('keydown', unlock, { once: true, capture: true });
+}
+
+// resume: voltando para a call depois de recarregar a página ou de uma queda (sem perguntas; quiet: sem aviso de erro)
+export async function joinVoice(channelId, { moved = false, resume = false, second: resumeSecond = false, quiet = false } = {}) {
   if (joining) return;
   const { server } = findChannel(channelId);
   if (!moved && !canIn(server, PERMS.CONNECT)) return showBanner('Você não tem permissão para entrar neste canal.', { timeout: 4000 });
-  let second = false;
-  const other = moved ? null : inCallElsewhere();
+  let second = resume && resumeSecond;
+  // Voltando de um recarregar: o "outro aparelho" que a lista ainda mostra é esta mesma aba
+  const other = moved || resume ? null : inCallElsewhere();
   if (other) {
     const choice = await askSecondDevice(other, channelId);
     if (!choice) return;
@@ -260,7 +324,16 @@ export async function joinVoice(channelId, { moved = false } = {}) {
       })
       .on(RoomEvent.Disconnected, (reason) => {
         if (r !== room) return;
-        onVoiceClosed();
+        const deliberate = [DisconnectReason.DUPLICATE_IDENTITY, DisconnectReason.PARTICIPANT_REMOVED, DisconnectReason.ROOM_DELETED, DisconnectReason.CLIENT_INITIATED].includes(reason);
+        if (deliberate || pageLeaving) {
+          if (!pageLeaving) forgetCall();
+          onVoiceClosed();
+        } else {
+          // Caiu sem ninguém pedir (internet, voz reiniciada pelo painel): continua na tela e tenta voltar sozinho
+          const wasSecond = secondDevice;
+          onVoiceClosed({ keepView: true });
+          retryCall(channelId, wasSecond);
+        }
         if (reason === DisconnectReason.DUPLICATE_IDENTITY) showBanner('Você entrou na voz em outra aba ou aparelho.', { kind: 'info', timeout: 5000 });
         else if (reason === DisconnectReason.PARTICIPANT_REMOVED) showBanner('Você foi desconectado da voz.', { timeout: 5000 });
         else if (reason === DisconnectReason.ROOM_DELETED) showBanner('O canal de voz foi excluído.', { timeout: 5000 });
@@ -273,6 +346,8 @@ export async function joinVoice(channelId, { moved = false } = {}) {
     room = r;
     roomChannel = channelId;
     joinedAt = Date.now();
+    rememberCall();
+    if (resume) unlockAudioOnGesture();
     if (secondDevice) showBanner('Você entrou com 2 dispositivos: este aparelho está sem microfone e sem som (fica no outro). Dá para ligar a câmera ou transmitir a tela daqui.', { kind: 'info', timeout: 8000 });
     showSelfInChannel();
     await applyAudioState();
@@ -284,6 +359,7 @@ export async function joinVoice(channelId, { moved = false } = {}) {
     renderVoicePanel();
   } catch (err) {
     console.error(err);
+    if (quiet) return;
     showBanner(/cheio/.test(err.message) ? err.message
       : /full|max/i.test(err.message) ? 'Esse canal está cheio (máximo de 25 pessoas).'
         : `Não foi possível entrar no canal: ${err.message}`, { timeout: 5000 });
@@ -293,6 +369,7 @@ export async function joinVoice(channelId, { moved = false } = {}) {
 }
 
 export async function leaveVoice({ keepView = false } = {}) {
+  forgetCall(); // saiu de propósito: recarregar a página não traz de volta
   const r = room;
   if (!r) return;
   onVoiceClosed({ keepView });
