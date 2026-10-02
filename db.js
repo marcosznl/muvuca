@@ -562,6 +562,7 @@ class Store {
       const st = prepare(sql);
       if (changesSnapshot(sql)) {
         for (const m of ['run', 'get', 'all', 'iterate']) {
+          if (typeof st[m] !== 'function') continue; // iterate só existe nas versões mais novas do Node
           const fn = st[m].bind(st);
           st[m] = (...args) => { try { return fn(...args); } finally { this.snaps.clear(); } };
         }

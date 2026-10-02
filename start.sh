@@ -33,6 +33,13 @@ PUBLIC_URL="https://$DOMAIN"
 [[ -n "$PUBLIC_PORT" && "$PUBLIC_PORT" != 443 ]] && PUBLIC_URL="https://$DOMAIN:$PUBLIC_PORT"
 export LIVEKIT_URL="${PUBLIC_URL/https:/wss:}"
 
+# O banco usa o SQLite embutido no Node, que só funciona sem configuração extra a partir do 22.13
+if ! node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 13) ? 0 : 1)'; then
+  echo "[$(date '+%F %T')] Node $(node -v 2>/dev/null || echo 'não encontrado'): o Muvuca precisa do 22.13 ou mais novo (brew upgrade node)"
+  sleep 60 # rodando como serviço, evita tentar de novo a cada 10 s
+  exit 1
+fi
+
 pids=()
 trap 'kill $pids 2>/dev/null' EXIT INT TERM
 
@@ -66,6 +73,15 @@ node server.js &
 pids+=($!)
 
 echo "Link para os amigos: $PUBLIC_URL/"
+
+# Certificado do TURN (voz para quem está em rede restrita): o LiveKit só lê o arquivo ao subir, e o
+# Caddy renova o certificado sozinho a cada ~60 dias. Quando o arquivo muda, reinicia tudo de madrugada
+# (entre 5h e 6h, depois do backup das 4h) para o LiveKit pegar o novo antes do antigo vencer.
+turn_cert=""
+[[ ! -f .modo-local ]] && turn_cert=$(sed -n 's/^ *cert_file: *"\{0,1\}\([^"]*\)"\{0,1\} *$/\1/p' livekit.yaml)
+cert_mtime() { stat -f %m "$turn_cert" 2>/dev/null; }
+turn_cert_at=$([[ -n "$turn_cert" ]] && cert_mtime)
+
 # Se qualquer parte cair (voz, HTTPS, DNS ou o app), encerra tudo: rodando como serviço,
 # o macOS sobe tudo de novo em seguida (ver malegna-service.sh)
 while sleep 5; do
@@ -75,4 +91,8 @@ while sleep 5; do
       exit 1
     fi
   done
+  if [[ -n "$turn_cert_at" && $(date +%H) == 05 && "$(cert_mtime)" != "$turn_cert_at" && -n "$(cert_mtime)" ]]; then
+    echo "[$(date '+%F %T')] certificado do TURN renovado; reiniciando tudo para a voz usar o novo"
+    exit 1
+  fi
 done

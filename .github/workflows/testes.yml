@@ -1,0 +1,25 @@
+# Roda os testes (npm test) a cada push e pull request: o resultado aparece no GitHub (✅ ou ❌)
+# antes de dar git pull no Mac. Testa no Node 22 (o mínimo) e no 24, para pegar mudanças do Node.
+name: Testes
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    name: Node ${{ matrix.node }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
