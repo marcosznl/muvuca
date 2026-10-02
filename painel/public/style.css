@@ -42,11 +42,14 @@ input:focus, select:focus, .btn:focus-visible, .side button:focus-visible { outl
 
 /* Layout */
 .app { display: grid; grid-template-columns: 200px 1fr; min-height: 100%; }
-.side { background: var(--side); border-right: 1px solid var(--line); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; height: 100vh; }
+.side { background: var(--side); border-right: 1px solid var(--line); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; padding: 0 8px 14px; }
 .side button[data-tab] { text-align: left; border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 600; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
 .side button[data-tab]:hover { background: var(--line); color: var(--text); }
 .side button[data-tab].on { background: var(--accent-soft); color: var(--text); }
+.side-group { display: flex; flex-direction: column; gap: 2px; }
+.side-group[data-label]::before { content: attr(data-label); text-transform: uppercase; letter-spacing: .04em; font-size: 11px; font-weight: 700; color: var(--muted); padding: 12px 10px 4px; }
+.tab-select { display: none; }
 .side-foot { margin-top: auto; display: grid; gap: 8px; padding: 8px; }
 .content { padding: 20px 24px 40px; min-width: 0; }
 .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
@@ -105,9 +108,11 @@ pre.log { background: var(--side); border: 1px solid var(--line); border-radius:
 .toast { position: fixed; right: 16px; bottom: 16px; background: var(--text); color: var(--bg); padding: 10px 14px; border-radius: 10px; max-width: min(420px, calc(100% - 32px)); white-space: pre-wrap; box-shadow: 0 6px 24px rgba(0,0,0,.25); }
 
 @media (max-width: 760px) {
-  .app { grid-template-columns: 1fr; }
-  .side { position: static; height: auto; flex-direction: row; flex-wrap: wrap; padding: 10px 16px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .side { position: static; height: auto; overflow: visible; flex-direction: row; flex-wrap: wrap; align-content: flex-start; padding: 10px 16px; border-right: 0; border-bottom: 1px solid var(--line); }
   .brand { width: 100%; padding-bottom: 6px; }
+  .side-group { display: none; }
+  .tab-select { display: block; width: 100%; margin-bottom: 8px; font-weight: 600; }
   .side-foot { margin: 0; padding: 0; width: 100%; display: flex; justify-content: space-between; align-items: center; }
   .content { padding: 16px; }
   .two { grid-template-columns: 1fr; }

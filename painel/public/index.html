@@ -31,25 +31,41 @@
   <div id="app" class="app" hidden>
     <nav class="side">
       <div class="brand"><img src="icon.svg" alt="" width="28" height="28"><span>Painel</span></div>
-      <button data-tab="geral" class="on">Visão geral</button>
-      <button data-tab="aovivo">Ao vivo</button>
-      <button data-tab="usuarios">Usuários</button>
-      <button data-tab="resumo">Resumo</button>
-      <button data-tab="mensagens">Mensagens</button>
-      <button data-tab="arquivos">Arquivos</button>
-      <button data-tab="xp">XP</button>
-      <button data-tab="auditoria">Auditoria</button>
-      <button data-tab="acessos">Acessos</button>
-      <button data-tab="logs">Logs</button>
-      <button data-tab="backups">Backups</button>
-      <button data-tab="atualizar">Atualizar</button>
-      <button data-tab="minecraft">Minecraft</button>
-      <button data-tab="internet">Internet</button>
-      <button data-tab="alertas">Alertas</button>
-      <button data-tab="quedas">Quedas</button>
-      <button data-tab="convites">Convites</button>
-      <button data-tab="seguranca">Segurança</button>
-      <button data-tab="sistema">Sistema</button>
+      <!-- Abas em grupos; no celular viram uma lista só (o app.js monta a partir destes grupos) -->
+      <div class="side-group">
+        <button data-tab="geral" class="on">Visão geral</button>
+        <button data-tab="aovivo">Ao vivo</button>
+      </div>
+      <div class="side-group" data-label="Pessoas">
+        <button data-tab="usuarios">Usuários</button>
+        <button data-tab="convites">Convites</button>
+        <button data-tab="xp">XP e níveis</button>
+      </div>
+      <div class="side-group" data-label="Conversas">
+        <button data-tab="mensagens">Mensagens</button>
+        <button data-tab="arquivos">Arquivos</button>
+        <button data-tab="resumo">Resumo da semana</button>
+      </div>
+      <div class="side-group" data-label="Segurança">
+        <button data-tab="auditoria">Auditoria</button>
+        <button data-tab="acessos">Acessos ao site</button>
+        <button data-tab="seguranca">Login do painel</button>
+      </div>
+      <div class="side-group" data-label="Mac e internet">
+        <button data-tab="sistema">Sistema</button>
+        <button data-tab="internet">Internet</button>
+        <button data-tab="quedas">Quedas</button>
+        <button data-tab="alertas">Alertas no celular</button>
+        <button data-tab="logs">Logs</button>
+      </div>
+      <div class="side-group" data-label="Manutenção">
+        <button data-tab="atualizar">Atualizar o Muvuca</button>
+        <button data-tab="backups">Backups</button>
+      </div>
+      <div class="side-group" data-label="Jogos">
+        <button data-tab="minecraft">Minecraft</button>
+      </div>
+      <select id="tab-select" class="tab-select" aria-label="Escolher aba"></select>
       <div class="side-foot">
         <span id="updated" class="muted small"></span>
         <button id="logout" class="btn ghost small">Sair</button>

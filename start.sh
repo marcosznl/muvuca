@@ -33,6 +33,13 @@ PUBLIC_URL="https://$DOMAIN"
 [[ -n "$PUBLIC_PORT" && "$PUBLIC_PORT" != 443 ]] && PUBLIC_URL="https://$DOMAIN:$PUBLIC_PORT"
 export LIVEKIT_URL="${PUBLIC_URL/https:/wss:}"
 
+# O banco usa o SQLite embutido no Node, que só funciona sem configuração extra a partir do 22.13
+if ! node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 13) ? 0 : 1)'; then
+  echo "[$(date '+%F %T')] Node $(node -v 2>/dev/null || echo 'não encontrado'): o Muvuca precisa do 22.13 ou mais novo (brew upgrade node)"
+  sleep 60 # rodando como serviço, evita tentar de novo a cada 10 s
+  exit 1
+fi
+
 pids=()
 trap 'kill $pids 2>/dev/null' EXIT INT TERM
 

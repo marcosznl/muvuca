@@ -2,6 +2,7 @@
 import { $, store, showBanner, toast } from './util.js';
 import { eventsUpdated, onEventReminder } from './events.js';
 import { openUserSettings } from './user-settings.js';
+import { avisarNovidades } from './novidades.js';
 import { icon, applyStaticIcons } from './icons.js';
 import {
   state, serverById, findChannel, upsertServer, removeServer, rememberTextChannel, rememberedTextChannel,
@@ -211,6 +212,7 @@ function handle(m) {
       else selectServer(serverById(store.get('lastServer'))?.id ?? state.servers[0]?.id);
       if (!state.servers.length) showChannel();
       rejoinMusic(); // reconectou: volta para a sala de música em que estava
+      avisarNovidades(); // versão nova do Muvuca que a pessoa ainda não viu
       // Chegou por um link de convite já tendo conta
       const invite = pendingInvite();
       if (invite) {

@@ -4,12 +4,16 @@ import { canSeeChannel, serverViewFor } from '../public/js/permissions.js';
 
 export const sockets = new Map(); // userId -> Set<ws> (a mesma conta pode estar em várias abas)
 
+// msg pode vir já convertido em texto (aviso para muita gente: converte uma vez só)
 export function send(ws, msg) {
-  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
+  if (ws.readyState === ws.OPEN) ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg));
 }
 
 export function sendToUser(userId, msg) {
-  for (const ws of sockets.get(userId) ?? []) send(ws, msg);
+  const open = sockets.get(userId);
+  if (!open?.size) return;
+  const data = typeof msg === 'string' ? msg : JSON.stringify(msg);
+  for (const ws of open) send(ws, data);
 }
 
 // Para todos os membros; se o aviso é de um canal privado, só para quem enxerga o canal
@@ -17,7 +21,8 @@ export function sendToServer(serverId, msg) {
   const snap = db.snapshot(serverId);
   const channelId = msg.channel ?? msg.channelId ?? msg.msg?.channel ?? null;
   const channel = channelId ? snap?.channels.find((c) => c.id === channelId) : null;
-  for (const m of snap?.members ?? []) if (!channel || canSeeChannel(snap, m.id, channel)) sendToUser(m.id, msg);
+  const data = JSON.stringify(msg);
+  for (const m of snap?.members ?? []) if (!channel || canSeeChannel(snap, m.id, channel)) sendToUser(m.id, data);
 }
 
 // Status escolhido (online, ausente, não perturbe, invisível) e ausência automática (sem mexer no site)
@@ -47,8 +52,8 @@ export function presenceMessage() {
 }
 
 export function broadcastPresence() {
-  const msg = presenceMessage();
-  for (const id of sockets.keys()) sendToUser(id, msg);
+  const data = JSON.stringify(presenceMessage());
+  for (const id of sockets.keys()) sendToUser(id, data);
 }
 
 // Alguma aba da pessoa está aberta e à vista? (senão vale mandar notificação no celular)

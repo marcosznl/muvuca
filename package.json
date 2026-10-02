@@ -4,13 +4,16 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test",
     "start": "./start.sh"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
   "dependencies": {
     "@sapphi-red/web-noise-suppressor": "^0.3.5",
     "livekit-client": "^2.22.3",
