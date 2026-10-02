@@ -153,11 +153,34 @@ for (const g of document.querySelectorAll('.side-group')) {
   for (const b of g.querySelectorAll('button[data-tab]')) parent.append(h('option', { value: b.dataset.tab }, b.textContent));
 }
 tabSelect.addEventListener('change', () => openTab(tabSelect.value));
+
+// Grupos da lateral retráteis (como tópicos): clicar no título abre ou fecha. Lembra o que você abriu;
+// o grupo da aba aberta sempre aparece aberto.
+let openGroups = new Set();
+try { openGroups = new Set(JSON.parse(localStorage.getItem('painel-grupos') || '[]')); } catch { /* sem armazenamento */ }
+const saveGroups = () => { try { localStorage.setItem('painel-grupos', JSON.stringify([...openGroups])); } catch { /* sem armazenamento */ } };
+function paintGroup(g) {
+  const open = openGroups.has(g.dataset.label);
+  g.classList.toggle('closed', !open);
+  g.querySelector('.side-label').setAttribute('aria-expanded', String(open));
+}
+for (const g of document.querySelectorAll('.side-group[data-label]')) {
+  const label = h('button', { type: 'button', class: 'side-label' }, h('span', { class: 'side-arrow', 'aria-hidden': 'true' }, '▸'), g.dataset.label);
+  label.addEventListener('click', () => {
+    if (openGroups.has(g.dataset.label)) openGroups.delete(g.dataset.label); else openGroups.add(g.dataset.label);
+    saveGroups();
+    paintGroup(g);
+  });
+  g.prepend(label);
+  paintGroup(g);
+}
 function openTab(name) {
   tab = TABS[name] ? name : 'geral';
   try { localStorage.setItem('painel-tab', tab); } catch { /* sem armazenamento */ }
   document.querySelectorAll('.side button[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
   tabSelect.value = tab;
+  const group = document.querySelector(`.side button[data-tab="${tab}"]`)?.closest('.side-group[data-label]');
+  if (group && !openGroups.has(group.dataset.label)) { openGroups.add(group.dataset.label); saveGroups(); paintGroup(group); }
   const [title, fn, every] = TABS[tab];
   $('#title').textContent = title;
   const view = $('#view');

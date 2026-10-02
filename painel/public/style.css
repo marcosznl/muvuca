@@ -48,7 +48,13 @@ input:focus, select:focus, .btn:focus-visible, .side button:focus-visible { outl
 .side button[data-tab]:hover { background: var(--line); color: var(--text); }
 .side button[data-tab].on { background: var(--accent-soft); color: var(--text); }
 .side-group { display: flex; flex-direction: column; gap: 2px; }
-.side-group[data-label]::before { content: attr(data-label); text-transform: uppercase; letter-spacing: .04em; font-size: 11px; font-weight: 700; color: var(--muted); padding: 12px 10px 4px; }
+.side-label { display: flex; align-items: center; gap: 6px; border: 0; background: transparent; cursor: pointer; text-align: left; text-transform: uppercase; letter-spacing: .04em; font: inherit; font-size: 11px; font-weight: 700; color: var(--muted); padding: 12px 10px 4px; border-radius: 6px; }
+.side-label:hover { color: var(--text); }
+.side-label:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.side-arrow { display: inline-block; transition: transform .15s; font-size: 10px; }
+.side-group:not(.closed) .side-arrow { transform: rotate(90deg); }
+.side-group.closed button[data-tab] { display: none; }
+.side-group[data-label] button[data-tab] { padding-left: 22px; } /* subtópicos um pouco para dentro */
 .tab-select { display: none; }
 .side-foot { margin-top: auto; display: grid; gap: 8px; padding: 8px; }
 .content { padding: 20px 24px 40px; min-width: 0; }
