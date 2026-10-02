@@ -10,6 +10,7 @@ let ana;
 before(async () => {
   server = await startServer();
   ana = await new Person(server, 'ana').register();
+  await ana.say(ana.servers[0].channels.find((c) => c.type === 'text').id, 'combinado: abacaxi às 20h');
   painel = await startPainel(server);
 });
 after(async () => {
@@ -44,4 +45,32 @@ test('modo manutenção ligado aparece no quadro', async () => {
   await painel.post('/api/maintenance', { on: false });
   const off = await painel.get('/api/atencao');
   assert.ok(!off.body.items.some((i) => i.tab === 'manut' && /Modo manutenção/.test(i.text)));
+});
+
+test('cartão da pessoa: por id, por "u12" e por @usuário', async () => {
+  const id = Number(ana.me.id.slice(1));
+  for (const ref of [`id=${id}`, `id=u${id}`, 'user=%40ana', 'user=ANA']) {
+    const r = await painel.get(`/api/pessoa?${ref}`);
+    assert.equal(r.status, 200, ref);
+    assert.equal(r.body.user.username, 'ana');
+  }
+  const r = await painel.get(`/api/pessoa?id=${id}`);
+  assert.ok(r.body.messages.some((m) => m.text.includes('abacaxi')));
+  assert.ok(r.body.servers.length >= 1);
+  assert.ok(Array.isArray(r.body.ips) && Array.isArray(r.body.audit) && Array.isArray(r.body.xp7));
+  assert.equal((await painel.get('/api/pessoa?user=ninguem')).status, 404);
+});
+
+test('busca única: pessoas, mensagens e IPs', async () => {
+  const pessoas = await painel.get('/api/busca?q=an');
+  assert.ok(pessoas.body.users.some((u) => u.username === 'ana'));
+  assert.deepEqual(pessoas.body.messages, []); // menos de 3 letras: não procura mensagens
+  const msgs = await painel.get('/api/busca?q=abacaxi');
+  assert.ok(msgs.body.messages.some((m) => m.text.includes('abacaxi')));
+  assert.deepEqual(msgs.body.ips, []); // não parece IP
+  const ips = await painel.get('/api/busca?q=127.0');
+  assert.ok(ips.body.ips.some((r) => r.ip.startsWith('127.0') && r.who.includes('ana')), JSON.stringify(ips.body.ips));
+  // Caracteres especiais do LIKE não viram curinga
+  assert.deepEqual((await painel.get('/api/busca?q=%25%25')).body.users, []);
+  assert.deepEqual((await painel.get('/api/busca?q=a')).body, { users: [], ips: [], messages: [] });
 });

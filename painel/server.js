@@ -475,6 +475,52 @@ async function previewFile(req, res, s, url) {
 
 // ---------- Mensagens (moderação) ----------
 // Busca nas mensagens dos servidores (nunca em conversa privada), as mais novas primeiro
+// Cartão da pessoa: tudo de uma conta num lugar só. ref: id ("12" ou "u12") ou @usuário
+function findUserId(ref) {
+  ref = String(ref ?? '').trim().replace(/^@/, '');
+  if (/^u?\d+$/.test(ref)) return Number(ref.replace(/^u/, ''));
+  return ref ? one('SELECT id FROM users WHERE username = ? COLLATE NOCASE', ref)?.id ?? null : null;
+}
+function personDetail(url) {
+  const id = findUserId(url.searchParams.get('id') ?? url.searchParams.get('user'));
+  const user = id ? usersList().find((u) => u.id === id) : null;
+  if (!user) return null;
+  const safe = (fn, fallback) => { try { return fn(); } catch { return fallback; } };
+  const now = Date.now();
+  return {
+    user,
+    servers: safe(() => all(`SELECT s.name, mb.nick, s.owner_id = ? owner FROM members mb JOIN servers s ON s.id = mb.server_id
+      WHERE mb.user_id = ? AND s.kind = 'server' ORDER BY mb.joined_at`, id, id).map((r) => ({ name: r.name, nick: r.nick ?? null, owner: !!r.owner })), []),
+    ips: safe(() => all(`SELECT ip, COUNT(*) n, MAX(at) last FROM audit_log WHERE user_id = ? AND ip IS NOT NULL AND ip != ''
+      GROUP BY ip ORDER BY last DESC LIMIT 10`, id), []),
+    blockedIps: safe(() => all('SELECT ip FROM blocked_ips').map((r) => r.ip), []),
+    messages: searchMessages(new URL(`http://x/?user=${encodeURIComponent(user.username)}`)).slice(0, 8),
+    audit: safe(() => all(`SELECT at, action, detail, ip, ok FROM audit_log WHERE user_id = ? ORDER BY id DESC LIMIT 12`, id)
+      .map((r) => ({ ...r, label: AUDIT_LABELS[r.action] ?? r.action, detail: r.detail ? JSON.parse(r.detail) : null })), []),
+    xp7: safe(() => all('SELECT reason, SUM(amount) n FROM xp_events WHERE user_id = ? AND at > ? GROUP BY reason', id, now - 7 * DAY)
+      .map((r) => ({ reason: XP_REASON[r.reason] ?? r.reason, n: r.n })), []),
+  };
+}
+
+// Busca única do painel: contas (nome ou @), IPs (da auditoria) e mensagens dos servidores
+function globalSearch(url) {
+  const q = String(url.searchParams.get('q') ?? '').trim().slice(0, 100);
+  if (q.length < 2) return { users: [], ips: [], messages: [] };
+  const like = `%${q.replace(/^@/, '').replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+  const safe = (fn) => { try { return fn(); } catch { return []; } };
+  const online = new Set((latest.main?.users ?? []).map((u) => u.id));
+  const users = all(`SELECT id, username, display_name name FROM users WHERE username LIKE ? ESCAPE '\\' OR display_name LIKE ? ESCAPE '\\'
+    ORDER BY COALESCE(last_seen, created_at) DESC LIMIT 8`, like, like).map((u) => ({ ...u, online: online.has(`u${u.id}`) }));
+  // IP: só quando parece um (números com ponto ou dois-pontos)
+  const ips = /^[\d.:a-f]+$/i.test(q) && /[.:]/.test(q)
+    ? safe(() => all(`SELECT ip, MAX(at) last, COUNT(*) n, GROUP_CONCAT(DISTINCT user_name) who FROM audit_log
+        WHERE ip LIKE ? ESCAPE '\\' GROUP BY ip ORDER BY last DESC LIMIT 8`, `${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`)
+      .map((r) => ({ ip: r.ip, last: r.last, n: r.n, who: r.who ? r.who.split(',').slice(0, 5) : [] })))
+    : [];
+  const messages = q.length >= 3 ? searchMessages(new URL(`http://x/?q=${encodeURIComponent(q)}`)).slice(0, 8) : [];
+  return { users, ips, messages };
+}
+
 function searchMessages(url) {
   const q = String(url.searchParams.get('q') ?? '').trim().slice(0, 100);
   const who = String(url.searchParams.get('user') ?? '').trim().replace(/^@/, '').slice(0, 40);
@@ -930,6 +976,11 @@ const api = {
     json(res, 200, rows.filter((_, i) => i % step === 0));
   },
   'GET /api/overview': (req, res) => json(res, 200, overview()),
+  'GET /api/pessoa': (req, res, s, url) => {
+    const d = personDetail(url);
+    return d ? json(res, 200, d) : json(res, 404, { error: 'Conta não encontrada.' });
+  },
+  'GET /api/busca': (req, res, s, url) => json(res, 200, globalSearch(url)),
   'GET /api/atencao': async (req, res) => json(res, 200, { items: await attention() }),
   'GET /api/users': (req, res) => json(res, 200, usersList()),
   'GET /api/files': (req, res, s, url) => json(res, 200, heavyFiles(url)),

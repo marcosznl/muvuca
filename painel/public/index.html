@@ -40,7 +40,12 @@
       </div>
     </nav>
     <section class="content">
-      <header class="top"><h1 id="title">Visão geral</h1><div id="top-status"></div></header>
+      <header class="top"><h1 id="title">Visão geral</h1>
+        <div class="top-search" role="search">
+          <input id="busca" type="search" placeholder="Buscar pessoa, IP ou mensagem… (Ctrl+K)" aria-label="Buscar no painel" autocomplete="off">
+          <div id="busca-res" class="busca-res" hidden></div>
+        </div>
+        <div id="top-status"></div></header>
       <nav id="subtabs" class="subtabs" hidden></nav>
       <div id="view"></div>
     </section>

@@ -282,6 +282,58 @@ function lineChart(times, series, { format = (v) => v, max } = {}) {
 }
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
+// ---------- Busca única (topo) ----------
+// Digita um nome, @usuário, IP ou trecho de mensagem: pessoas abrem o cartão, IPs abrem a Auditoria
+// filtrada, mensagens abrem Conteúdo → Mensagens com a busca. Ctrl+K (ou /) foca a busca.
+const buscaInput = $('#busca');
+const buscaRes = $('#busca-res');
+let buscaTimer = null;
+let buscaSeq = 0;
+const fecharBusca = () => { buscaRes.hidden = true; };
+function buscaGo(fn) { fecharBusca(); buscaInput.blur(); fn(); }
+async function buscar() {
+  const q = buscaInput.value.trim();
+  if (q.length < 2) return fecharBusca();
+  const seq = ++buscaSeq;
+  let d;
+  try { d = await api(`/api/busca?q=${encodeURIComponent(q)}`); } catch { return; }
+  if (seq !== buscaSeq) return; // chegou resposta de uma busca antiga
+  const item = (onPick, ...kids) => h('button', { class: 'busca-item', type: 'button', onclick: () => buscaGo(onPick) }, ...kids);
+  const sec = (title, rows) => (rows.length ? [h('div', { class: 'busca-sec' }, title), ...rows] : []);
+  const rows = [
+    ...sec('Pessoas', d.users.map((u) => item(() => openPessoa(u.id), h('b', {}, u.name), h('span', { class: 'muted small' }, ` @${u.username}`), u.online ? h('span', { class: 'pill good' }, 'online') : null))),
+    ...sec('IPs', d.ips.map((r) => item(() => { auditFilters = { ip: r.ip }; openTab('auditoria'); }, h('span', { class: 'mono' }, r.ip), h('span', { class: 'muted small' }, ` · ${r.who.join(', ') || 'sem conta'} · ${ago(r.last)}`)))),
+    ...sec('Mensagens', d.messages.map((m) => item(() => { msgQuery = { q, user: '' }; openTab('mensagens'); }, h('b', {}, m.name ?? '?'), h('span', { class: 'muted small' }, ` · ${m.where}`), h('div', { class: 'busca-trecho' }, (m.text || '📎 anexo').slice(0, 120))))),
+  ];
+  if (d.messages.length) rows.push(item(() => { msgQuery = { q, user: '' }; openTab('mensagens'); }, h('span', { class: 'muted' }, `Ver todas as mensagens com "${q}" →`)));
+  buscaRes.replaceChildren(...(rows.length ? rows : [h('p', { class: 'empty' }, 'Nada encontrado.')]));
+  buscaRes.hidden = false;
+}
+buscaInput.addEventListener('input', () => { clearTimeout(buscaTimer); buscaTimer = setTimeout(buscar, 250); });
+buscaInput.addEventListener('focus', () => { if (buscaRes.childElementCount && buscaInput.value.trim().length >= 2) buscaRes.hidden = false; });
+buscaInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { fecharBusca(); buscaInput.blur(); }
+  if (e.key === 'Enter') { e.preventDefault(); buscaRes.querySelector('.busca-item')?.click(); }
+  if (e.key === 'ArrowDown') { e.preventDefault(); buscaRes.querySelector('.busca-item')?.focus(); }
+});
+buscaRes.addEventListener('keydown', (e) => {
+  const items = [...buscaRes.querySelectorAll('.busca-item')];
+  const i = items.indexOf(document.activeElement);
+  if (e.key === 'ArrowDown') { e.preventDefault(); items[Math.min(items.length - 1, i + 1)]?.focus(); }
+  if (e.key === 'ArrowUp') { e.preventDefault(); (i <= 0 ? buscaInput : items[i - 1]).focus(); }
+  if (e.key === 'Escape') { fecharBusca(); buscaInput.focus(); }
+});
+document.addEventListener('click', (e) => { if (!e.target.closest('.top-search')) fecharBusca(); });
+document.addEventListener('keydown', (e) => {
+  const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName ?? '');
+  if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') || (e.key === '/' && !typing)) {
+    if ($('#app').hidden) return;
+    e.preventDefault();
+    buscaInput.focus();
+    buscaInput.select();
+  }
+});
+
 // ---------- Precisa de atenção ----------
 // A lista vem do painel (/api/atencao): o que pede ação agora e em qual sub-aba se resolve.
 // Também vira a bolinha com o número de pendências ao lado de cada aba da lateral.
@@ -468,7 +520,7 @@ async function viewAoVivo() {
     h('div', { class: 'grid two' },
       h('div', { class: 'card' }, h('h2', {}, `Online (${m.users.length})`),
         table([
-          { label: 'Pessoa', get: (u) => h('span', {}, h('b', {}, u.name), ' ', h('span', { class: 'muted small' }, `@${u.username}`)) },
+          { label: 'Pessoa', get: (u) => personLink(u.id, h('b', {}, u.name), h('span', { class: 'muted small' }, ` @${u.username}`)) },
           { label: 'Status', get: (u) => { const [k, t] = statusLabel[u.status] ?? ['', u.status]; return h('span', { class: `pill ${k}` }, t); } },
           { label: 'Abas', num: true, get: (u) => `${u.tabs}${u.hidden ? ' (em segundo plano)' : ''}` },
           { label: 'IP', get: (u) => h('span', { class: 'mono' }, u.ip ?? '—') },
@@ -526,7 +578,7 @@ async function viewUsuarios() {
     const q = userFilter.toLowerCase();
     const rows = users.filter((u) => !q || u.username.toLowerCase().includes(q) || u.name.toLowerCase().includes(q));
     body.replaceChildren(table([
-      { label: 'Pessoa', get: (u) => h('span', {}, h('b', {}, u.name), ' ', h('span', { class: 'muted small' }, `@${u.username}`)) },
+      { label: 'Pessoa', get: (u) => personLink(u.id, h('b', {}, u.name), h('span', { class: 'muted small' }, ` @${u.username}`)) },
       { label: 'Agora', get: (u) => h('span', { class: `pill ${u.online ? 'good' : ''}` }, u.online ? 'online' : ago(u.last_seen)) },
       { label: 'Nível', num: true, get: (u) => (u.level ? h('span', { title: `${num(u.level.total)} XP · ${num(u.level.into)}/${num(u.level.need)} para o próximo` }, h('b', {}, u.level.level), h('span', { class: 'muted small' }, ` · ${num(u.level.total)} XP`)) : '—') },
       { label: 'Conta criada', get: (u) => when(u.created_at) },
@@ -564,14 +616,89 @@ function resetPasswordFor(u) {
   const password = prompt(`Senha temporária para @${u.username} (pelo menos 6 caracteres).\n\nA pessoa sai de todos os aparelhos agora, entra com esta senha e escolhe a nova na hora.`, suggestion);
   if (password === null) return;
   if (password.trim().length < 6) return toast('A senha temporária precisa ter pelo menos 6 caracteres.', 5000);
-  act('/api/users/reset-password', { id: u.id, password: password.trim() }, { reload: 'usuarios' });
+  closePessoa();
+  act('/api/users/reset-password', { id: u.id, password: password.trim() }, { reload: tab });
 }
 
 // Excluir a conta: pede o @ de novo (não dá para desfazer)
 function deleteAccountOf(u) {
   const typed = prompt(`EXCLUIR a conta @${u.username} (${u.name})?\n\nApaga para sempre: as mensagens dela (em servidores e conversas privadas), anexos, foto, banner, XP e amizades. Servidores que ela criou passam para o membro mais antigo (ou somem, se só ela estava lá). Não dá para desfazer (só voltando um backup).\n\nPara confirmar, digite o usuário dela:`, '');
   if (typed === null) return;
-  act('/api/users/delete', { id: u.id, confirm: typed }, { reload: 'usuarios' });
+  closePessoa();
+  act('/api/users/delete', { id: u.id, confirm: typed }, { reload: tab });
+}
+
+// ---------- Cartão da pessoa ----------
+// Clicar no nome de alguém (Contas, Ao vivo, Auditoria, Mensagens, busca) abre tudo da conta num lugar só,
+// com as ações (desconectar, bloquear, nova senha, XP, excluir). ref: id (12 ou "u12") ou @usuário.
+const personLink = (ref, label, extra) => (ref ? h('button', { class: 'person-link', title: 'Abrir o cartão da pessoa', onclick: (e) => { e.stopPropagation(); openPessoa(ref); } }, label, extra ?? null) : h('b', {}, label));
+let pessoaOverlay = null;
+function closePessoa() { pessoaOverlay?.remove(); pessoaOverlay = null; }
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && pessoaOverlay) closePessoa(); });
+
+async function openPessoa(ref) {
+  closePessoa();
+  const box = h('div', { class: 'pessoa-box', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Cartão da pessoa' }, h('p', { class: 'muted' }, 'Carregando…'));
+  pessoaOverlay = h('div', { class: 'preview-overlay', onclick: (e) => { if (e.target === pessoaOverlay) closePessoa(); } }, box);
+  document.body.append(pessoaOverlay);
+  let d;
+  const q = /^u?\d+$/.test(String(ref)) ? `id=${encodeURIComponent(ref)}` : `user=${encodeURIComponent(String(ref).replace(/^@/, ''))}`;
+  try { d = await api(`/api/pessoa?${q}`); } catch (err) { box.replaceChildren(h('p', { class: 'error' }, err.message), h('button', { class: 'btn', onclick: closePessoa }, 'Fechar')); return; }
+  const u = d.user;
+  // Depois de uma ação: fecha o cartão e atualiza a aba aberta
+  const doAct = (path, body, opts) => { closePessoa(); act(path, body, { ...opts, reload: tab }); };
+  const giveXp = () => {
+    const v = prompt(`Quanto XP dar para @${u.username}? (número negativo tira)`, '100');
+    if (v === null) return;
+    doAct('/api/xp/adjust', { id: u.id, amount: Number(v) }, {});
+  };
+  const fact = (label, value) => h('div', { class: 'fact' }, h('span', { class: 'muted small' }, label), h('b', {}, value));
+  box.replaceChildren(
+    h('div', { class: 'row' },
+      h('div', {}, h('h2', { class: 'pessoa-nome' }, u.name), h('span', { class: 'muted' }, `@${u.username}`)),
+      h('span', { class: `pill ${u.online ? 'good' : ''}` }, u.online ? 'online' : `visto ${ago(u.last_seen)}`),
+      u.blocked_at ? h('span', { class: 'pill bad', title: u.blocked_reason ?? '' }, 'bloqueada') : null,
+      u.must_change ? h('span', { class: 'pill warn' }, 'senha temporária') : null,
+      u.home_owner ? h('span', { class: 'pill' }, 'dono do servidor principal') : null,
+      h('span', { class: 'spacer' }), h('button', { class: 'btn ghost small', onclick: closePessoa, 'aria-label': 'Fechar' }, '✕')),
+    h('div', { class: 'facts section' },
+      fact('Nível', u.level ? `${u.level.level} · ${num(u.level.total)} XP` : '—'),
+      fact('Mensagens', num(u.messages)), fact('Anexos', bytes(u.bytes)), fact('Servidores', num(u.servers)),
+      fact('Aparelhos', num(u.sessions)), fact('Conta criada', when(u.created_at)),
+      fact('Último login', u.lastLogin ? `${ago(u.lastLogin)}` : '—'), fact('Senha errada (7 d)', num(u.fails7))),
+    h('div', { class: 'row section pessoa-acoes' },
+      !u.blocked_at && (u.sessions || u.online) ? h('button', { class: 'btn small', onclick: () => doAct('/api/users/disconnect', { id: u.id }, { confirmText: `Desconectar @${u.username} de todos os aparelhos? Ela precisa entrar de novo com a senha.` }) }, 'Desconectar') : null,
+      u.blocked_at
+        ? h('button', { class: 'btn small', onclick: () => doAct('/api/users/block', { id: u.id, block: false }, { confirmText: `Desbloquear @${u.username}?` }) }, 'Desbloquear')
+        : h('button', { class: 'btn small', onclick: () => doAct('/api/users/block', { id: u.id, block: true }, { confirmText: `Bloquear @${u.username}? A conta sai de todos os aparelhos e não consegue mais entrar até ser desbloqueada.`, askReason: 'Motivo (opcional, fica na auditoria):' }) }, 'Bloquear'),
+      h('button', { class: 'btn small', onclick: () => resetPasswordFor(u) }, 'Nova senha'),
+      h('button', { class: 'btn small', onclick: giveXp }, 'Dar ou tirar XP'),
+      h('button', { class: 'btn small', onclick: () => { closePessoa(); auditFilters = { user: u.username }; openTab('auditoria'); } }, 'Auditoria completa'),
+      h('button', { class: 'btn small', onclick: () => { closePessoa(); msgQuery = { q: '', user: u.username }; openTab('mensagens'); } }, 'Todas as mensagens'),
+      u.home_owner ? null : h('button', { class: 'btn small danger-ghost', onclick: () => deleteAccountOf(u) }, 'Excluir conta')),
+    h('div', { class: 'grid two section' },
+      h('div', {}, h('h3', {}, 'Servidores'), d.servers.length
+        ? h('ul', { class: 'plain' }, d.servers.map((x) => h('li', {}, x.name, x.nick ? h('span', { class: 'muted small' }, ` (apelido: ${x.nick})`) : null, x.owner ? h('span', { class: 'pill' }, 'dono') : null)))
+        : h('p', { class: 'empty' }, 'Em nenhum servidor.'),
+      h('h3', { class: 'section' }, 'XP nos últimos 7 dias'), d.xp7.length
+        ? h('ul', { class: 'plain' }, d.xp7.map((x) => h('li', {}, `${x.reason}: `, h('b', {}, num(x.n)))))
+        : h('p', { class: 'empty' }, 'Nada nos últimos 7 dias.')),
+      h('div', {}, h('h3', {}, 'IPs usados'), table([
+        { label: 'IP', get: (r) => h('span', { class: 'mono' }, r.ip) },
+        { label: 'Último', get: (r) => ago(r.last) },
+        { label: '', get: (r) => (d.blockedIps.includes(r.ip) ? h('span', { class: 'pill bad' }, 'bloqueado') : ipBlockButton(r.ip, tab)) },
+      ], d.ips, { empty: 'Nenhum IP registrado.' }))),
+    h('h3', { class: 'section' }, 'Últimas mensagens (servidores)'),
+    d.messages.length ? h('div', { class: 'msg-list' }, d.messages.map((m) => h('div', { class: 'msg-item' },
+      h('div', { class: 'muted small' }, `${m.where} · ${when(m.at)}`), m.text ? h('div', { class: 'msg-text' }, m.text) : h('div', { class: 'muted small' }, `📎 ${m.files.length} anexo(s)`))))
+      : h('p', { class: 'empty' }, 'Nenhuma mensagem em servidores.'),
+    h('h3', { class: 'section' }, 'Últimas ações registradas'),
+    table([
+      { label: 'Quando', get: (r) => when(r.at) },
+      { label: 'O quê', get: (r) => h('span', {}, r.ok ? '' : '❌ ', r.label) },
+      { label: 'IP', get: (r) => h('span', { class: 'mono' }, r.ip ?? '') },
+    ], d.audit, { empty: 'Nada registrado.', rowClass: (r) => (r.ok ? null : 'fail') }),
+  );
 }
 
 // ---------- Auditoria ----------
@@ -623,7 +750,7 @@ async function viewAuditoria() {
     h('b', { title: k === 'aparelho' ? String(v) : null }, k === 'aparelho' ? device(v) : Array.isArray(v) ? v.join(', ') : v === true ? 'sim' : v === false ? 'não' : String(v)), '  ')) : '');
   const render = () => list.replaceChildren(table([
     { label: 'Quando', get: (r) => h('span', { title: when(r.at) }, when(r.at)) },
-    { label: 'Quem', get: (r) => h('b', {}, r.user_name ?? '—') },
+    { label: 'Quem', get: (r) => (r.user_id ? personLink(r.user_id, h('b', {}, r.user_name ?? '—')) : h('b', {}, r.user_name ?? '—')) },
     { label: 'O quê', get: (r) => h('span', {}, r.ok ? '' : '❌ ', r.label) },
     { label: 'Detalhes', get: (r) => h('div', { class: 'detail' }, describe(r.detail)) },
     { label: 'IP', get: (r) => h('span', { class: 'mono' }, r.ip ?? '') },
@@ -1144,7 +1271,7 @@ async function viewMensagens() {
     msgQuery.q || msgQuery.user ? h('button', { class: 'btn ghost', type: 'button', onclick: () => { msgQuery = { q: '', user: '' }; openTab('mensagens'); } }, 'Limpar') : null);
   const items = list.map((m) => h('div', { class: 'msg-item' },
     h('div', { class: 'row' },
-      h('b', {}, m.name ?? '?'), h('span', { class: 'muted small' }, m.user ? `@${m.user}` : '(conta apagada)'),
+      m.user ? personLink(`@${m.user}`, h('b', {}, m.name ?? '?')) : h('b', {}, m.name ?? '?'), h('span', { class: 'muted small' }, m.user ? `@${m.user}` : '(conta apagada)'),
       h('span', { class: 'muted small' }, `· ${m.where} · ${when(m.at)}${m.edited ? ' · editada' : ''}${m.pinned ? ' · 📌 fixada' : ''}`),
       h('span', { class: 'spacer' }),
       h('button', { class: 'btn small ghost', onclick: () => deleteMessage(m) }, 'Apagar')),
