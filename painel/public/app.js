@@ -137,7 +137,7 @@ const TABS = {
   alertas: ['Alertas no celular', viewAlertas, 0],
   quedas: ['Histórico de quedas', viewQuedas, 30000],
   convites: ['Convites', viewConvites, 60000],
-  seguranca: ['Segurança do painel', viewSeguranca, 0],
+  seguranca: ['Login do painel', viewSeguranca, 0],
   sistema: ['Sistema', viewSistema, 30000],
 };
 let tab = 'geral';
@@ -146,10 +146,18 @@ let status = null;
 const stopTimers = () => { clearInterval(timer); timer = null; };
 
 document.querySelectorAll('.side button[data-tab]').forEach((b) => b.addEventListener('click', () => openTab(b.dataset.tab)));
+// No celular: as abas viram uma lista só, separada pelos mesmos grupos da lateral
+const tabSelect = $('#tab-select');
+for (const g of document.querySelectorAll('.side-group')) {
+  const parent = g.dataset.label ? tabSelect.appendChild(h('optgroup', { label: g.dataset.label })) : tabSelect;
+  for (const b of g.querySelectorAll('button[data-tab]')) parent.append(h('option', { value: b.dataset.tab }, b.textContent));
+}
+tabSelect.addEventListener('change', () => openTab(tabSelect.value));
 function openTab(name) {
   tab = TABS[name] ? name : 'geral';
   try { localStorage.setItem('painel-tab', tab); } catch { /* sem armazenamento */ }
   document.querySelectorAll('.side button[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+  tabSelect.value = tab;
   const [title, fn, every] = TABS[tab];
   $('#title').textContent = title;
   const view = $('#view');
