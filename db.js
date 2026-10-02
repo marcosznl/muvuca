@@ -524,11 +524,53 @@ function groupReactions(rows) {
   return (id) => [...(byMsg.get(id) ?? [])].map(([emoji, users]) => ({ emoji, users }));
 }
 
+// Cache do snapshot dos servidores: montar um servidor inteiro custa várias consultas e acontece a cada
+// mensagem enviada. Fica guardado até alguma escrita no banco poder mudá-lo (ou por no máximo 1 minuto).
+// Escritas só nestas tabelas não mudam o snapshot (nenhuma tabela do snapshot depende delas):
+const OUTSIDE_SNAPSHOT = new Set([
+  'sessions', 'invites', 'messages', 'music_plays', 'files', 'images', 'reactions', 'read_state', 'game_results',
+  'game_players', 'poll_votes', 'mutes', 'friends', 'game_words', 'audit_log', 'xp_events', 'blocked_ips', 'push_subs',
+]);
+// Colunas de users que não aparecem no snapshot
+const USER_COLS_OUTSIDE = new Set(['last_seen', 'password_hash', 'must_change']);
+const SNAPSHOT_TTL = 60_000; // os eventos que já passaram somem com o tempo, mesmo sem escrita
+
+// A instrução SQL pode mudar algum snapshot? Na dúvida, sim.
+export function changesSnapshot(sql) {
+  if (/^\s*(?:SELECT|PRAGMA)\b/i.test(sql)) return false;
+  const m = /^\s*(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+\w+)?|DELETE\s+FROM)\s+(\w+)/i.exec(sql);
+  if (!m) return true;
+  const table = m[1].toLowerCase();
+  if (OUTSIDE_SNAPSHOT.has(table)) return false;
+  if (table === 'users' && /^\s*UPDATE\b/i.test(sql)) {
+    const set = /\bSET\s+([\s\S]*?)(?:\bWHERE\b|$)/i.exec(sql)?.[1] ?? '';
+    const cols = [...set.matchAll(/(\w+)\s*=/g)].map((c) => c[1].toLowerCase());
+    return !cols.length || cols.some((c) => !USER_COLS_OUTSIDE.has(c));
+  }
+  return true;
+}
+
 const SERVER_COLORS = ['#5865f2', '#eb459e', '#57f287', '#fee75c', '#ed4245', '#3ba55c', '#faa61a', '#9b59b6'];
 
 class Store {
   constructor(db) {
     this.db = db;
+    this.snaps = new Map(); // serverId -> { at, snap }
+    // Toda instrução que pode mudar um snapshot esvazia o cache depois de rodar
+    const prepare = db.prepare.bind(db);
+    db.prepare = (sql) => {
+      const st = prepare(sql);
+      if (changesSnapshot(sql)) {
+        for (const m of ['run', 'get', 'all', 'iterate']) {
+          const fn = st[m].bind(st);
+          st[m] = (...args) => { try { return fn(...args); } finally { this.snaps.clear(); } };
+        }
+      }
+      return st;
+    };
+    // exec: migrações e transações (um ROLLBACK desfaz o que um snapshot já pode ter visto)
+    const exec = db.exec.bind(db);
+    db.exec = (sql) => { try { return exec(sql); } finally { if (!/^\s*(?:BEGIN|COMMIT)\s*;?\s*$/i.test(sql)) this.snaps.clear(); } };
     const p = (sql) => db.prepare(sql);
     this.q = {
       // usuários e sessões
@@ -939,8 +981,18 @@ class Store {
   addMember(serverId, user) { this.q.insertMember.run(serverId, unum(user.id), Date.now()); }
   removeMember(serverId, userId) { this.q.deleteMember.run(serverId, unum(userId)); }
 
-  // Tudo o que o site precisa saber de um servidor (canais, cargos e membros)
+  // Tudo o que o site precisa saber de um servidor (canais, cargos e membros).
+  // Vem do cache quando dá: quem recebe não pode alterar o objeto.
   snapshot(serverId) {
+    const hit = this.snaps.get(serverId);
+    if (hit && Date.now() - hit.at < SNAPSHOT_TTL) return hit.snap;
+    const snap = this.buildSnapshot(serverId);
+    if (snap) this.snaps.set(serverId, { at: Date.now(), snap });
+    else this.snaps.delete(serverId);
+    return snap;
+  }
+
+  buildSnapshot(serverId) {
     const s = this.server(serverId);
     if (!s) return null;
     const rolesByUser = new Map();

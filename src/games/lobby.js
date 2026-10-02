@@ -97,12 +97,12 @@ export const listRooms = () => [...rooms.values()].map(publicRoom);
 
 // Todo mundo online vê a lista de salas (ícone fixo de jogos, igual para todos)
 function broadcastRooms() {
-  const msg = { t: 'games:rooms', rooms: listRooms() };
-  for (const id of sockets.keys()) sendToUser(id, msg);
+  const data = JSON.stringify({ t: 'games:rooms', rooms: listRooms() });
+  for (const id of sockets.keys()) sendToUser(id, data);
 }
 
 const members = (r) => [...r.players.map((p) => p.id), ...r.spectators];
-const sendToRoom = (r, msg) => { for (const id of members(r)) sendToUser(id, msg); };
+const sendToRoom = (r, msg) => { const data = JSON.stringify(msg); for (const id of members(r)) sendToUser(id, data); };
 // Jogos de cartas: cada um vê só a própria mão (stateFor); os outros jogos mandam o mesmo para todos
 const stateOf = (r, userId) => (r.engine.stateFor ? r.engine.stateFor(userId) : r.engine.state());
 function sendState(r) {
