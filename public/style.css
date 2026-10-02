@@ -310,7 +310,28 @@ button.live-badge:hover { filter: brightness(1.15); }
 .chat-form input::placeholder { color: #6d6f78; }
 
 /* Voz */
-.voice-view { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #000; }
+.voice-view { flex: 1; min-height: 0; display: flex; background: #000; }
+.call-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+/* Chat ao lado da call: divisória arrastável e o canal de texto à direita */
+.call-split { flex: none; width: 6px; cursor: col-resize; background: var(--bg-dark); border-left: 1px solid rgba(255,255,255,.06); touch-action: none; }
+.call-split:hover, .call-split:focus-visible, .voice-view.resizing .call-split { background: var(--accent); outline: none; }
+.voice-view.resizing { cursor: col-resize; user-select: none; }
+.voice-view.resizing .stage { pointer-events: none; }
+.call-chat { flex: none; width: var(--call-chat-w, 400px); min-height: 0; display: flex; flex-direction: column; background: var(--bg-main); }
+.call-chat-head { flex: none; display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid rgba(0,0,0,.25); }
+.call-chat-hash { color: var(--muted); font-size: 20px; font-weight: 600; }
+.call-chat-head select { flex: 1; min-width: 0; background: transparent; color: var(--text-strong); border: 0; font: inherit; font-weight: 700; font-size: 15px; padding: 4px; border-radius: 6px; cursor: pointer; }
+.call-chat-head select:hover { background: var(--bg-hover); }
+.call-chat-head select option { background: var(--bg-dark); color: var(--text-strong); }
+.call-chat-slot { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.call-chat-slot .text-view { flex: 1; }
+/* Celular (tela estreita): a call em cima e o chat embaixo, metade cada */
+@media (max-width: 700px) {
+  .voice-view.split { flex-direction: column; }
+  .voice-view.split .call-split { display: none; }
+  .voice-view.split .call-chat { width: auto; flex: 1; border-top: 1px solid rgba(255,255,255,.08); }
+  .voice-view.split .call-pane { flex: 1; }
+}
 .stage {
   flex: 1; min-height: 0; padding: 12px;
   display: grid; gap: 10px;

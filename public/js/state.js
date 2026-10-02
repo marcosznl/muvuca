@@ -100,6 +100,21 @@ export function rememberedTextChannel(server) {
   return server.channels.find((c) => c.id === id && c.type === 'text') ?? firstTextChannel(server);
 }
 
+// Chat ao lado da call (tela dividida): ligado ou não, e o canal de texto escolhido em cada servidor
+export const callSplitOn = () => store.get('callSplit') === '1';
+export function callChatChannel(server) {
+  if (!server) return null;
+  const id = store.get(`callChat:${server.id}`);
+  return server.channels.find((c) => c.id === id && c.type === 'text') ?? rememberedTextChannel(server);
+}
+// Canal que o chat está mostrando: o aberto na tela ou, na call com o chat ao lado, o canal escolhido.
+// null quando não há chat à vista (tela da call sem o chat ao lado)
+export function chatChannelId() {
+  const { server, channel } = findChannel(state.view.channelId);
+  if (channel?.type === 'voice') return callSplitOn() ? callChatChannel(server)?.id ?? null : null;
+  return state.view.channelId;
+}
+
 // Silenciado: o próprio canal ou o servidor inteiro
 export const isMuted = (channelId, serverId) => state.mutes.has(channelId) || state.mutes.has(serverId);
 export const serverUnread = (server) => (state.mutes.has(server.id) ? 0

@@ -135,14 +135,27 @@
 
       <!-- Canal de voz -->
       <section id="voice-view" class="voice-view" hidden>
-        <div id="stage" class="stage"></div>
-        <footer class="controls">
-          <button id="btn-cam" class="ctrl round" title="Ligar câmera"></button>
-          <button id="btn-flip" class="ctrl round" title="Virar câmera" data-icon="flip-camera" hidden></button>
-          <button id="btn-screen" class="ctrl round" title="Transmitir tela" data-icon="monitor-up"></button>
-          <button id="btn-stats" class="ctrl round" title="Mostrar qualidade" data-icon="bar-chart"></button>
-          <button id="btn-leave" class="ctrl round danger" title="Desconectar" data-icon="phone-off"></button>
-        </footer>
+        <!-- Call à esquerda; com o chat ao lado ligado, divisória arrastável e um canal de texto à direita -->
+        <div class="call-pane">
+          <div id="stage" class="stage"></div>
+          <footer class="controls">
+            <button id="btn-cam" class="ctrl round" title="Ligar câmera"></button>
+            <button id="btn-flip" class="ctrl round" title="Virar câmera" data-icon="flip-camera" hidden></button>
+            <button id="btn-screen" class="ctrl round" title="Transmitir tela" data-icon="monitor-up"></button>
+            <button id="btn-stats" class="ctrl round" title="Mostrar qualidade" data-icon="bar-chart"></button>
+            <button id="btn-call-chat" class="ctrl round" title="Chat ao lado" data-icon="chat"></button>
+            <button id="btn-leave" class="ctrl round danger" title="Desconectar" data-icon="phone-off"></button>
+          </footer>
+        </div>
+        <div id="call-split" class="call-split" role="separator" aria-orientation="vertical" aria-label="Arraste para mudar o tamanho do chat" tabindex="0" hidden></div>
+        <aside id="call-chat" class="call-chat" hidden>
+          <div class="call-chat-head">
+            <span class="call-chat-hash">#</span>
+            <select id="call-chat-select" aria-label="Canal de texto ao lado da call"></select>
+            <button id="call-chat-close" type="button" class="icon-btn" title="Fechar o chat" data-icon="close" data-size="18"></button>
+          </div>
+          <div id="call-chat-slot" class="call-chat-slot"></div>
+        </aside>
       </section>
       <!-- Canal de música: o player fica sempre montado (fora da tela quando você está em outro canal) -->
       <section id="music-view" class="music-view offscreen">

@@ -3,7 +3,7 @@
 // chat-mentions (lista do @), chat-pins (fixadas), chat-picker (GIFs e emojis) e richtext (regras de texto).
 import { $, h, makeAvatar, fmtTime, fmtDay, hhmm, sameDay, showBanner } from './util.js';
 import { icon } from './icons.js';
-import { state, findChannel, canIn, PERMS, nameOf, isMuted } from './state.js';
+import { state, findChannel, canIn, PERMS, nameOf, isMuted, chatChannelId } from './state.js';
 import { openProfileCard } from './profile.js';
 import { nameColor } from './permissions.js';
 import { openEvents } from './events.js';
@@ -75,9 +75,9 @@ let openedChannel = null;
 // ---------- Lidas / não lidas ----------
 
 // Leu tudo o que está carregado no canal: avisa o servidor (as outras abas e a próxima visita também sabem)
-export function markRead(channelId = state.view.channelId) {
+export function markRead(channelId = chatChannelId()) {
   const data = state.messages.get(channelId);
-  if (!data?.loaded || document.hidden || state.view.channelId !== channelId) return;
+  if (!data?.loaded || document.hidden || chatChannelId() !== channelId) return;
   const last = data.list[data.list.length - 1]?.id ?? 0;
   const hadBadge = state.unread[channelId] || state.mentions[channelId];
   state.unread[channelId] = 0;
@@ -106,7 +106,7 @@ export function onHistory(m) {
   const data = channelData(m.channel);
   data.loading = false;
   data.hasMore = m.hasMore;
-  const viewing = state.view.channelId === m.channel;
+  const viewing = chatChannelId() === m.channel;
   if (m.older) {
     // Mantém a posição de leitura ao inserir mensagens antigas no topo
     const b = box();
@@ -126,12 +126,12 @@ export function onHistory(m) {
 export function onMessage(msg) {
   const data = channelData(msg.channel);
   const isMine = mine(msg);
-  const viewing = state.view.channelId === msg.channel && !document.hidden;
+  const viewing = chatChannelId() === msg.channel && !document.hidden;
   stopTyping(msg.channel, msg.userId); // mandou: não está mais digitando
   if (data.loaded) {
     const prev = data.list[data.list.length - 1];
     data.list.push(msg);
-    if (state.view.channelId === msg.channel) {
+    if (chatChannelId() === msg.channel) {
       const b = box();
       const nearBottom = b.scrollHeight - b.scrollTop - b.clientHeight < 150;
       const frag = buildMessage(msg, prev);
@@ -140,7 +140,7 @@ export function onMessage(msg) {
       if (nearBottom || isMine) b.scrollTop = b.scrollHeight;
     }
   }
-  if (!isMine && !msg.system && state.view.channelId !== msg.channel) {
+  if (!isMine && !msg.system && chatChannelId() !== msg.channel) {
     state.unread[msg.channel] = (state.unread[msg.channel] || 0) + 1;
     if (mentionsMe(msg)) state.mentions[msg.channel] = (state.mentions[msg.channel] || 0) + 1;
     renderChannels();
@@ -170,7 +170,7 @@ export function onPollVotes({ channel, id, votes }) {
   const msg = state.messages.get(channel)?.list.find((m) => m.id === id);
   if (!msg) return;
   msg.votes = votes;
-  const row = state.view.channelId === channel && box().querySelector(`.msg[data-id="${id}"] .poll`);
+  const row = chatChannelId() === channel && box().querySelector(`.msg[data-id="${id}"] .poll`);
   if (row) row.replaceWith(pollView(msg, canIn(findChannel(channel).server, PERMS.SEND_MESSAGES)));
 }
 
@@ -179,7 +179,7 @@ export function onReactions({ channel, id, reactions }) {
   const msg = state.messages.get(channel)?.list.find((m) => m.id === id);
   if (!msg) return;
   msg.reactions = reactions;
-  const row = state.view.channelId === channel && box().querySelector(`.msg[data-id="${id}"]`);
+  const row = chatChannelId() === channel && box().querySelector(`.msg[data-id="${id}"]`);
   if (!row) return;
   const { server } = findChannel(channel);
   const b = box();
@@ -196,7 +196,7 @@ export function onMessageEdit(msg) {
   data.list[i] = msg;
   // Respostas a ela mostram o texto novo
   for (const m of data.list) if (m.reply?.id === msg.id && !m.reply.deleted) m.reply = { ...m.reply, text: msg.text.slice(0, 200) };
-  if (state.view.channelId === msg.channel) renderMessages();
+  if (chatChannelId() === msg.channel) renderMessages();
   refreshPins(msg.channel);
 }
 
@@ -207,7 +207,7 @@ export function onUserPurged(userId) {
     if (!removed.size) continue;
     data.list = data.list.filter((m) => !removed.has(m.id));
     for (const m of data.list) if (m.reply && removed.has(m.reply.id)) m.reply = { id: m.reply.id, deleted: true };
-    if (state.view.channelId === channelId) renderMessages();
+    if (chatChannelId() === channelId) renderMessages();
   }
 }
 
@@ -218,7 +218,7 @@ export function onMessageDelete({ channel, id }) {
   for (const m of data.list) if (m.reply?.id === id) m.reply = { id, deleted: true };
   if (editing?.id === id) editing = null;
   if (replying?.id === id) cancelReply();
-  if (state.view.channelId === channel) renderMessages();
+  if (chatChannelId() === channel) renderMessages();
   refreshPins(channel);
 }
 
@@ -238,7 +238,7 @@ document.addEventListener('visibilitychange', () => {
 let renderedChannel = null; // canal desenhado agora (para manter a posição de leitura ao redesenhar)
 
 export function renderMessages() {
-  const { server, channel } = findChannel(state.view.channelId);
+  const { server, channel } = findChannel(chatChannelId());
   const b = box();
   // Redesenhar o mesmo canal (alguém trocou a foto, editou uma mensagem…) não pode tirar
   // quem está lendo mensagens antigas do lugar; só volta ao fim quem já estava no fim
@@ -287,10 +287,10 @@ export function renderMessages() {
 
 // Chegou perto do topo: busca as mensagens anteriores
 $('messages').addEventListener('scroll', () => {
-  const data = state.messages.get(state.view.channelId);
+  const data = state.messages.get(chatChannelId());
   if (!data?.loaded || !data.hasMore || data.loading || box().scrollTop > 300) return;
   data.loading = true;
-  send({ t: 'history', channel: state.view.channelId, before: data.list[0]?.id });
+  send({ t: 'history', channel: chatChannelId(), before: data.list[0]?.id });
 });
 
 function buildMessage(msg, prev, server = findChannel(msg.channel).server) {
@@ -460,7 +460,7 @@ async function deleteMessage(msg, skipConfirm = false) {
 let editing = null; // { id, draft }
 
 function startEdit(id, draft = null) {
-  const data = channelData(state.view.channelId);
+  const data = channelData(chatChannelId());
   const msg = data.list.find((m) => m.id === id);
   const row = box().querySelector(`.msg[data-id="${id}"]`);
   if (!msg || !row) return;
@@ -502,7 +502,7 @@ function cancelEdit() {
 function saveEdit() {
   if (!editing) return;
   const { id, draft } = editing;
-  const msg = channelData(state.view.channelId).list.find((m) => m.id === id);
+  const msg = channelData(chatChannelId()).list.find((m) => m.id === id);
   const text = draft.trim();
   editing = null;
   renderMessages();
@@ -547,7 +547,7 @@ export function cancelReply() {
 function renderReplyBar() {
   const bar = $('reply-bar');
   // Trocou de canal: a resposta pendente fica para trás
-  if (replying && replying.channel !== state.view.channelId) replying = null;
+  if (replying && replying.channel !== chatChannelId()) replying = null;
   bar.hidden = !replying;
   bar.replaceChildren();
   if (!replying) return;
@@ -569,17 +569,17 @@ let lastTypingSent = 0;
 export function onTyping({ channel, userId }) {
   if (!state.typing.has(channel)) state.typing.set(channel, new Map());
   state.typing.get(channel).set(userId, Date.now() + TYPING_SHOW_MS);
-  if (channel === state.view.channelId) renderTyping();
+  if (channel === chatChannelId()) renderTyping();
 }
 
 function stopTyping(channel, userId) {
-  if (state.typing.get(channel)?.delete(userId) && channel === state.view.channelId) renderTyping();
+  if (state.typing.get(channel)?.delete(userId) && channel === chatChannelId()) renderTyping();
 }
 
 export function renderTyping() {
   const bar = $('typing-bar');
   const now = Date.now();
-  const map = state.typing.get(state.view.channelId);
+  const map = state.typing.get(chatChannelId());
   const names = [];
   for (const [id, until] of map ?? []) {
     if (until < now) map.delete(id);
@@ -597,7 +597,7 @@ export function renderTyping() {
   } else who.append('Várias pessoas estão digitando…');
   bar.append(dots, who);
 }
-setInterval(() => { if (state.typing.get(state.view.channelId)?.size) renderTyping(); }, 1000);
+setInterval(() => { if (state.typing.get(chatChannelId())?.size) renderTyping(); }, 1000);
 
 // Campo de várias linhas: Enter envia, Shift+Enter pula linha; cresce conforme o texto (até um limite)
 export function fitComposer() {
@@ -617,17 +617,17 @@ $('chat-input').addEventListener('input', () => {
   const now = Date.now();
   if (!$('chat-input').value.trim() || now - lastTypingSent < 3000) return;
   lastTypingSent = now;
-  send({ t: 'typing', channel: state.view.channelId });
+  send({ t: 'typing', channel: chatChannelId() });
 });
 
 // ---------- Campo de mensagem ----------
 
 export function renderComposer() {
-  const { server, channel } = findChannel(state.view.channelId);
+  const { server, channel } = findChannel(chatChannelId());
   renderReplyBar();
   pinsFollow(channel);
   searchFollow();
-  attachmentsFollow(state.view.channelId);
+  attachmentsFollow(chatChannelId());
   if (!channel || channel.type === 'voice') return;
   const allowed = canIn(server, PERMS.SEND_MESSAGES);
   const input = $('chat-input');
@@ -665,7 +665,7 @@ async function purgeChannel(channelId, count) {
 $('chat-input').addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && replying) { e.preventDefault(); cancelReply(); return; }
   if (e.key !== 'ArrowUp' || $('chat-input').value) return;
-  const last = [...(state.messages.get(state.view.channelId)?.list ?? [])].reverse().find((m) => mine(m) && !m.system && !GIF_URL.test(m.text));
+  const last = [...(state.messages.get(chatChannelId())?.list ?? [])].reverse().find((m) => mine(m) && !m.system && !GIF_URL.test(m.text));
   if (!last) return;
   e.preventDefault();
   startEdit(last.id);
@@ -676,7 +676,7 @@ $('chat-form').addEventListener('submit', async (e) => {
   const input = $('chat-input');
   const text = input.value.trim();
   if (!text && !hasPending()) return;
-  const channel = state.view.channelId;
+  const channel = chatChannelId();
   // /limpar N: apaga as N últimas mensagens do canal (para quem gerencia mensagens)
   const purge = text.match(/^\/limpar(?:\s+(\d+))?$/i);
   if (purge) {

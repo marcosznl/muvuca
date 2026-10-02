@@ -5,8 +5,9 @@ import { openUserSettings } from './user-settings.js';
 import { avisarNovidades } from './novidades.js';
 import { icon, applyStaticIcons } from './icons.js';
 import {
-  state, serverById, findChannel, upsertServer, removeServer, rememberTextChannel, rememberedTextChannel,
+  state, serverById, findChannel, upsertServer, removeServer, rememberTextChannel, rememberedTextChannel, chatChannelId,
 } from './state.js';
+import { renderCallChat } from './call-chat.js';
 import { connect, disconnect, request, send, api, sessionToken, setSessionToken } from './net.js';
 import { showAuth, pendingInvite, clearInviteFromUrl, showForcedPasswordChange } from './auth.js';
 import { renderRail, renderServerHeader, renderChannels, renderUserPanel, renderVoicePanel, applyServerOrder } from './sidebar.js';
@@ -101,9 +102,12 @@ function showChannel() {
   const isMusic = channel?.type === 'music';
   // O chat é o mesmo componente: embaixo do player nos canais de música, sozinho nos de texto
   // Só move quando muda de lugar: mover o elemento zera a rolagem (o chat "pulava" a cada atualização)
+  // Na call com o chat ao lado ligado: o mesmo chat vai para a direita da call (canal de texto escolhido)
+  const callChat = isVoice && !!chatChannelId();
   if (isMusic) { if ($('text-view').parentElement !== $('music-chat-slot')) $('music-chat-slot').append($('text-view')); }
+  else if (callChat) { if ($('text-view').parentElement !== $('call-chat-slot')) $('call-chat-slot').append($('text-view')); }
   else if ($('text-view').previousElementSibling !== $('empty-view')) $('empty-view').after($('text-view'));
-  $('text-view').hidden = isVoice || !channel;
+  $('text-view').hidden = (isVoice && !callChat) || !channel;
   $('voice-view').hidden = !isVoice;
   const friendsHome = !!state.view.dms && !channel; // mensagens diretas sem conversa: página de amigos
   $('empty-view').hidden = !!channel || friendsHome;
@@ -136,7 +140,11 @@ function showChannel() {
   if (channel && channel.type !== 'voice') {
     openTextChannel(channel.id);
     if (matchMedia('(pointer: fine)').matches && channel.type === 'text') $('chat-input').focus();
+  } else if (callChat) {
+    openTextChannel(chatChannelId());
+    state.unread[chatChannelId()] = 0;
   }
+  renderCallChat();
   if (isVoice) renderStage();
   syncMiniPlayer(); // fora da tela da call: live/câmera numa janelinha flutuante
   renderAll();
@@ -166,7 +174,7 @@ function handle(m) {
     case 'me': {
       state.me = { ...state.me, ...m.you };
       renderAll();
-      if (findChannel(state.view.channelId).channel?.type !== 'voice') openTextChannel(state.view.channelId); // nome/foto nas mensagens
+      if (chatChannelId()) openTextChannel(chatChannelId()); // nome/foto nas mensagens
       break;
     }
     case 'maintenance':
