@@ -11,7 +11,6 @@ export const NOVIDADES = [
     data: '2026-10-02',
     titulo: 'Temas coloridos, chat ao lado da call e janela flutuante',
     itens: [
-      'Ícone novo: o M deu lugar a um pandeiro (no site, no celular e no app do computador).',
       'Temas novos em Configurações → Tema: claro, escuro, mais escuro, preto e 22 temas coloridos em degradê (Menta, Crepúsculo, Oceano, Aurora…). Cada pessoa escolhe o seu, e ele vale em todos os seus aparelhos.',
       'Live e câmera numa janelinha flutuante: em call, dá para ir para o chat, outro servidor ou os jogos e continuar vendo a transmissão no canto da tela. Dá para arrastar, trocar de pessoa nas setas, abrir a call com um toque ou soltar a janela por cima de outros programas.',
       'Live com câmeras por cima: quando alguém transmite a tela, escolha onde ficam os participantes (Embaixo, Sobre a tela ou Ocultar). "Sobre a tela" deixa a live grande e as câmeras ligadas em miniatura no canto.',
