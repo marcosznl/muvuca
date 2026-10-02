@@ -13,6 +13,7 @@ export const NOVIDADES = [
     itens: [
       'Temas novos em Configurações → Tema: claro, escuro, mais escuro, preto e 22 temas coloridos em degradê (Menta, Crepúsculo, Oceano, Aurora…). Cada pessoa escolhe o seu, e ele vale em todos os seus aparelhos.',
       'Live e câmera numa janelinha flutuante: em call, dá para ir para o chat, outro servidor ou os jogos e continuar vendo a transmissão no canto da tela. Dá para arrastar, trocar de pessoa nas setas, abrir a call com um toque ou soltar a janela por cima de outros programas.',
+      'Live com câmeras por cima: quando alguém transmite a tela, escolha onde ficam os participantes (Embaixo, Sobre a tela ou Ocultar). "Sobre a tela" deixa a live grande e as câmeras ligadas em miniatura no canto.',
       'Chat ao lado da call: o botão de balão nos controles da call divide a tela entre a call e um canal de texto (dá para escolher qual e arrastar a divisória). No celular fica um embaixo do outro.',
       'Editar perfil: a foto e o banner novos só valem quando você clica em Salvar. Cancelou ou fechou, nada muda.',
       'App do computador 1.4.6: a lista de microfones e saídas de som volta a aparecer (antes só mostrava "Padrão do sistema"). O app se atualiza sozinho.',

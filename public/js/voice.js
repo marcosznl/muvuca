@@ -1205,18 +1205,17 @@ export function renderStage() {
 
   for (const t of list) updateTile(tiles.get(t.key) || createTile(t.key), t, t.key === mainKey);
 
-  // Com alguém em destaque (live): quadro grande em cima e os participantes numa faixa embaixo, que pode ser ocultada
+  // Com alguém em destaque (live): quadro grande e os participantes embaixo, por cima da live (só as câmeras,
+  // em miniatura no canto) ou ocultos — a pessoa escolhe nos botões entre os dois
   const focus = !!mainKey && list.length > 1;
   stage.classList.toggle('focus', focus);
+  stage.classList.toggle('strip-over', focus && stripMode === 'over');
   if (focus) {
     const others = list.filter((t) => t.key !== mainKey);
     stage.append(tiles.get(mainKey), stripToggle, strip); // append move sem recriar (o vídeo continua tocando)
     for (const t of others) strip.append(tiles.get(t.key));
-    strip.hidden = stripHidden; // quadros ocultos deixam de receber vídeo (economiza banda)
-    stripToggle.replaceChildren(
-      icon(stripHidden ? 'chevron-up' : 'chevron-down', 16),
-      stripHidden ? ` Mostrar participantes (${others.length})` : ' Ocultar participantes',
-    );
+    strip.hidden = stripMode === 'hidden'; // quadros ocultos deixam de receber vídeo (economiza banda)
+    paintStripModes(others.length);
   } else {
     for (const t of list) stage.append(tiles.get(t.key));
     stripToggle.remove();
@@ -1383,15 +1382,27 @@ function layoutGrid() {
 }
 new ResizeObserver(() => layoutGrid()).observe(stage);
 
-// Faixa de participantes embaixo da live
+// Participantes durante a live: embaixo (faixa), sobre a tela (câmeras em miniatura no canto) ou ocultos
 const strip = h('div', 'strip');
-const stripToggle = h('button', 'strip-toggle');
-let stripHidden = store.get('hideStrip') === '1';
-stripToggle.onclick = () => {
-  stripHidden = !stripHidden;
-  store.set('hideStrip', stripHidden ? '1' : null);
-  renderStage();
-};
+const stripToggle = h('div', 'strip-toggle');
+const STRIP_MODES = [['below', 'Embaixo'], ['over', 'Sobre a tela'], ['hidden', 'Ocultar']];
+let stripMode = store.get('stripMode') ?? (store.get('hideStrip') === '1' ? 'hidden' : 'below');
+if (!STRIP_MODES.some(([m]) => m === stripMode)) stripMode = 'below';
+function paintStripModes(count) {
+  stripToggle.replaceChildren(h('span', 'strip-label', `Participantes (${count}):`), ...STRIP_MODES.map(([mode, label]) => {
+    const b = h('button', mode === stripMode ? 'strip-mode on' : 'strip-mode', label);
+    b.type = 'button';
+    b.setAttribute('aria-pressed', String(mode === stripMode));
+    b.onclick = (e) => {
+      e.stopPropagation();
+      stripMode = mode;
+      store.set('stripMode', mode === 'below' ? null : mode);
+      store.set('hideStrip', null);
+      renderStage();
+    };
+    return b;
+  }));
+}
 
 function createTile(key) {
   const el = document.createElement('div');
@@ -1431,6 +1442,7 @@ function updateTile(el, { p, pub, screen }, isMain) {
 
   const name = p.name || p.identity;
   video.hidden = !showVideo;
+  el.classList.toggle('has-video', showVideo);
   video.style.transform = p.isLocal && !screen && mirrorLocalCamera() ? 'scaleX(-1)' : ''; // espelha só a própria câmera frontal
 
   // Avatar com a cor da pessoa quando não há vídeo
