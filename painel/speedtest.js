@@ -33,7 +33,6 @@ export function capacity(up) {
     live720: Math.floor(usable / 2.5e6), // live 720p ~2,5 Mbps
     camera: Math.floor(usable / 1.5e6),  // câmera ~1,5 Mbps por pessoa vendo
     voice: Math.floor(usable / 0.1e6),   // voz ~100 kbps por pessoa ouvindo
-    minecraft: Math.floor(usable / 0.5e6), // Minecraft ~0,5 Mbps por jogador (folgado)
   };
 }
 
@@ -89,7 +88,7 @@ export function speedRoutes({ json, readBody, clientIp, audit, activity, dataDir
       if (!fs.existsSync(BIN)) return json(res, 500, { error: 'Este Mac não tem o networkQuality (precisa do macOS 12 ou mais novo).' });
       // Tem gente usando: o teste deixaria a call, a live ou o jogo travando por uns 20 s
       const a = activity();
-      const busy = [a.voice && `${a.voice} em call`, a.lives && `${a.lives} em live`, a.minecraft && `${a.minecraft} no Minecraft`].filter(Boolean);
+      const busy = [a.voice && `${a.voice} em call`, a.lives && `${a.lives} em live`].filter(Boolean);
       if (busy.length && !body.force) return json(res, 200, { ok: false, needsForce: true, message: `Tem gente usando agora (${busy.join(', ')}). O teste ocupa a internet inteira por uns 20 s e vai travar para eles.` });
       runTest(mode, audit, clientIp(req));
       json(res, 200, { ok: true, message: 'Testando… leva uns 20 a 40 segundos.' });

@@ -1,5 +1,5 @@
 // Manutenção automática feita pelo painel (sem ninguém precisar lembrar):
-//  - gira os logs que só cresciam (Muvuca, painel, backup, Minecraft): guarda 3 arquivos de 5 MB
+//  - gira os logs que só cresciam (Muvuca, painel, backup): guarda 3 arquivos de 5 MB
 //  - certificado renovado pelo Caddy: reinicia o Muvuca (o LiveKit/TURN só lê o certificado ao ligar),
 //    só com ninguém em call ou jogo, de preferência de madrugada
 //  - teste semanal de restauração: abre o último backup numa pasta temporária e confere o banco
@@ -27,7 +27,7 @@ function save() {
 export async function rotateLogs() {
   let names = [];
   try { names = await fsp.readdir(ctx.logsDir); } catch { return; }
-  const targets = names.filter((n) => /^(malegna|painel|backup|minecraft-[\w-]+)\.log$/.test(n));
+  const targets = names.filter((n) => /^(malegna|painel|backup)\.log$/.test(n));
   for (const name of targets) {
     const file = path.join(ctx.logsDir, name);
     let size = 0;
