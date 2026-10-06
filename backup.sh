@@ -1,9 +1,9 @@
 #!/bin/zsh
 # Backup do Muvuca: banco de dados (cópia consistente, mesmo com o site no ar), emojis, fotos, sons do
 # soundboard e a chave das notificações, num .tar.gz em ~/Backups/Muvuca (fora da pasta do projeto).
-# Os anexos do chat (fotos, vídeos, documentos) vão para ~/Backups/Muvuca/anexos, só os novos a cada vez.
-# Histórico: os 3 mais recentes, 1 por dia nos últimos 14 dias e 1 por mês nos últimos 6 meses
-# (os anteriores só são apagados depois que o novo é conferido; se o novo sair com defeito, nada é apagado).
+# Os anexos do chat (fotos, vídeos, documentos) vão para ~/Backups/Muvuca/anexos, um espelho de data/files.
+# Guarda só um backup: o anterior é apagado depois que o novo é conferido (se o novo sair com defeito,
+# o anterior fica).
 # Roda sozinho todo dia às 4h (serviço com.marcos.malegna.backup) ou à mão: ./backup.sh
 umask 077 # backups (banco, chaves) só legíveis pelo seu usuário
 cd "$(dirname "$0")"
@@ -43,36 +43,22 @@ tar -czf "$DEST/$name.tmp" -C "$work" . && tar -tzf "$DEST/$name.tmp" >/dev/null
 }
 mv "$DEST/$name.tmp" "$DEST/$name"
 
-# Histórico: mantém os 3 mais recentes, o último de cada um dos 14 dias mais recentes e o último de cada
-# um dos 6 meses mais recentes; apaga o resto. Só mexe em arquivos malegna-AAAA-MM-DD_HHMM.tar.gz dentro
-# da pasta pedida, a partir de uma lista explícita (nunca de "ls"), conferindo o caminho de cada um.
-prune_history() {
-  local dir=$1 f b day month i=0 keep
-  local -A days months
-  local -a files del
-  files=("$dir"/malegna-<->-<->-<->_<->.tar.gz(N.On)) # do mais novo para o mais antigo (pelo nome)
-  for f in $files; do
-    b=${f:t}
-    day=${b[9,18]}
-    month=${b[9,15]}
-    keep=0
-    (( i < 3 )) && keep=1
-    if [[ -z ${days[$day]} ]]; then days[$day]=1; (( ${#days} <= 14 )) && keep=1; fi
-    if [[ -z ${months[$month]} ]]; then months[$month]=1; (( ${#months} <= 6 )) && keep=1; fi
-    (( keep )) || del+=("$f")
-    (( i++ ))
-  done
-  for f in $del; do
-    [[ $f == "$dir"/malegna-<->-<->-<->_<->.tar.gz && -f $f ]] && rm -f -- "$f"
+# Um backup só: apaga os outros malegna-AAAA-MM-DD_HHMM.tar.gz da pasta (lista explícita, nunca de "ls",
+# conferindo o caminho de cada um), depois que o novo já foi conferido
+keep_only_latest() {
+  local dir=$1 newest=$2 f
+  for f in "$dir"/malegna-<->-<->-<->_<->.tar.gz(N); do
+    [[ $f != "$newest" && $f == "$dir"/malegna-<->-<->-<->_<->.tar.gz && -f $f ]] && rm -f -- "$f"
   done
 }
-prune_history "$DEST"
+keep_only_latest "$DEST" "$DEST/$name"
 rm -f data/malegna-antes-*.db(N) data/backup-antes-*.db(N) # cópias manuais antigas da pasta data/
 
-# Anexos do chat: espelho que só acrescenta (copia os novos; nunca apaga nada lá, mesmo se sumirem daqui)
+# Anexos do chat: espelho de data/files (o que foi apagado aqui sai de lá também). Se data/files estiver
+# vazia, não espelha: pode ser a pasta que sumiu, e aí o espelho apagaria a única cópia
 note=""
-if [[ -d data/files ]]; then
-  mkdir -p "$DEST/anexos" && rsync -a --ignore-existing data/files/ "$DEST/anexos/" \
+if [[ -d data/files && -n $(print -l data/files/*(N[1])) ]]; then
+  mkdir -p "$DEST/anexos" && rsync -a --delete data/files/ "$DEST/anexos/" \
     && note=" + anexos" || note=" (AVISO: anexos não copiados)"
 fi
 
@@ -84,5 +70,4 @@ for log in logs/*.log(N); do
   fi
 done
 
-kept=("$DEST"/malegna-<->-<->-<->_<->.tar.gz(N))
-echo "[backup $(date '+%F %T')] ok: $DEST/$name ($(du -h "$DEST/$name" | cut -f1))$note · ${#kept} no histórico"
+echo "[backup $(date '+%F %T')] ok: $DEST/$name ($(du -h "$DEST/$name" | cut -f1))$note"
