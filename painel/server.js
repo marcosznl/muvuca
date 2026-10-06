@@ -15,7 +15,6 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { AUDIT_LABELS, AUDIT_GROUPS } from '../src/audit-labels.js';
-import { mcRoutes, startMinecraft, mcSummary } from './minecraft.js';
 import { speedRoutes } from './speedtest.js';
 import { deployRoutes, deploying, pendingUpdate } from './deploy.js';
 import { startAlerts, alertRoutes, markPlanned, setPlannedUntil, sendAlert, downNow, quedasSince } from './alerts.js';
@@ -1155,7 +1154,6 @@ function sameOrigin(req) {
 const activityNow = () => ({
   voice: (latest.main?.voice ?? []).reduce((n, v) => n + v.count, 0),
   lives: (latest.main?.voice ?? []).reduce((n, v) => n + (v.people ?? []).filter((p) => p.streaming).length, 0),
-  minecraft: mcSummary().reduce((n, s) => n + (s.phase === 'running' ? s.players : 0), 0),
 });
 
 // Convites: os que valem agora (de cada servidor) e quem entrou por qual convite (pela auditoria)
@@ -1199,7 +1197,7 @@ const { public: passkeyPublic, ...passkeyApi } = passkeyAll;
 
 const api = {
   'GET /api/me': (req, res, s) => json(res, 200, { ok: true, since: s.created, ip: s.ip, domain: DOMAIN }),
-  'GET /api/status': async (req, res) => json(res, 200, { ...latest, stoppedByPanel: stoppedByPanel(), desktopLatest: desktopLatest(), sizes, certs: await certificates(), busy, domain: DOMAIN, publicPort: env.PUBLIC_PORT || null, minecraft: mcSummary() }),
+  'GET /api/status': async (req, res) => json(res, 200, { ...latest, stoppedByPanel: stoppedByPanel(), desktopLatest: desktopLatest(), sizes, certs: await certificates(), busy, domain: DOMAIN, publicPort: env.PUBLIC_PORT || null }),
   'GET /api/history': (req, res, s, url) => {
     const hours = Math.min(24, Math.max(1, Number(url.searchParams.get('hours')) || 1));
     const since = Date.now() - hours * 3_600_000;
@@ -1398,7 +1396,6 @@ const api = {
   'POST /api/service': async (req, res) => {
     try { json(res, 200, await serviceAction(req, await readBody(req))); } catch (err) { json(res, 400, { error: err.message }); }
   },
-  ...mcRoutes({ json, readBody, clientIp, domain: DOMAIN }),
   ...speedRoutes({ json, readBody, clientIp, audit, dataDir: path.dirname(DB_FILE), activity: activityNow }),
   // ---------- Convites ----------
   'GET /api/invites': (req, res) => json(res, 200, invitesOverview()),
@@ -1432,9 +1429,6 @@ const api = {
     noticeFn: (b) => mainPost('/internal/maintenance', b),
   }),
 };
-
-// Minecraft: as ações vindas do painel (e o desligar sozinho) entram na auditoria
-startMinecraft({ root: ROOT, auditFn: (action, opts) => audit(action, opts) });
 
 // Manutenção automática: gira os logs, recarrega o certificado do TURN e testa o backup toda semana
 startUpkeep({
