@@ -244,3 +244,56 @@ ul.plain .pill { margin-left: 6px; }
 .err-msg { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; word-break: break-word; }
 .err-card details pre { max-height: 240px; }
 .clients { display: grid; gap: 2px; }
+
+/* ======================================================================
+   Mesma cara do Muvuca (estilo app do Mac, como o iPlayer): letra do sistema, lateral com o item
+   escolhido na cor do Muvuca, sub-abas como botões lado a lado do Mac, cantos de 6 px, menus desfocados
+   e barras de rolagem finas.
+   ====================================================================== */
+:root { --radius: 6px; -webkit-font-smoothing: antialiased; }
+body { font-family: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, sans-serif; }
+h1, h2, .pessoa-nome, .sv-title { letter-spacing: -.01em; }
+
+/* Lateral: linhas mais baixas, cantos de 6 px; a escolhida em azul com letra branca */
+.side { padding-top: 14px; }
+.side button[data-page] { font-size: 13px; font-weight: 500; color: var(--text); padding: 5px 10px; border-radius: var(--radius); }
+.side button[data-page]:hover { background: color-mix(in srgb, var(--text) 7%, transparent); }
+.side button[data-page].on { background: var(--accent); color: #fff; }
+.on .side-badge { box-shadow: 0 0 0 2px var(--accent); }
+
+/* Sub-abas: botões lado a lado (como no Mac), a escolhida em destaque */
+.subtabs { display: inline-flex; gap: 2px; margin: -6px 0 16px; padding: 2px; border: 0; border-radius: 8px; background: color-mix(in srgb, var(--text) 8%, transparent); }
+.subtabs button { border: 0; margin: 0; padding: 4px 14px; font-size: 13px; font-weight: 500; color: var(--text); border-radius: var(--radius); }
+.subtabs button:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
+.subtabs button.on { background: var(--panel); border: 0; box-shadow: 0 1px 2px rgba(0,0,0,.18), 0 0 0 .5px rgba(0,0,0,.08); }
+
+/* Botões e campos */
+.btn { border-radius: var(--radius); font-weight: 500; font-size: 13px; padding: 6px 13px; }
+.btn.small { padding: 3px 9px; }
+input, select { border-radius: var(--radius); font-size: 13px; }
+input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }
+.btn:focus-visible, .side button:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent); }
+
+/* Títulos pequenos em letra normal (sem caixa alta) */
+.busca-sec { text-transform: none; letter-spacing: 0; font-size: 11px; font-weight: 600; }
+th { font-size: 11px; }
+
+/* Resultados da busca e cartões por cima: fundo desfocado */
+.busca-res {
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
+  border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.25);
+}
+.busca-item { border-radius: 4px; padding: 6px 8px; }
+.busca-item:hover, .busca-item:focus { background: var(--accent); color: #fff; }
+.busca-item:hover .busca-trecho, .busca-item:focus .busca-trecho, .busca-item:hover .muted, .busca-item:focus .muted { color: rgba(255,255,255,.85); }
+
+/* Barras de rolagem finas */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(128,128,128,.4); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
+/* No escuro, a sub-aba escolhida fica um pouco mais clara que o fundo (como no Mac) */
+:root[data-theme="dark"] .subtabs button.on { background: color-mix(in srgb, var(--text) 20%, var(--panel)); box-shadow: 0 1px 2px rgba(0,0,0,.4); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .subtabs button.on { background: color-mix(in srgb, var(--text) 20%, var(--panel)); box-shadow: 0 1px 2px rgba(0,0,0,.4); }
+}

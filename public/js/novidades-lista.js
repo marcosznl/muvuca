@@ -13,6 +13,7 @@ export const NOVIDADES = [
     itens: [
       'App do Mac 1.4.7: visual de app do Mac, como o Finder e o Música. A coluna da esquerda fica translúcida, deixando aparecer de leve o que está atrás da janela, e os três botões da janela ficam em cima dela. Também tem a letra do sistema, seleção arredondada e menus com fundo desfocado. Nos temas coloridos continua o degradê. O app se atualiza sozinho.',
       'Ícone novo no app do Mac: o M branco arredondado sobre o azul do Muvuca.',
+      'O site no navegador (e o app do Windows) ganhou o mesmo visual: letra do sistema, canal escolhido em azul com cantos arredondados, menus com fundo desfocado e títulos das seções em letra normal. Só a coluna translúcida é exclusiva do app do Mac.',
       'O XP e os níveis saíram do Muvuca: não tem mais barrinha de XP nem nível no perfil.',
       'Muvuca mais enxuto: ficaram os jogos mais usados (Stop, Desenha aí e Bomberman). Saíram Tron, Tanquinhos, Agar, Jogo da velha, Última! e Impostor.',
       'Também saíram o soundboard (os sons da call), os eventos agendados e o filtro de palavras.',

@@ -135,7 +135,7 @@ test('chat ao lado da call: a mensagem vai para o canal escolhido', { skip: !(aw
   assert.deepEqual(bia.errors, []);
 });
 
-test('app do Mac: cara de app do Mac (coluna translúcida) e o vidro segue o tema', async () => {
+test('cara de app do Mac: no site e no app do Mac (só o app tem a coluna translúcida, que segue o tema)', async () => {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await context.addInitScript(() => {
     window.__appearance = [];
@@ -176,8 +176,13 @@ test('app do Mac: cara de app do Mac (coluna translúcida) e o vidro segue o tem
   assert.deepEqual(b.last, ['dark', false]);
   assert.match(b.bodyImage, /gradient/);
   await page.evaluate(async () => (await import('/js/theme.js')).setTheme('dark'));
-  // No navegador comum nada disso vale
-  assert.equal(await ana.evaluate(() => document.documentElement.classList.contains('mac-app')), false);
+  // No navegador: o mesmo visual, mas sem o vidro (que só o macOS desenha) e com a faixa de cima normal
+  const web = await ana.evaluate(() => ({
+    look: document.documentElement.classList.contains('mac-look'), app: document.documentElement.classList.contains('mac-app'),
+    body: getComputedStyle(document.body).backgroundColor, category: getComputedStyle(document.querySelector('.category') ?? document.body).textTransform,
+  }));
+  assert.deepEqual([web.look, web.app, web.category], [true, false, 'none']);
+  assert.notEqual(web.body, 'rgba(0, 0, 0, 0)');
   assert.deepEqual(errs, []);
   await context.close();
 });

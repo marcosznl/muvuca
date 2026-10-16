@@ -2137,14 +2137,15 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .session-here { background: var(--green); color: #fff; font-size: 11px; font-weight: 700; border-radius: 8px; padding: 0 7px; }
 
 /* ======================================================================
-   App do Mac (1.4.7 em diante): cara de app do Mac, como o iPlayer
-   Fonte do sistema, coluna da esquerda translúcida (o macOS desenha o vidro fosco por trás do que fica
-   transparente aqui), títulos de seção em letra normal, seleção arredondada e menus com fundo desfocado.
-   Só vale com a classe .mac-app (posta pelo index.html quando o app avisa que tem esse visual).
+   Visual com cara de app do Mac, como o iPlayer (site e apps):
+   .mac-look (todo mundo): letra do sistema, títulos de seção em letra normal, seleção arredondada,
+   menus com fundo desfocado, cantos arredondados e barras de rolagem finas.
+   .mac-app (só o app do Mac 1.4.7 em diante): os três botões da janela em cima da coluna da esquerda e a
+   coluna translúcida (o macOS desenha o vidro fosco por trás do que fica transparente aqui).
    ====================================================================== */
 .mac-drag { display: none; }
-:root.mac-app {
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Noto Sans", sans-serif;
+:root.mac-look {
+  --font: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, "Noto Sans", sans-serif; /* a letra de cada sistema */
   --mac-line: rgba(255,255,255,.08);
   --mac-hover: rgba(255,255,255,.07);
   --mac-glass: rgba(30,31,34,.42); /* tom por cima do vidro fosco (escuro) */
@@ -2152,15 +2153,15 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
   --mac-radius: 6px;
   -webkit-font-smoothing: antialiased;
 }
-:root.mac-app[data-theme="light"] {
+:root.mac-look[data-theme="light"] {
   --mac-line: rgba(0,0,0,.1);
   --mac-hover: rgba(0,0,0,.06);
   --mac-glass: rgba(246,246,248,.4);
   --mac-menu: rgba(246,246,248,.84);
 }
-:root.mac-app body { font-size: 14px; }
+:root.mac-look body { font-size: 14px; }
 
-/* Sem a faixa "Muvuca" de 30 px: os três botões ficam em cima da coluna dos servidores */
+/* App do Mac: sem a faixa "Muvuca" de 30 px; os três botões ficam em cima da coluna dos servidores */
 :root.mac-app body::before { display: none; }
 :root.mac-app .app { height: 100dvh; margin-top: 0; }
 :root.mac-app #auth { padding-top: 0; }
@@ -2173,79 +2174,80 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 :root.mac-app .main-header { -webkit-app-region: drag; }
 :root.mac-app .main-header :is(button, a, input, select, textarea, label, [role="button"], [tabindex]) { -webkit-app-region: no-drag; }
 
-/* Coluna da esquerda translúcida (servidores + canais); a conversa e os membros ficam opacos.
-   Nos temas coloridos continua o degradê (sem vidro). */
+/* App do Mac: coluna da esquerda translúcida (servidores + canais); a conversa e os membros ficam opacos.
+   Nos temas coloridos continua o degradê (sem vidro). No navegador a coluna é uma só, na cor da lateral. */
+:root.mac-look:not(.mac-app):not([data-color]) .server-rail { background: var(--bg-side); }
 :root.mac-app:not([data-color]) body { background: transparent; }
 :root.mac-app:not([data-color]) .main { background: var(--bg-main); }
 :root.mac-app:not([data-color]) .server-rail,
 :root.mac-app:not([data-color]) .sidebar { background: var(--mac-glass); }
-:root.mac-app .server-rail { box-shadow: inset -1px 0 0 var(--mac-line); }
-:root.mac-app .sidebar { box-shadow: inset -1px 0 0 var(--mac-line); }
-:root.mac-app .members { box-shadow: inset 1px 0 0 var(--mac-line); }
-:root.mac-app .voice-panel, :root.mac-app .user-panel { background: transparent; border-bottom: 0; box-shadow: inset 0 1px 0 var(--mac-line); }
-:root.mac-app .server-name, :root.mac-app .main-header { box-shadow: 0 1px 0 var(--mac-line); }
-:root.mac-app .server-name:hover { background: var(--mac-hover); }
+:root.mac-look .server-rail { box-shadow: inset -1px 0 0 var(--mac-line); }
+:root.mac-look .sidebar { box-shadow: inset -1px 0 0 var(--mac-line); }
+:root.mac-look .members { box-shadow: inset 1px 0 0 var(--mac-line); }
+:root.mac-look .voice-panel, :root.mac-look .user-panel { background: transparent; border-bottom: 0; box-shadow: inset 0 1px 0 var(--mac-line); }
+:root.mac-look .server-name, :root.mac-look .main-header { box-shadow: 0 1px 0 var(--mac-line); }
+:root.mac-look .server-name:hover { background: var(--mac-hover); }
 
 /* Servidores: quadrados arredondados (como ícones de app), sem virar círculo */
-:root.mac-app .server-icon { border-radius: 12px; }
-:root.mac-app .rail-item .server-icon:hover, :root.mac-app .rail-item.active .server-icon { border-radius: 12px; }
-:root.mac-app .server-icon.add:hover { border-radius: 12px; }
-:root.mac-app .rail-pill { width: 3px; }
+:root.mac-look .server-icon { border-radius: 12px; }
+:root.mac-look .rail-item .server-icon:hover, :root.mac-look .rail-item.active .server-icon { border-radius: 12px; }
+:root.mac-look .server-icon.add:hover { border-radius: 12px; }
+:root.mac-look .rail-pill { width: 3px; }
 
 /* Títulos de seção como no Finder: letra normal, pequena e cinza */
-:root.mac-app .category, :root.mac-app .field-label, :root.mac-app .settings-nav-title,
-:root.mac-app .settings-subtitle, :root.mac-app .card label, :root.mac-app .members .category {
+:root.mac-look .category, :root.mac-look .field-label, :root.mac-look .settings-nav-title,
+:root.mac-look .settings-subtitle, :root.mac-look .card label, :root.mac-look .members .category {
   text-transform: none; letter-spacing: 0; font-size: 11px; font-weight: 600;
 }
-:root.mac-app .settings-subtitle { font-size: 12px; }
+:root.mac-look .settings-subtitle { font-size: 12px; }
 
 /* Linhas da barra lateral: mais baixas, cantos de 6 px; a selecionada na cor do Muvuca */
-:root.mac-app .channel { padding: 4px 8px; border-radius: var(--mac-radius); font-size: 13px; }
-:root.mac-app .channel:hover { background: var(--mac-hover); }
-:root.mac-app .channel.active { background: var(--accent); color: #fff; }
-:root.mac-app .channel.active > .ico { opacity: 1; }
-:root.mac-app .channel.active .count { color: rgba(255,255,255,.8); }
-:root.mac-app .voice-member, :root.mac-app .member { border-radius: var(--mac-radius); }
-:root.mac-app .voice-member:hover, :root.mac-app .member:hover { background: var(--mac-hover); }
-:root.mac-app .voice-member { font-size: 13px; }
-:root.mac-app .member .name { font-size: 13px; }
-:root.mac-app .settings-nav-item { border-radius: var(--mac-radius); font-size: 13px; padding: 5px 10px; }
-:root.mac-app .settings-nav-item.active { background: var(--accent); color: #fff; }
-:root.mac-app .icon-btn { border-radius: var(--mac-radius); }
+:root.mac-look .channel { padding: 4px 8px; border-radius: var(--mac-radius); font-size: 13px; }
+:root.mac-look .channel:hover { background: var(--mac-hover); }
+:root.mac-look .channel.active { background: var(--accent); color: #fff; }
+:root.mac-look .channel.active > .ico { opacity: 1; }
+:root.mac-look .channel.active .count { color: rgba(255,255,255,.8); }
+:root.mac-look .voice-member, :root.mac-look .member { border-radius: var(--mac-radius); }
+:root.mac-look .voice-member:hover, :root.mac-look .member:hover { background: var(--mac-hover); }
+:root.mac-look .voice-member { font-size: 13px; }
+:root.mac-look .member .name { font-size: 13px; }
+:root.mac-look .settings-nav-item { border-radius: var(--mac-radius); font-size: 13px; padding: 5px 10px; }
+:root.mac-look .settings-nav-item.active { background: var(--accent); color: #fff; }
+:root.mac-look .icon-btn { border-radius: var(--mac-radius); }
 
 /* Botões, campos e janelas */
-:root.mac-app .btn { border-radius: var(--mac-radius); padding: 7px 14px; font-size: 13px; font-weight: 500; }
-:root.mac-app .card button[type=submit] { border-radius: var(--mac-radius); font-weight: 500; }
-:root.mac-app .card input, :root.mac-app .field input, :root.mac-app .copy-row input, :root.mac-app .input-prefix,
-:root.mac-app .field select { border-radius: var(--mac-radius); }
-:root.mac-app .card input:focus, :root.mac-app .field input:focus, :root.mac-app .field select:focus {
+:root.mac-look .btn { border-radius: var(--mac-radius); padding: 7px 14px; font-size: 13px; font-weight: 500; }
+:root.mac-look .card button[type=submit] { border-radius: var(--mac-radius); font-weight: 500; }
+:root.mac-look .card input, :root.mac-look .field input, :root.mac-look .copy-row input, :root.mac-look .input-prefix,
+:root.mac-look .field select { border-radius: var(--mac-radius); }
+:root.mac-look .card input:focus, :root.mac-look .field input:focus, :root.mac-look .field select:focus {
   outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent);
 }
-:root.mac-app .chat-box { border-radius: 10px; }
-:root.mac-app .card { border-radius: 12px; }
-:root.mac-app .modal { border-radius: 12px; box-shadow: 0 0 0 1px var(--mac-line), 0 20px 50px rgba(0,0,0,.45); }
-:root.mac-app .modal-footer { border-radius: 0 0 12px 12px; }
-:root.mac-app .modal-backdrop { background: rgba(0,0,0,.35); }
-:root.mac-app .choice { border-radius: 10px; }
+:root.mac-look .chat-box { border-radius: 10px; }
+:root.mac-look .card { border-radius: 12px; }
+:root.mac-look .modal { border-radius: 12px; box-shadow: 0 0 0 1px var(--mac-line), 0 20px 50px rgba(0,0,0,.45); }
+:root.mac-look .modal-footer { border-radius: 0 0 12px 12px; }
+:root.mac-look .modal-backdrop { background: rgba(0,0,0,.35); }
+:root.mac-look .choice { border-radius: 10px; }
 
 /* Menus: vidro desfocado, cantos de 8 px, item destacado na cor do Muvuca */
-:root.mac-app .context-menu {
+:root.mac-look .context-menu {
   background: var(--mac-menu); border-radius: 8px; padding: 5px;
   -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
   box-shadow: 0 0 0 1px var(--mac-line), 0 10px 30px rgba(0,0,0,.35);
 }
-:root.mac-app .menu-item { padding: 5px 9px; border-radius: 4px; font-size: 13px; }
-:root.mac-app[data-theme="light"] .menu-item { color: #1d1d1f; }
-:root.mac-app .menu-sep { background: var(--mac-line); margin: 4px 6px; }
+:root.mac-look .menu-item { padding: 5px 9px; border-radius: 4px; font-size: 13px; }
+:root.mac-look[data-theme="light"] .menu-item { color: #1d1d1f; }
+:root.mac-look .menu-sep { background: var(--mac-line); margin: 4px 6px; }
 
 /* Barras de rolagem finas, como as do Mac */
-:root.mac-app ::-webkit-scrollbar { width: 10px; height: 10px; }
-:root.mac-app ::-webkit-scrollbar-track { background: transparent; }
-:root.mac-app ::-webkit-scrollbar-thumb { background: rgba(128,128,128,.4); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
-:root.mac-app .messages::-webkit-scrollbar-track { background: transparent; }
-:root.mac-app .messages::-webkit-scrollbar-thumb { background: rgba(128,128,128,.4); background-clip: content-box; }
-:root.mac-app .modal-header h2 { font-size: 18px; }
-:root.mac-app[data-theme="light"] .btn.secondary {
+:root.mac-look ::-webkit-scrollbar { width: 10px; height: 10px; }
+:root.mac-look ::-webkit-scrollbar-track { background: transparent; }
+:root.mac-look ::-webkit-scrollbar-thumb { background: rgba(128,128,128,.4); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
+:root.mac-look .messages::-webkit-scrollbar-track { background: transparent; }
+:root.mac-look .messages::-webkit-scrollbar-thumb { background: rgba(128,128,128,.4); background-clip: content-box; }
+:root.mac-look .modal-header h2 { font-size: 18px; }
+:root.mac-look[data-theme="light"] .btn.secondary {
   background: #fff; color: #1d1d1f; box-shadow: 0 0 0 .5px rgba(0,0,0,.25), 0 1px 1.5px rgba(0,0,0,.1);
 }
-:root.mac-app[data-theme="light"] .btn.secondary:hover { background: #f5f5f7; }
+:root.mac-look[data-theme="light"] .btn.secondary:hover { background: #f5f5f7; }
