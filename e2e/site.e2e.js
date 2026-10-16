@@ -177,6 +177,7 @@ test('cara de app do Mac: no site e no app do Mac (só o app tem a coluna transl
   assert.match(b.bodyImage, /gradient/);
   await page.evaluate(async () => (await import('/js/theme.js')).setTheme('dark'));
   // No navegador: o mesmo visual, mas sem o vidro (que só o macOS desenha) e com a faixa de cima normal
+  await until(() => ana.evaluate(() => !document.documentElement.dataset.color), { what: 'o tema escuro chegar na outra aba' });
   const web = await ana.evaluate(() => ({
     look: document.documentElement.classList.contains('mac-look'), app: document.documentElement.classList.contains('mac-app'),
     body: getComputedStyle(document.body).backgroundColor, category: getComputedStyle(document.querySelector('.category') ?? document.body).textTransform,
