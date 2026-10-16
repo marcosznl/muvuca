@@ -134,3 +134,50 @@ test('chat ao lado da call: a mensagem vai para o canal escolhido', { skip: !(aw
   assert.deepEqual(ana.errors.filter((e) => !/erro de teste do e2e/.test(e)), []);
   assert.deepEqual(bia.errors, []);
 });
+
+test('app do Mac: cara de app do Mac (coluna translúcida) e o vidro segue o tema', async () => {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  await context.addInitScript(() => {
+    window.__appearance = [];
+    window.muvucaDesktop = {
+      isDesktop: true, opensFiles: true, platform: 'darwin', macLook: true,
+      setAppearance: (mode, glass) => window.__appearance.push([mode, glass]),
+      info: async () => ({ version: '1.4.7', platform: 'darwin' }), setPushToTalk: async () => ({ ok: true }), onPushToTalk: () => () => {},
+      notify() {}, onOpenChannel: () => () => {}, setVoiceState() {}, onToggleMute: () => () => {},
+      appAudioSupported: async () => false, wantAppAudio() {}, stopAppAudio() {}, onAppAudioData: () => () => {}, onAppAudioState: () => () => {},
+    };
+  });
+  const page = await context.newPage();
+  const errs = [];
+  page.on('pageerror', (e) => errs.push(e.message));
+  await page.goto(stack.base);
+  await page.evaluate((t) => localStorage.setItem('calldireta:session', t), ana.token);
+  await page.goto(stack.base);
+  await page.waitForSelector('#app:not([hidden])');
+  const look = () => page.evaluate(() => ({
+    mac: document.documentElement.classList.contains('mac-app'),
+    body: getComputedStyle(document.body).backgroundColor,
+    bodyImage: getComputedStyle(document.body).backgroundImage,
+    main: getComputedStyle(document.querySelector('.main')).backgroundColor,
+    bar: getComputedStyle(document.body, '::before').display,
+    category: getComputedStyle(document.querySelector('.category') ?? document.body).textTransform,
+    last: window.__appearance.at(-1),
+  }));
+  const a = await look();
+  assert.ok(a.mac);
+  assert.equal(a.body, 'rgba(0, 0, 0, 0)'); // transparente: o macOS desenha o vidro por trás
+  assert.notEqual(a.main, 'rgba(0, 0, 0, 0)'); // a conversa continua opaca
+  assert.equal(a.bar, 'none'); // sem a faixa "Muvuca" do topo
+  assert.equal(a.category, 'none');
+  assert.deepEqual(a.last, ['dark', true]);
+  // Tema colorido: sem vidro (fica o degradê)
+  await page.evaluate(async () => (await import('/js/theme.js')).setTheme('color:oceano'));
+  const b = await look();
+  assert.deepEqual(b.last, ['dark', false]);
+  assert.match(b.bodyImage, /gradient/);
+  await page.evaluate(async () => (await import('/js/theme.js')).setTheme('dark'));
+  // No navegador comum nada disso vale
+  assert.equal(await ana.evaluate(() => document.documentElement.classList.contains('mac-app')), false);
+  assert.deepEqual(errs, []);
+  await context.close();
+});

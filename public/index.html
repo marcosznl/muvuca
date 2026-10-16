@@ -17,6 +17,8 @@
         if (boot.color) r.dataset.color = boot.color;
         for (var k in boot.props) if (boot.props[k]) r.style.setProperty(k, boot.props[k]);
       } else if (t === 'light' || (t === 'auto' && matchMedia('(prefers-color-scheme: light)').matches)) r.dataset.theme = 'light';
+      // App do Mac (1.4.7 em diante): cara de app do Mac, com a coluna da esquerda translúcida
+      if (window.muvucaDesktop && window.muvucaDesktop.macLook) r.classList.add('mac-app');
     } catch (e) {}
   </script>
   <link rel="manifest" href="/manifest.webmanifest">
@@ -28,6 +30,8 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+  <!-- App do Mac: faixa invisível em cima dos três botões da janela, para arrastar a janela por ali -->
+  <div class="mac-drag" aria-hidden="true"></div>
   <!-- Modo manutenção: fora do #app (que fica escondido enquanto o acesso está travado) -->
   <div id="maint-bar" class="maint-bar" role="status" hidden></div>
   <div id="maint-lock" class="maint-lock" hidden><div class="maint-lock-box"><div class="maint-lock-icon">🛠️</div><h2>Em manutenção</h2><p class="maint-lock-text"></p><p class="maint-lock-sub muted"></p></div></div>

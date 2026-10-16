@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('muvucaDesktop', {
   isDesktop: true,
   opensFiles: true, // desde a 1.4.5: "nova aba" com arquivo do Muvuca abre no navegador
   platform: process.platform,
+  macLook: process.platform === 'darwin', // desde a 1.4.7: janela translúcida com cara de app do Mac
+  setAppearance: (mode, glass) => ipcRenderer.send('appearance', { mode: String(mode), glass: !!glass }),
   info: () => ipcRenderer.invoke('app:info'),
   // Apertar para falar global: liga/desliga e avisa quando a tecla desce/sobe fora da janela
   setPushToTalk: (enabled, code) => ipcRenderer.invoke('ptt:set', { enabled: !!enabled, code: String(code ?? '') }),
