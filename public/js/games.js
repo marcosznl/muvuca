@@ -7,7 +7,6 @@ import { state } from './state.js';
 import { renderDmSidebar } from './dms.js';
 import { request, send } from './net.js';
 import { colorOf } from './games/common.js';
-import { confetti } from './confetti.js';
 import { gameSounds, gameSoundsOn, setGameSounds, gameVolume, setGameVolume, sfx } from './games/sfx.js';
 import bomberman from './games/bomberman.js';
 import desenho from './games/desenho.js';
@@ -526,7 +525,6 @@ function soundControl() {
 
 // Relógio e números do jogo em cima; no meio, o resultado no fim (ou o recado que o jogo pedir)
 let lastStatus = '';
-let celebrated = null;
 function updateStatus(out) {
   const s = games.snaps[games.snaps.length - 1]?.s;
   if (!s || !out) return;
@@ -536,11 +534,6 @@ function updateStatus(out) {
   const overlay = document.getElementById('game-overlay');
   if (!overlay) return;
   let msg = out.overlay ?? '';
-  const matchKey = `${games.room?.id}:${games.room?.round}`;
-  if (s.over && celebrated !== matchKey) {
-    celebrated = matchKey; // uma festa por partida
-    if (s.winner === state.me?.id && s.players.length > 1) confetti(); // o som da vitória vem do games/sfx.js
-  }
   if (s.over) {
     const winner = s.players.find((p) => p.id === s.winner);
     if (winner) msg = `🏆 ${winner.id === state.me?.id ? 'Você venceu!' : `${winner.name} venceu!`}`;

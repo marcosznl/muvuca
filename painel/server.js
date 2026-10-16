@@ -15,11 +15,9 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { AUDIT_LABELS, AUDIT_GROUPS } from '../src/audit-labels.js';
-import { speedRoutes } from './speedtest.js';
 import { deployRoutes, deploying, pendingUpdate } from './deploy.js';
 import { startAlerts, alertRoutes, markPlanned, setPlannedUntil, sendAlert, downNow, quedasSince } from './alerts.js';
 import { startUpkeep, upkeepState, restoreTest } from './upkeep.js';
-import { startPasskeys, passkeyRoutes } from './passkey.js';
 import { PERM_INFO, PERMS, can } from '../public/js/permissions.js';
 
 const run = promisify(execFile);
@@ -156,14 +154,14 @@ async function login(req, res) {
   return startSession(req, res);
 }
 
-// Sessão nova (senha ou passkey): cookie só deste site, que o JavaScript da página não lê
-function startSession(req, res, { via = 'senha' } = {}) {
+// Sessão nova (depois da senha): cookie só deste site, que o JavaScript da página não lê
+function startSession(req, res) {
   if (!loadAuth()) return json(res, 503, { error: 'O painel está sem senha (ou o login temporário venceu). No Mac, rode: ./painel.sh senha' });
   const now = Date.now();
   const ip = clientIp(req);
   const token = crypto.randomBytes(32).toString('hex');
   sessions.set(hashToken(token), { created: now, last: now, ip, ua: ua(req), stamp: authStamp(loadAuth()) });
-  audit('painel:login', { ip, detail: { aparelho: ua(req), ...(via !== 'senha' ? { via } : {}) } });
+  audit('painel:login', { ip, detail: { aparelho: ua(req) } });
   res.setHeader('Set-Cookie', `${cookieName}=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${SESSION_MAX_MS / 1000}`);
   return json(res, 200, { ok: true });
 }
@@ -1095,7 +1093,7 @@ function sameOrigin(req) {
   try { return new URL(origin).host === req.headers.host; } catch { return false; }
 }
 
-// Quem está usando agora (teste de velocidade e atualização avisam antes de atrapalhar)
+// Quem está usando agora (a atualização avisa antes de atrapalhar)
 const activityNow = () => ({
   voice: (latest.main?.voice ?? []).reduce((n, v) => n + v.count, 0),
   lives: (latest.main?.voice ?? []).reduce((n, v) => n + (v.people ?? []).filter((p) => p.streaming).length, 0),
@@ -1130,15 +1128,6 @@ function invitesOverview() {
     joins: joins.slice(0, 60),
   };
 }
-
-// Passkeys: os endereços em que o painel responde (o nome, sem porta)
-const passkeyAll = passkeyRoutes({
-  json, readBody, audit, clientIp,
-  allowedHosts: [`painel.${DOMAIN}`, 'localhost'],
-  startSession,
-  userName: () => loadAuth()?.user ?? 'admin',
-});
-const { public: passkeyPublic, ...passkeyApi } = passkeyAll;
 
 const api = {
   'GET /api/me': (req, res, s) => json(res, 200, { ok: true, since: s.created, ip: s.ip, domain: DOMAIN }),
@@ -1326,7 +1315,6 @@ const api = {
   'POST /api/service': async (req, res) => {
     try { json(res, 200, await serviceAction(req, await readBody(req))); } catch (err) { json(res, 400, { error: err.message }); }
   },
-  ...speedRoutes({ json, readBody, clientIp, audit, dataDir: path.dirname(DB_FILE), activity: activityNow }),
   // ---------- Convites ----------
   'GET /api/invites': (req, res) => json(res, 200, invitesOverview()),
   'POST /api/invites/create': async (req, res) => {
@@ -1353,7 +1341,6 @@ const api = {
     json(res, 200, { ok: r.ok, message: r.ok ? `Backup testado: abriu certinho (${r.counts.contas} contas, ${r.counts.mensagens} mensagens).` : `O teste falhou: ${r.error}` });
   },
   ...alertRoutes({ json, readBody, audit, clientIp }),
-  ...passkeyApi,
   ...deployRoutes({
     json, readBody, clientIp, root: ROOT, mainUrl: MAIN_URL, auditFn: audit, activityFn: activityNow,
     noticeFn: (b) => mainPost('/internal/maintenance', b),
@@ -1369,8 +1356,10 @@ startUpkeep({
   certFile: () => path.join(CADDY_CERTS, 'acme-v02.api.letsencrypt.org-directory', DOMAIN, `${DOMAIN}.crt`),
 });
 
-// Passkeys e alertas no celular (+ histórico de quedas)
-startPasskeys(path.dirname(DB_FILE)); // ao lado do banco (o painel de teste usa a pasta dele)
+// O login por Face ID / Touch ID e o teste de velocidade saíram do painel: os arquivos deles não servem mais
+for (const f of ['painel-passkeys.json', 'speedtests.json']) fs.rmSync(path.join(path.dirname(DB_FILE), f), { force: true });
+
+// Alertas no celular (+ histórico de quedas)
 startAlerts({
   dataDir: path.dirname(DB_FILE), domain: DOMAIN, one,
   latest: () => latest,
@@ -1393,11 +1382,6 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/login') {
       if (!sameOrigin(req)) return json(res, 403, { error: 'Origem não permitida.' });
       return await login(req, res);
-    }
-    const pub = passkeyPublic[`${req.method} ${url.pathname}`]; // entrar com passkey (sem sessão ainda)
-    if (pub) {
-      if (req.method !== 'GET' && !sameOrigin(req)) return json(res, 403, { error: 'Origem não permitida.' });
-      return await pub(req, res);
     }
     if (url.pathname.startsWith('/api/')) {
       const s = sessionOf(req);

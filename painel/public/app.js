@@ -97,27 +97,7 @@ function showLogin() {
   $('#app').hidden = true;
   $('#login').hidden = false;
   $('#login-user').focus();
-  // Tem passkey cadastrada e o aparelho aceita: mostra "Entrar com Face ID / Touch ID"
-  if (window.PublicKeyCredential) {
-    fetch('/api/passkey/available').then((r) => r.json()).then((d) => { $('#login-passkey').hidden = !d.available; }).catch(() => {});
-  }
 }
-$('#login-passkey').addEventListener('click', async () => {
-  const btn = $('#login-passkey');
-  btn.disabled = true;
-  $('#login-error').textContent = '';
-  try {
-    const opts = await api('/api/passkey/login-options', { method: 'POST', body: {} });
-    const cred = await navigator.credentials.get({ publicKey: { challenge: fromB64u(opts.challenge), rpId: opts.rpId, timeout: opts.timeout, userVerification: 'required', allowCredentials: [] } });
-    await api('/api/passkey/login', { method: 'POST', body: {
-      id: toB64u(cred.rawId), clientDataJSON: toB64u(cred.response.clientDataJSON),
-      authenticatorData: toB64u(cred.response.authenticatorData), signature: toB64u(cred.response.signature),
-    } });
-    start();
-  } catch (err) {
-    $('#login-error').textContent = err.name === 'NotAllowedError' ? 'Cancelado.' : err.message;
-  } finally { btn.disabled = false; }
-});
 $('#login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const btn = e.submitter ?? $('#login-form button');
@@ -161,7 +141,6 @@ const TABS = {
   manut: ['Manutenção e reiniciar', viewManutencao, 30000],
   logs: ['Logs', viewLogs, 0],
   erros: ['Erros do site', viewErros, 30000],
-  seguranca: ['Login (Face ID / Touch ID)', viewSeguranca, 0],
   alertas: ['Alertas no celular', viewAlertas, 0],
   aparelhos: ['Aparelhos conectados', viewAparelhos, 30000],
 };
@@ -175,7 +154,7 @@ const PAGES = {
   conexao: ['Conexão', ['internet', 'quedas']],
   manutencao: ['Manutenção', ['atualizar', 'backups', 'manut']],
   logs: ['Logs', ['logs', 'erros']],
-  config: ['Configurações do painel', ['seguranca', 'alertas', 'aparelhos']],
+  config: ['Configurações do painel', ['alertas', 'aparelhos']],
 };
 const pageOf = (sub) => Object.keys(PAGES).find((p) => PAGES[p][1].includes(sub));
 let tab = 'geral';
@@ -1157,21 +1136,7 @@ async function viewSistema() {
   );
 }
 
-// ---------- Internet (teste de velocidade, só no botão) ----------
-const mbps = (b) => (b == null ? '—' : `${(b / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: b < 1e7 ? 1 : 0 })} Mbps`);
-// Responsividade (RPM): quanto a conexão engasga quando está cheia; afeta voz e jogo
-const rpmLevel = (r) => (r == null ? ['', '—'] : r >= 800 ? ['good', 'alta'] : r >= 200 ? ['warn', 'média'] : ['bad', 'baixa']);
-
-async function startSpeedtest(mode, btns) {
-  btns.forEach((b) => { b.disabled = true; });
-  try {
-    let r = await api('/api/speedtest', { method: 'POST', body: { mode } });
-    if (r.needsForce && confirm(`${r.message}\nTestar mesmo assim?`)) r = await api('/api/speedtest', { method: 'POST', body: { mode, force: true } });
-    if (r.message) toast(r.message);
-  } catch (err) { toast(err.message, 6000); }
-  openTab('internet');
-}
-
+// ---------- Internet: trava de velocidade dos anexos ----------
 // Trava de velocidade dos arquivos que saem do Mac: protege a call e a live quando alguém baixa algo grande
 async function bandwidthCard() {
   const st = await api('/api/status').catch(() => null);
@@ -1193,62 +1158,7 @@ async function bandwidthCard() {
     h('p', { class: 'muted small' }, `Agora: ${bw.streams} ${bw.streams === 1 ? 'download' : 'downloads'} em andamento · ${bw.mbpsNow.toLocaleString('pt-BR')} Mbps saindo em arquivos.`));
 }
 
-async function viewInternet() {
-  const d = await api('/api/speedtest');
-  const last = d.lastOk;
-  const up = h('button', { class: 'btn primary', disabled: !!d.running }, 'Testar upload (recomendado)');
-  const full = h('button', { class: 'btn', disabled: !!d.running }, 'Teste completo (download + upload)');
-  up.addEventListener('click', () => startSpeedtest('upload', [up, full]));
-  full.addEventListener('click', () => startSpeedtest('full', [up, full]));
-  const a = d.activity;
-  const using = [a.voice && `${a.voice} em call`, a.lives && `${a.lives} em live`].filter(Boolean);
-  const top = h('div', { class: 'card' },
-    h('div', { class: 'row' }, up, full, h('span', { class: 'spacer' }),
-      d.running ? h('span', { class: 'pill warn' }, h('span', { class: 'dot' }), `Testando (${d.modes[d.running.mode]})… ${Math.round((Date.now() - d.running.startedAt) / 1000)} s`) : null),
-    h('p', { class: 'muted small' }, 'Usa o teste da própria Apple (vem no macOS). Ocupa a internet inteira por uns 20 a 40 s: quem estiver em call, live ou jogando sente. ',
-      'O teste só de upload gasta uns 600 MB de dados; o completo, de 1 a 2 GB.'),
-    using.length ? h('div', { class: 'alert warn' }, `Agora tem gente usando: ${using.join(', ')}. Se possível, teste depois.`) : null,
-    d.lastError && !d.running ? h('div', { class: 'alert bad' }, `O último teste falhou: ${d.lastError}.`) : null);
-
-  const [rk, rl] = rpmLevel(last?.rpm);
-  const stats = last ? h('div', { class: 'section grid cards' },
-    stat('Upload', mbps(last.up), 'o que limita o servidor (lives e calls)'),
-    stat('Download', mbps(last.down), last.down == null ? 'não medido (teste só de upload)' : 'o que você recebe'),
-    stat('Responsividade', last.rpm == null ? '—' : `${num(last.rpm)} RPM`, last.rpm == null ? 'medida só no teste completo' : h('span', {}, h('span', { class: `pill ${rk}` }, rl), ' quanto menos engasga, melhor para voz e jogo')),
-    stat('Latência', last.rtt == null ? '—' : `${last.rtt} ms`, 'sem carga, até o servidor de teste'),
-  ) : h('p', { class: 'empty section' }, 'Nenhum teste ainda. Aperte "Testar upload" com o servidor vazio.');
-
-  const c = d.capacity;
-  const capCard = c ? h('div', { class: 'card section' },
-    h('h2', {}, 'Quanto cabe com esse upload'),
-    h('p', { class: 'muted small' }, `Pelo teste de ${when(d.capacityFrom)}, deixando 20% de folga. São números aproximados de quem está assistindo ou ouvindo ao mesmo tempo.`),
-    h('div', { class: 'grid cards' },
-      stat('Live 1080p', `~${num(c.live1080)}`, 'pessoas assistindo (≈5 Mbps cada)'),
-      stat('Live 720p', `~${num(c.live720)}`, 'pessoas assistindo (≈2,5 Mbps cada)'),
-      stat('Câmera', `~${num(c.camera)}`, 'câmeras sendo vistas (≈1,5 Mbps)'),
-      stat('Voz', c.voice > 500 ? 'centenas' : `~${num(c.voice)}`, 'pessoas ouvindo (≈0,1 Mbps)'),
-    ),
-    h('p', { class: 'muted small' }, 'Tudo divide a mesma internet: uma live com 10 pessoas assistindo já usa ~50 Mbps do total.')) : null;
-
-  const ok = d.history.filter((r) => r.ok);
-  const chart = ok.length > 1 ? h('div', { class: 'card section' }, h('h2', {}, 'Histórico'),
-    lineChart(ok.map((r) => r.at), [
-      { label: 'Upload', color: css('--chart2'), values: ok.map((r) => r.up ?? 0) },
-      ...(ok.some((r) => r.down) ? [{ label: 'Download', color: css('--chart1'), values: ok.map((r) => r.down ?? 0) }] : []),
-    ], { format: bits })) : null;
-
-  const list = h('div', { class: 'card section' }, h('h2', {}, 'Testes feitos'), table([
-    { label: 'Quando', get: (r) => when(r.at) },
-    { label: 'Tipo', get: (r) => d.modes[r.mode] ?? r.mode },
-    { label: 'Upload', num: true, get: (r) => (r.ok ? mbps(r.up) : '—') },
-    { label: 'Download', num: true, get: (r) => (r.ok ? mbps(r.down) : '—') },
-    { label: 'Responsividade', num: true, get: (r) => (r.ok && r.rpm != null ? h('span', { class: `pill ${rpmLevel(r.rpm)[0]}` }, `${num(r.rpm)} RPM`) : '—') },
-    { label: 'Latência', num: true, get: (r) => (r.ok && r.rtt != null ? `${r.rtt} ms` : '—') },
-    { label: 'Resultado', get: (r) => (r.ok ? h('span', { class: 'muted small' }, `${r.iface ?? ''} · ${bytes(r.bytes)}`) : h('span', { class: 'error small' }, r.error)) },
-  ], [...d.history].reverse(), { empty: 'Nenhum teste ainda.', rowClass: (r) => (r.ok ? null : 'fail') }));
-
-  return h('div', {}, top, await bandwidthCard(), stats, capCard, chart, list);
-}
+async function viewInternet() { return h('div', {}, await bandwidthCard()); }
 
 // ---------- Mensagens (moderação) ----------
 let msgQuery = { q: '', user: '' };
@@ -1470,8 +1380,7 @@ async function viewAtualizar() {
   return h('div', {}, top, jobCard, versions);
 }
 
-// ---------- Passkey (Face ID / Touch ID) e alertas: utilidades ----------
-const toB64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+// ---------- Alertas no celular: utilidades ----------
 function fromB64u(s) {
   const b = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4));
   return Uint8Array.from(b, (c) => c.charCodeAt(0));
@@ -1615,40 +1524,6 @@ async function viewConvites() {
         { label: 'Servidor', get: (j) => j.server ?? '—' },
       ], d.joins, { empty: 'Ninguém entrou por convite ainda.' })));
   return box;
-}
-
-// ---------- Segurança: passkeys ----------
-async function viewSeguranca() {
-  const list = await api('/api/passkeys');
-  const supported = !!window.PublicKeyCredential;
-  const add = h('button', { class: 'btn primary', disabled: !supported, onclick: async () => {
-    const name = prompt('Nome deste aparelho (para você reconhecer depois):', deviceName());
-    if (name === null) return;
-    try {
-      const o = await api('/api/passkey/register-options', { method: 'POST', body: {} });
-      const cred = await navigator.credentials.create({ publicKey: {
-        challenge: fromB64u(o.challenge), rp: o.rp, user: { ...o.user, id: fromB64u(o.user.id) },
-        pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
-        authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
-        excludeCredentials: o.excludeCredentials.map((c) => ({ type: 'public-key', id: fromB64u(c.id) })),
-        attestation: 'none', timeout: o.timeout,
-      } });
-      await act('/api/passkey/register', { name, clientDataJSON: toB64u(cred.response.clientDataJSON), attestationObject: toB64u(cred.response.attestationObject) }, { reload: 'seguranca' });
-    } catch (err) { toast(err.name === 'NotAllowedError' ? 'Cancelado.' : err.name === 'InvalidStateError' ? 'Este aparelho já tem passkey cadastrada.' : err.message, 6000); }
-  } }, 'Cadastrar este aparelho');
-  return h('div', {},
-    h('div', { class: 'card' }, h('h2', {}, 'Entrar com Face ID / Touch ID'),
-      h('p', {}, 'Cadastre este aparelho e, na próxima vez, entre no painel só com Face ID, Touch ID, digital ou o PIN do aparelho, sem digitar a senha. A senha continua valendo como reserva.'),
-      supported ? add : h('p', { class: 'muted' }, 'Este navegador não aceita passkeys.'),
-      h('p', { class: 'muted small' }, 'A chave fica guardada no seu aparelho (e sincroniza pelo iCloud/Google, se estiver ligado); o painel guarda só a parte pública para conferir.')),
-    h('div', { class: 'section card' }, h('h2', {}, `Passkeys cadastradas — ${list.length}`),
-      table([
-        { label: 'Aparelho', get: (c) => c.name },
-        { label: 'Cadastrada', get: (c) => when(c.created) },
-        { label: 'Último uso', get: (c) => (c.lastUsed ? ago(c.lastUsed) : 'nunca') },
-        { label: '', get: (c) => h('button', { class: 'btn small ghost', onclick: () => act('/api/passkey/delete', { id: c.id }, { confirmText: `Apagar a passkey "${c.name}"? Esse aparelho vai precisar da senha de novo.`, reload: 'seguranca' }) }, 'Apagar') },
-      ], list, { empty: 'Nenhuma passkey ainda.' })),
-    h('p', { class: 'muted small section' }, 'As sessões abertas (e o botão para tirar os outros aparelhos) ficam em Aparelhos conectados.'));
 }
 
 start();

@@ -16,6 +16,7 @@ export const NOVIDADES = [
       'O XP e os níveis saíram do Muvuca: não tem mais barrinha de XP nem nível no perfil.',
       'Muvuca mais enxuto: ficaram os jogos mais usados (Stop, Desenha aí e Bomberman). Saíram Tron, Tanquinhos, Agar, Jogo da velha, Última! e Impostor.',
       'Também saíram o soundboard (os sons da call), os eventos agendados e o filtro de palavras.',
+      'E mais: saíram o atalho Ctrl+K, a opção de servidores no topo, a call com 2 aparelhos (agora entrar por outro aparelho troca a call para ele) e o confete de quem ganha um jogo.',
     ],
   },
   {

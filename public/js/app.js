@@ -18,7 +18,6 @@ import {
 } from './chat.js';
 import { sounds } from './sounds.js';
 import './theme.js';
-import './quick-switch.js';
 import './voice-menus.js';
 import { setupPush, pushAfterLogin } from './push.js';
 import { closeEmojiPanel } from './chat-picker.js';

@@ -4,7 +4,7 @@ import { db } from '../store.js';
 import { VOICE_BITRATE, VOICE_LIMIT_MAX } from '../../db.js';
 import { pushServer } from '../realtime.js';
 import { requireServer, requirePerm, requireCategory, requireChannelView } from '../guards.js';
-import { closeVoiceRoom, voicePeople, roomService, baseUserId } from '../voice.js';
+import { closeVoiceRoom, voicePeople, roomService } from '../voice.js';
 import { music } from '../music-rooms.js';
 import { fail, clean, textChannelName } from '../util.js';
 import { PERMS, canSeeChannel } from '../../public/js/permissions.js';
@@ -97,7 +97,7 @@ export default {
     const snap = db.snapshot(ctx.snap.id);
     const ch = snap.channels.find((c) => c.id === channel.id);
     if (channel.type === 'voice') {
-      for (const p of voicePeople(channel.id)) if (!canSeeChannel(snap, baseUserId(p.id), ch)) await roomService.removeParticipant(channel.id, p.id).catch(() => {});
+      for (const p of voicePeople(channel.id)) if (!canSeeChannel(snap, p.id, ch)) await roomService.removeParticipant(channel.id, p.id).catch(() => {});
     }
     if (channel.type === 'music') for (const id of music.listenersOf(channel.id)) if (!canSeeChannel(snap, id, ch)) music.leave(channel.id, id);
   },
