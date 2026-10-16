@@ -8,7 +8,7 @@ import { openProfileCard } from './profile.js';
 import { nameColor } from './permissions.js';
 import { send, request } from './net.js';
 import { confirmDialog } from './dialogs.js';
-import { renderChannels, renderRail } from './sidebar.js';
+import { renderChannels } from './sidebar.js';
 import { GIF_URL, encodeMessage, decodeMessage, snippet, usableEmojis } from './richtext.js';
 import { appendRich, appendGif, attachmentsView, previewSlot } from './chat-content.js';
 import { hasPending, takePending, attachmentsFollow } from './chat-attachments.js';
@@ -81,7 +81,7 @@ export function markRead(channelId = chatChannelId()) {
   const hadBadge = state.unread[channelId] || state.mentions[channelId];
   state.unread[channelId] = 0;
   state.mentions[channelId] = 0;
-  if (hadBadge) { renderChannels(); renderRail(); updateTitle(); }
+  if (hadBadge) { renderChannels(); updateTitle(); }
   if (last > (state.readState[channelId] ?? 0)) {
     state.readState[channelId] = last;
     send({ t: 'read', channel: channelId, id: last });
@@ -96,7 +96,6 @@ export function onRead({ channel, id }) {
     state.unread[channel] = 0;
     state.mentions[channel] = 0;
     renderChannels();
-    renderRail();
     updateTitle();
   }
 }
@@ -143,7 +142,6 @@ export function onMessage(msg) {
     state.unread[msg.channel] = (state.unread[msg.channel] || 0) + 1;
     if (mentionsMe(msg)) state.mentions[msg.channel] = (state.mentions[msg.channel] || 0) + 1;
     renderChannels();
-    renderRail();
   }
   const { server: msgServer } = findChannel(msg.channel);
   if (msgServer?.kind === 'dm' && !isMine) unhideDm(msgServer.id); // conversa escondida volta quando chega mensagem

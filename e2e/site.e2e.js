@@ -187,3 +187,27 @@ test('cara de app do Mac: no site e no app do Mac (só o app tem a coluna transl
   assert.deepEqual(errs, []);
   await context.close();
 });
+
+test('lateral em blocos: Amigos, Jogos e Servidores abrem e fecham, e fica guardado depois do F5', async () => {
+  const page = await openAs(browser, stack, 'ana', { token: ana.token });
+  const titles = await page.$$eval('.tree-block-title', (t) => t.map((x) => x.textContent));
+  assert.deepEqual(titles, ['Amigos', 'Jogos', 'Servidores']);
+  assert.equal(await page.$('#server-rail'), null); // a coluna de ícones saiu
+  // A pasta do servidor mostra os canais; fechada, some com eles
+  assert.ok(await page.$(`.server-tree li[data-channel="${ids.text}"]`));
+  await page.click('.tree-server-toggle');
+  assert.equal(await page.$(`.server-tree li[data-channel="${ids.text}"]`), null);
+  await page.click('.tree-block:nth-child(2) .tree-block-toggle'); // fecha "Jogos"
+  await page.reload();
+  await page.waitForSelector('#app:not([hidden])');
+  assert.equal(await page.$eval('.tree-server', (r) => r.classList.contains('open')), false);
+  assert.equal(await page.$eval('.tree-block:nth-child(2)', (b) => b.classList.contains('closed')), true);
+  // Abre de novo e entra num canal pela lateral
+  await page.click('.tree-server-toggle');
+  await page.click(`.server-tree li[data-channel="${ids.text2 ?? ids.text}"] .channel`);
+  assert.equal(await page.evaluate(async () => (await import('/js/state.js')).state.view.channelId), ids.text2 ?? ids.text);
+  await page.click('.tree-block:nth-child(2) .tree-block-toggle'); // deixa como estava
+  assert.deepEqual(page.errors, []);
+  await page.context().close();
+});
+

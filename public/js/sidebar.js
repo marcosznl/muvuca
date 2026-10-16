@@ -1,8 +1,8 @@
-// Coluna de servidores, lista de canais, painel "Voz conectada" e painel do usuário
+// Lateral (blocos Amigos, Jogos e Servidores, cada servidor como pasta com os canais), painel "Voz conectada" e painel do usuário
 import { $, h, makeAvatar, paintServerIcon, toast, showBanner, store } from './util.js';
 import { openMePopout } from './profile.js';
 import { icon } from './icons.js';
-import { state, currentServer, canIn, PERMS, serverUnread, serverMentions, statusOf, STATUS_LABEL, isMuted, profileOf } from './state.js';
+import { state, canIn, PERMS, serverUnread, serverMentions, statusOf, STATUS_LABEL, isMuted, profileOf } from './state.js';
 import { soundsOn, setSounds } from './sounds.js';
 import { enablePush, disablePush, pushEnabled } from './push.js';
 import { request } from './net.js';
@@ -11,44 +11,13 @@ import { selectServer, selectChannel } from './app.js';
 import { joinVoice, leaveVoice, watchStream, voiceChannelId, speakingNow, openUserVolumeMenu } from './voice.js';
 import { musicChannelId } from './music.js';
 import { openServerSettings, openInviteDialog } from './settings.js';
-import { dmRailItem, renderDmSidebar, dmTitle } from './dms.js';
+import { dmTree, dmTitle, openNewDm, totalDmUnread, realServers } from './dms.js';
+import { gamesTree, openRoomsCount, inGames } from './games.js';
+import { incomingCount } from './friends.js';
 import { openUserSettings } from './user-settings.js';
 import { openNovidades, temNovidade } from './novidades.js';
 
-// ---------- Coluna de servidores ----------
-
-export function renderRail() {
-  const rail = $('server-rail');
-  rail.replaceChildren();
-  rail.setAttribute('aria-orientation', 'vertical');
-  rail.append(dmRailItem(), h('div', 'rail-sep')); // o M: mensagens diretas, amigos e jogos
-  for (const s of state.servers.filter((x) => x.kind !== 'dm')) {
-    const item = h('div', 'rail-item');
-    item.classList.toggle('active', s.id === state.view.serverId);
-    item.classList.toggle('unread', s.id !== state.view.serverId && serverUnread(s) > 0);
-    const pill = h('span', 'rail-pill');
-    const btn = h('button', 'server-icon');
-    paintServerIcon(btn, s);
-    btn.title = s.name;
-    btn.onclick = () => selectServer(s.id);
-    btn.oncontextmenu = (e) => { e.preventDefault(); serverMenu(s, e.clientX, e.clientY); };
-    item.append(pill, btn);
-    const mentions = serverMentions(s);
-    if (mentions) item.append(h('span', 'rail-badge', mentions > 99 ? '99+' : String(mentions))); // te mencionaram lá
-    railDraggable(item, s.id);
-    rail.append(item);
-  }
-  rail.append(h('div', 'rail-sep'));
-  const add = h('button', 'server-icon add');
-  add.title = 'Adicionar um servidor';
-  add.append(icon('plus', 24));
-  add.onclick = openAddServer;
-  const addItem = h('div', 'rail-item');
-  addItem.append(h('span', 'rail-pill'), add);
-  rail.append(addItem);
-}
-
-// ---------- Ordem dos servidores: arrastar na coluna ----------
+// ---------- Ordem dos servidores: arrastar as pastas na lateral ----------
 let railDrag = null; // id do servidor sendo arrastado
 function railDraggable(item, id) {
   item.draggable = true;
@@ -84,16 +53,16 @@ function railDraggable(item, id) {
   };
 }
 function clearRailMarks() {
-  for (const el of $('server-rail').querySelectorAll('.drop-before, .drop-after, .dragging')) el.classList.remove('drop-before', 'drop-after', 'dragging');
+  for (const el of $('channel-list').querySelectorAll('.tree-server.drop-before, .tree-server.drop-after, .tree-server.dragging')) el.classList.remove('drop-before', 'drop-after', 'dragging');
 }
 // Reorganiza a lista (servidores fora da lista, como conversas privadas, ficam como estão, no fim)
 export function applyServerOrder(ids) {
   const pos = new Map(ids.map((id, i) => [id, i]));
   state.servers = [...state.servers].sort((a, b) => (pos.get(a.id) ?? 1e9) - (pos.get(b.id) ?? 1e9));
-  renderRail();
+  renderChannels();
 }
 
-function openAddServer() {
+export function openAddServer() {
   const content = h('div', 'add-server');
   const create = h('button', 'choice');
   create.append(icon('compass', 28), h('strong', '', 'Criar meu servidor'), h('span', 'muted small', 'Para você e seus amigos'));
@@ -126,17 +95,23 @@ function openAddServer() {
 // ---------- Cabeçalho e menu do servidor ----------
 
 export function renderServerHeader() {
-  if (state.view.dms) return; // a lista de conversas desenha o próprio cabeçalho
-  const s = currentServer();
   const header = $('server-name');
-  header.replaceChildren();
-  if (!s) return;
-  header.append(h('span', 'server-title', s.name), icon('chevron-down', 18));
-  header.onclick = (e) => {
-    const r = header.getBoundingClientRect();
+  if (header.dataset.ready) return;
+  header.dataset.ready = '1';
+  const add = h('button', 'icon-btn tree-head-add');
+  add.title = 'Adicionar servidor ou começar conversa';
+  add.append(icon('plus', 18));
+  add.onclick = (e) => {
     e.stopPropagation();
-    serverMenu(s, r.left + 8, r.bottom + 4);
+    const r = add.getBoundingClientRect();
+    contextMenu(r.left, r.bottom + 4, [
+      { label: 'Adicionar um servidor', icon: 'compass', onClick: openAddServer },
+      { label: 'Nova conversa', icon: 'chat', onClick: openNewDm },
+    ]);
   };
+  const logo = icon('muvuca', 18);
+  logo.classList.add('tree-logo');
+  header.replaceChildren(logo, h('span', 'server-title', 'Muvuca'), add);
 }
 
 export function serverMenu(s, x, y) {
@@ -512,7 +487,7 @@ let drag = null;           // { kind: 'channel' | 'category', id }
 let renderPending = false; // redesenhar no meio do arraste cancelaria o arraste; fica para o fim
 
 function startDrag(e, kind, id, el) {
-  drag = { kind, id };
+  drag = { kind, id, serverId: el.closest('[data-server-tree]')?.dataset.serverTree ?? null };
   e.dataTransfer.effectAllowed = 'move';
   e.dataTransfer.setData('text/plain', id);
   requestAnimationFrame(() => el.classList.add('dragging'));
@@ -534,9 +509,10 @@ function clearDropMarks() {
 
 // Onde o item cairia se fosse solto agora: { el, mark, apply }
 function dropTarget(e) {
-  const s = currentServer();
-  if (!s || !drag) return null;
-  const box = $('channel-list');
+  const s = drag && state.servers.find((x) => x.id === drag.serverId);
+  if (!s) return null;
+  const box = $('channel-list').querySelector(`[data-server-tree="${s.id}"]`); // só dentro da pasta do servidor
+  if (!box) return null;
   // Pessoa arrastada da call: cai em outro canal de voz
   if (drag.kind === 'member') {
     const li = e.target.closest?.('li[data-channel]');
@@ -739,18 +715,101 @@ function channelItem(s, c, canManage) {
   return li;
 }
 
-export function renderChannels() {
-  if (drag) { renderPending = true; return; }
-  if (state.view.dms) return renderDmSidebar();
-  const s = currentServer();
-  const box = $('channel-list');
-  box.replaceChildren();
-  if (!s) return;
+// ---------- Lateral: blocos que abrem e fecham (como no iPlayer) ----------
+// Blocos fechados (amigos, jogos, servidores) e pastas de servidor abertas, guardados neste aparelho
+const closedBlocks = new Set(JSON.parse(store.get('treeClosed') || '[]'));
+const openServers = new Set(JSON.parse(store.get('treeOpen') || '[]'));
+const saveTree = () => { store.set('treeClosed', JSON.stringify([...closedBlocks])); store.set('treeOpen', JSON.stringify([...openServers])); };
+let autoOpened = store.get('lastServer'); // servidor aberto sozinho ao entrar nele (recarregar não reabre o que você fechou)
+let firstTime = store.get('treeOpen') == null; // primeira vez com a lateral nova: todas as pastas abertas
+
+function toggleBlock(key) {
+  if (closedBlocks.has(key)) closedBlocks.delete(key); else closedBlocks.add(key);
+  saveTree();
+  renderChannels();
+}
+function toggleServer(id) {
+  if (openServers.has(id)) openServers.delete(id); else openServers.add(id);
+  saveTree();
+  renderChannels();
+}
+
+// Título do bloco: seta, nome, número (quando fechado) e um botão do lado (ex.: +)
+function block(key, title, { badge = 0, count = 0, action = null } = {}, content = []) {
+  const closed = closedBlocks.has(key);
+  const sec = h('section', 'tree-block');
+  sec.classList.toggle('closed', closed);
+  const head = h('div', 'tree-block-head');
+  const toggle = h('button', 'tree-block-toggle');
+  toggle.append(icon('chevron-down', 12), h('span', 'tree-block-title', title));
+  toggle.title = closed ? 'Abrir' : 'Fechar';
+  toggle.onclick = () => toggleBlock(key);
+  head.append(toggle);
+  if (closed && badge) head.append(h('span', 'badge', badge > 99 ? '99+' : String(badge)));
+  else if (count) head.append(h('span', 'count', String(count)));
+  if (action) head.append(action);
+  sec.append(head);
+  if (!closed) {
+    const body = h('div', 'tree-block-body');
+    body.append(...content);
+    sec.append(body);
+  }
+  return sec;
+}
+
+function plusButton(title, onClick) {
+  const b = h('button', 'category-add');
+  b.title = title;
+  b.append(icon('plus', 16));
+  b.onclick = (e) => { e.stopPropagation(); onClick(); };
+  return b;
+}
+
+// Pasta do servidor: ícone pequeno, nome, menções e não lidas; aberta, mostra as categorias e os canais
+function serverFolder(s) {
+  const open = openServers.has(s.id);
+  const wrap = h('div', 'tree-server-wrap');
+  const row = h('div', 'tree-server');
+  row.classList.toggle('open', open);
+  row.classList.toggle('current', state.view.serverId === s.id);
+  const unread = serverUnread(s);
+  row.classList.toggle('unread', unread > 0);
+  const toggle = h('button', 'tree-server-toggle');
+  const ico = h('span', 'server-icon tiny');
+  paintServerIcon(ico, s);
+  if (!s.icon) ico.textContent = [...ico.textContent].slice(0, 2).join(''); // no ícone pequeno cabem 2 letras
+  toggle.append(icon('chevron-down', 12), ico, h('span', 'name', s.name));
+  toggle.title = open ? `Fechar ${s.name}` : `Abrir ${s.name}`;
+  toggle.onclick = () => toggleServer(s.id);
+  row.append(toggle);
+  if (s.channels.some((c) => c.id === voiceChannelId())) { // você está na call deste servidor
+    const v = icon('speaker', 14);
+    v.classList.add('tree-in-voice');
+    row.append(v);
+  }
+  const mentions = serverMentions(s);
+  if (mentions) row.append(h('span', 'badge', mentions > 99 ? '99+' : String(mentions)));
+  else if (unread && !open) row.append(h('span', 'tree-dot'));
+  const more = h('button', 'tree-more');
+  more.title = 'Opções do servidor';
+  more.append(icon('dots-vertical', 16));
+  more.onclick = (e) => { e.stopPropagation(); const r = more.getBoundingClientRect(); serverMenu(s, r.left, r.bottom + 4); };
+  row.append(more);
+  row.oncontextmenu = (e) => { e.preventDefault(); serverMenu(s, e.clientX, e.clientY); };
+  railDraggable(row, s.id);
+  wrap.append(row);
+  if (open) wrap.append(serverChannels(s));
+  return wrap;
+}
+
+// Categorias e canais de um servidor (dentro da pasta)
+function serverChannels(s) {
+  const box = h('div', 'server-tree');
+  box.dataset.serverTree = s.id;
   const canManage = canIn(s, PERMS.MANAGE_CHANNELS);
   // Canais sem categoria ficam no topo; os de uma categoria que não existe mais também
   const known = new Set((s.categories ?? []).map((k) => k.id));
   const loose = s.channels.filter((c) => !c.categoryId || !known.has(c.categoryId));
-
   for (const k of [null, ...(s.categories ?? [])]) {
     const list = k ? groupOf(s, k.id) : loose;
     if (!k && !list.length && !canManage) continue;
@@ -767,6 +826,32 @@ export function renderChannels() {
     group.append(ul);
     box.append(group);
   }
+  return box;
+}
+
+export function renderChannels() {
+  if (drag) { renderPending = true; return; }
+  const box = $('channel-list');
+  // Entrou num servidor (pelo convite, menção, notificação…): a pasta dele abre sozinha uma vez
+  if (firstTime && realServers().length) {
+    firstTime = false;
+    for (const x of realServers()) openServers.add(x.id);
+    saveTree();
+  }
+  const cur = state.view.serverId;
+  if (cur && cur !== autoOpened && state.servers.some((x) => x.id === cur && x.kind !== 'dm')) {
+    autoOpened = cur;
+    if (!openServers.has(cur)) { openServers.add(cur); saveTree(); }
+  }
+  const scroll = box.scrollTop;
+  box.replaceChildren(
+    block('amigos', 'Amigos', { badge: totalDmUnread() + incomingCount(), action: plusButton('Nova conversa', openNewDm) }, dmTree()),
+    block('jogos', 'Jogos', { count: inGames() ? 0 : openRoomsCount() }, gamesTree()),
+    block('servidores', 'Servidores', {
+      badge: realServers().reduce((n, x) => n + serverMentions(x), 0), action: plusButton('Adicionar um servidor', openAddServer),
+    }, realServers().map(serverFolder)),
+  );
+  box.scrollTop = scroll;
 }
 
 // ---------- Painéis de baixo ----------

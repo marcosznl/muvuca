@@ -4,7 +4,7 @@
 import { $, h, showBanner, makeAvatar } from './util.js';
 import { icon } from './icons.js';
 import { state } from './state.js';
-import { renderDmSidebar } from './dms.js';
+import { renderChannels } from './sidebar.js';
 import { request, send } from './net.js';
 import { colorOf } from './games/common.js';
 import { gameSounds, gameSoundsOn, setGameSounds, gameVolume, setGameVolume, sfx } from './games/sfx.js';
@@ -26,7 +26,8 @@ export function onGamesRooms(m) {
   if (m.games) games.list = m.games;
   games.rooms = m.rooms;
   games.loaded = true;
-  if (inGames()) { renderGamesSidebar(); if (!games.room) renderGamesView(); }
+  renderGamesSidebar(); // a contagem e as salas aparecem na lateral mesmo fora dos jogos
+  if (inGames() && !games.room) renderGamesView();
 }
 
 export function onGameRoom(m) {
@@ -185,22 +186,21 @@ function closeDrawer() {
   $('scrim').hidden = true;
 }
 
-// A coluna da esquerda nos jogos é a mesma das mensagens diretas (Amigos, Jogos, conversas)
-export function renderGamesSidebar() { if (inGames()) renderDmSidebar(); }
+export function renderGamesSidebar() { renderChannels(); } // as salas abertas ficam no bloco "Jogos" da lateral
 
 // Item "Jogos" (abaixo de Amigos) e, dentro dos jogos, as salas abertas logo embaixo dele
-export function gamesNav() {
+// Bloco "Jogos" da lateral: "Todos os jogos" (a tela com os jogos e o placar) e as salas abertas
+export const openRoomsCount = () => games.rooms.length;
+export function gamesTree() {
   const here = inGames();
-  const btn = h('button', 'channel dm-item dm-friends');
+  const btn = h('button', 'channel tree-item');
   btn.classList.toggle('active', here && !games.room);
-  btn.append(icon('gamepad', 22), h('span', 'dm-info name', 'Jogos'));
-  if (here && games.rooms.length) btn.append(h('span', 'count', String(games.rooms.length)));
+  btn.append(icon('gamepad', 18), h('span', 'name', 'Todos os jogos'));
   btn.onclick = () => {
     closeDrawer();
     if (!here) return import('./app.js').then(({ selectGames }) => selectGames());
     if (games.room) leaveRoom(); else renderGamesView();
   };
-  if (!here) return [btn];
   const rooms = h('ul', 'channel-list game-rooms-nav');
   for (const r of games.rooms) {
     const b = h('button', 'channel');
@@ -209,13 +209,16 @@ export function gamesNav() {
     b.append(h('span', 'game-emoji', GAME_INFO[r.game]?.emoji ?? '🎮'), h('span', 'name', `Sala de ${host}`),
       h('span', r.status === 'playing' ? 'count live' : 'count', r.status === 'playing' ? 'jogando' : `${r.players.length}/${r.maxPlayers}`));
     b.title = GAME_INFO[r.game]?.title ?? '';
-    b.onclick = () => { closeDrawer(); joinRoom(r.id); };
+    b.onclick = async () => { // fora da área de jogos: abre ela e entra na sala
+      closeDrawer();
+      if (!inGames()) (await import('./app.js')).selectGames();
+      joinRoom(r.id);
+    };
     const li = h('li');
     li.append(b);
     rooms.append(li);
   }
-  if (!games.rooms.length) rooms.append(h('li', 'muted small games-empty', 'Nenhuma sala aberta. Crie uma!'));
-  return [btn, rooms];
+  return games.rooms.length ? [btn, rooms] : [btn];
 }
 
 // ---------- Área principal ----------

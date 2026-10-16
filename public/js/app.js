@@ -12,7 +12,7 @@ import {
 import { renderCallChat } from './call-chat.js';
 import { connect, disconnect, request, send, api, sessionToken, setSessionToken } from './net.js';
 import { showAuth, pendingInvite, clearInviteFromUrl, showForcedPasswordChange } from './auth.js';
-import { renderRail, renderServerHeader, renderChannels, renderUserPanel, renderVoicePanel, applyServerOrder } from './sidebar.js';
+import { renderServerHeader, renderChannels, renderUserPanel, renderVoicePanel, applyServerOrder } from './sidebar.js';
 import {
   openTextChannel, onHistory, onMessage, onMessageEdit, onMessageDelete, onUserPurged, onReactions, onRead, onTyping, renderComposer, updateTitle, onPollVotes,
 } from './chat.js';
@@ -32,7 +32,7 @@ import { renderFriendsView } from './friends.js';
 import { onCallEvent, onVoiceChanged, renderCallBar } from './calls.js';
 import { renderMaintBar } from './maintenance.js';
 import {
-  inGames, openGames, renderGamesSidebar, renderGamesView, onGamesRooms, onGameRoom, onGameState, onGameLeft, onLeaderboard,
+  inGames, openGames, renderGamesView, onGamesRooms, onGameRoom, onGameState, onGameLeft, onLeaderboard,
   onGameChat, onGameChatlog, onGameEvents,
 } from './games.js';
 
@@ -154,10 +154,8 @@ function showChannel() {
 }
 
 export function renderAll() {
-  renderRail();
   renderServerHeader();
   renderChannels();
-  if (inGames()) renderGamesSidebar(); // no lugar dos canais
   renderMembers();
   renderUserPanel();
   renderVoicePanel();
@@ -222,6 +220,7 @@ function handle(m) {
       rejoinMusic(); // reconectou: volta para a sala de música em que estava
       resumeCall(); // recarregou a página no meio de uma call: entra de novo sozinho
       reportClientInfo(); // app/versão deste aparelho (painel) e erros guardados enquanto estava sem conexão
+      request({ t: 'games:list' }).then(onGamesRooms).catch(() => {}); // salas abertas no bloco "Jogos" da lateral
       avisarNovidades(); // versão nova do Muvuca que a pessoa ainda não viu
       // Chegou por um link de convite já tendo conta
       const invite = pendingInvite();
@@ -237,12 +236,12 @@ function handle(m) {
       refreshSettings(m.server.id);
       musicChannelGone();
       if (m.select) return selectServer(m.server.id);
-      if (isNew) { renderRail(); if (state.view.dms) renderChannels(); return; } // conversa nova aparece na lista
+      if (isNew) { renderChannels(); return; } // conversa ou servidor novo aparece na lista
       // Meu canal atual ainda existe? Minhas permissões mudaram?
       if (state.view.serverId === m.server.id) {
         if (state.view.channelId && !findChannel(state.view.channelId).channel) selectChannel(rememberedTextChannel(m.server)?.id);
         else showChannel();
-      } else { renderRail(); if (state.view.dms) renderChannels(); }
+      } else renderChannels();
       if (voiceChannelId() && findChannel(voiceChannelId()).server?.id === m.server.id) applyAudioState();
       break;
     }
@@ -261,12 +260,11 @@ function handle(m) {
     }
     case 'friends':
       state.friends = m.friends;
-      renderRail();
-      if (state.view.dms) renderChannels();
+      renderChannels();
       renderFriendsView();
       break;
     case 'friend:request':
-      toast(`${m.from.name} quer ser seu amigo! Veja em Mensagens diretas → Amigos.`);
+      toast(`${m.from.name} quer ser seu amigo! Veja em Amigos → Todos os amigos.`);
       break;
     case 'presence':
       state.online = new Set(m.online);
