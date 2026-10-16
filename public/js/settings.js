@@ -191,11 +191,9 @@ function sections(s) {
   return [
     can(p, PERMS.MANAGE_SERVER) && ['overview', 'Visão geral'],
     can(p, PERMS.MANAGE_SERVER) && ['welcome', 'Boas-vindas'],
-    can(p, PERMS.MANAGE_SERVER) && ['filter', 'Filtro de palavras'],
     can(p, PERMS.MANAGE_ROLES) && ['roles', 'Cargos'],
     (can(p, PERMS.MANAGE_ROLES) || can(p, PERMS.KICK_MEMBERS)) && ['members', 'Membros'],
     can(p, PERMS.MANAGE_EMOJIS) && ['emojis', 'Emojis'],
-    can(p, PERMS.MANAGE_EMOJIS) && ['sounds', 'Sons'],
     can(p, PERMS.CREATE_INVITE) && ['invites', 'Convites'],
   ].filter(Boolean);
 }
@@ -226,7 +224,7 @@ function renderSettings() {
 
   const content = open.root.querySelector('.settings-content-inner');
   content.replaceChildren();
-  ({ overview: renderOverview, welcome: renderWelcome, filter: renderFilter, roles: renderRoles, members: renderMemberTable, emojis: renderEmojis, sounds: renderSounds, invites: renderInvites })[open.section]?.(s, content);
+  ({ overview: renderOverview, welcome: renderWelcome, roles: renderRoles, members: renderMemberTable, emojis: renderEmojis, invites: renderInvites })[open.section]?.(s, content);
 }
 
 export function colorPicker(current, { allowNone = false } = {}) {
@@ -256,36 +254,6 @@ export function colorPicker(current, { allowNone = false } = {}) {
   wrap.append(custom);
   select(current);
   return { el: wrap, get value() { return value; } };
-}
-
-// Filtro de palavras: uma por linha; "palavra*" pega também o que começa com ela. Quem gerencia o servidor fica de fora.
-function renderFilter(s, root) {
-  root.append(h('h2', '', 'Filtro de palavras'),
-    h('p', 'muted', 'Mensagens com estas palavras são barradas (ou têm a palavra trocada por ***). Não diferencia maiúsculas nem acentos: "não" pega "nao". Use * no fim para pegar o começo da palavra, ex.: idiot* pega "idiota" e "idiotice". Quem gerencia o servidor não é filtrado. Cada vez que o filtro age, fica na auditoria do painel.'));
-  const form = h('div', 'form');
-  const words = h('textarea', 'filter-words');
-  Object.assign(words, { rows: 10, placeholder: 'uma palavra por linha', value: (s.filter?.words ?? []).join('\n'), spellcheck: false });
-  const wordsField = h('label', 'field');
-  wordsField.append(h('span', 'field-label', 'Palavras'), words, h('span', 'muted small', 'Até 200 palavras.'));
-  const mode = h('div', 'seg');
-  let current = s.filter?.mode ?? 'block';
-  const opts = [['block', 'Barrar a mensagem', 'A pessoa recebe um aviso e a mensagem não é enviada'], ['mask', 'Trocar por ***', 'A mensagem vai, com a palavra escondida']];
-  for (const [id, label, hint] of opts) {
-    const b = h('button', 'seg-btn');
-    b.type = 'button';
-    b.dataset.value = id;
-    b.append(h('strong', '', label), h('span', '', hint));
-    b.onclick = () => { current = id; for (const x of mode.children) x.classList.toggle('selected', x.dataset.value === id); };
-    mode.append(b);
-  }
-  for (const x of mode.children) x.classList.toggle('selected', x.dataset.value === current);
-  const modeField = h('div', 'field');
-  modeField.append(h('span', 'field-label', 'O que fazer'), mode);
-  const save = button('Salvar filtro');
-  save.onclick = () => request({ t: 'server:filter', serverId: s.id, words: words.value, mode: current })
-    .then(() => toast(words.value.trim() ? 'Filtro salvo.' : 'Filtro desligado.')).catch(fail);
-  form.append(wordsField, modeField, save);
-  root.append(form);
 }
 
 function renderOverview(s, root) {
@@ -396,56 +364,6 @@ function renderWelcome(s, root) {
   actions.append(save, reset);
   form.append(on.row, channelField, join.field, leave.field, help, preview, game.row, actions);
   root.append(form);
-}
-
-// ---------- Sons do soundboard ----------
-
-function renderSounds(s, root) {
-  const sounds = s.sounds ?? [];
-  root.append(h('h2', '', 'Sons'), h('p', 'muted', `Sons curtos que qualquer um na call toca pelo soundboard (botão 🔊 no painel da voz). Até 30 sons, com no máximo 8 segundos e 1 MB (MP3, OGG, WAV, M4A). ${sounds.length}/30 usados.`));
-  const form = h('div', 'sound-upload');
-  const name = h('input');
-  Object.assign(name, { placeholder: 'Nome (ex.: Ihhh)', maxLength: 24 });
-  const emoji = h('input');
-  Object.assign(emoji, { placeholder: '🔊', maxLength: 4, className: 'sound-emoji-input' });
-  const pick = button('Escolher arquivo e enviar');
-  pick.onclick = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'audio/*';
-    input.onchange = async () => {
-      const file = input.files[0];
-      if (!file) return;
-      // Confere a duração antes de enviar
-      const dur = await new Promise((resolve) => {
-        const a = new Audio(URL.createObjectURL(file));
-        a.onloadedmetadata = () => resolve(a.duration);
-        a.onerror = () => resolve(null);
-      });
-      if (dur === null) return fail(new Error('Não deu para ler esse áudio.'));
-      if (dur > 8.5) return fail(new Error(`O som tem ${Math.round(dur)} s; o máximo é 8 s.`));
-      try {
-        await upload('/api/sound', { server: s.id, name: name.value.trim() || file.name.replace(/\.[^.]+$/, '').slice(0, 24), emoji: emoji.value.trim() }, file);
-        toast('Som adicionado!');
-      } catch (err) { fail(err); }
-    };
-    input.click();
-  };
-  form.append(emoji, name, pick);
-  root.append(form);
-  const list = h('div', 'sound-list');
-  for (const snd of sounds) {
-    const row = h('div', 'sound-row');
-    const play = button('▶', { kind: 'secondary' });
-    play.title = 'Ouvir';
-    play.onclick = () => new Audio(`/sound/${snd.id}`).play().catch(() => {});
-    const del = button('Excluir', { kind: 'danger-outline' });
-    del.onclick = () => request({ t: 'sound:delete', soundId: snd.id }).catch(fail);
-    row.append(h('span', 'board-emoji', snd.emoji), h('span', 'sound-name', snd.name), play, del);
-    list.append(row);
-  }
-  if (!sounds.length) list.append(h('p', 'muted small', 'Nenhum som ainda. Os sons prontos (tambor, tadá, buzina…) já estão no soundboard.'));
-  root.append(list);
 }
 
 // ---------- Emojis ----------

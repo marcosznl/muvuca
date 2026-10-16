@@ -9,11 +9,13 @@ export const NOVIDADES = [
   {
     versao: '2026-10-16',
     data: '2026-10-16',
-    titulo: 'App do Mac com cara de app do Mac e fim do XP',
+    titulo: 'App do Mac com cara de app do Mac e um Muvuca mais enxuto',
     itens: [
       'App do Mac 1.4.7: visual de app do Mac, como o Finder e o Música. A coluna da esquerda fica translúcida, deixando aparecer de leve o que está atrás da janela, e os três botões da janela ficam em cima dela. Também tem a letra do sistema, seleção arredondada e menus com fundo desfocado. Nos temas coloridos continua o degradê. O app se atualiza sozinho.',
       'Ícone novo no app do Mac: o M branco arredondado sobre o azul do Muvuca.',
       'O XP e os níveis saíram do Muvuca: não tem mais barrinha de XP nem nível no perfil.',
+      'Muvuca mais enxuto: ficaram os jogos mais usados (Stop, Desenha aí e Bomberman). Saíram Tron, Tanquinhos, Agar, Jogo da velha, Última! e Impostor.',
+      'Também saíram o soundboard (os sons da call), os eventos agendados e o filtro de palavras.',
     ],
   },
   {

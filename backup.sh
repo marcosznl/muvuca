@@ -1,6 +1,6 @@
 #!/bin/zsh
-# Backup do Muvuca: banco de dados (cópia consistente, mesmo com o site no ar), emojis, fotos, sons do
-# soundboard e a chave das notificações, num .tar.gz em ~/Backups/Muvuca (fora da pasta do projeto).
+# Backup do Muvuca: banco de dados (cópia consistente, mesmo com o site no ar), emojis, fotos
+# e a chave das notificações, num .tar.gz em ~/Backups/Muvuca (fora da pasta do projeto).
 # Os anexos do chat (fotos, vídeos, documentos) vão para ~/Backups/Muvuca/anexos, só os novos a cada vez.
 # Histórico: os 3 mais recentes, 1 por dia nos últimos 14 dias e 1 por mês nos últimos 6 meses
 # (os anteriores só são apagados depois que o novo é conferido; se o novo sair com defeito, nada é apagado).
@@ -29,9 +29,9 @@ if ! node --input-type=module -e "
   exit 1
 fi
 
-# Emojis, fotos de perfil/ícones, sons do soundboard e a chave das notificações
+# Emojis, fotos de perfil/ícones e a chave das notificações
 # (sem ela, os celulares teriam que ativar as notificações de novo)
-for dir in emojis images sounds; do
+for dir in emojis images; do
   [[ -d "data/$dir" ]] && cp -R "data/$dir" "$work/"
 done
 [[ -f data/vapid.json ]] && cp data/vapid.json "$work/"

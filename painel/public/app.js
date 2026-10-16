@@ -707,7 +707,7 @@ async function serverDetailView(id) {
     act('/api/server/transfer', { id: d.id, userId: m.id }, { confirmText: `Passar a posse de "${d.name}" para ${m.name} (@${m.username})? ${d.owner ? `@${d.owner.username} continua no servidor, com os cargos que já tem.` : ''}`, reload: 'servidores' });
   };
   const remove = () => {
-    const typed = prompt(`EXCLUIR o servidor "${d.name}"?\n\nApaga para sempre os canais, as mensagens, os emojis e os sons dele, e todo mundo sai. Não dá para desfazer (só voltando um backup).\n\nPara confirmar, digite o nome do servidor:`, '');
+    const typed = prompt(`EXCLUIR o servidor "${d.name}"?\n\nApaga para sempre os canais, as mensagens e os emojis dele, e todo mundo sai. Não dá para desfazer (só voltando um backup).\n\nPara confirmar, digite o nome do servidor:`, '');
     if (typed === null) return;
     act('/api/server/delete', { id: d.id, confirm: typed }, {}).then((ok) => { if (ok) { serverSel = null; openTab('servidores'); } });
   };
@@ -724,7 +724,7 @@ async function serverDetailView(id) {
       stat('Mensagens (7 dias)', num(d.channels.reduce((n, c) => n + c.msgs7, 0)), top?.msgs7 ? `mais movimentado: ${typeIcon[top.type]}${top.name}` : 'nenhuma ainda'),
       stat('Em call agora', num(d.channels.reduce((n, c) => n + c.inCall.length, 0)), d.channels.filter((c) => c.inCall.length).map((c) => c.name).join(', ') || 'ninguém'),
       stat('Anexos', bytes(d.bytes)),
-      stat('Emojis e sons', `${num(d.emojis)} · ${num(d.sounds)}`, 'emojis próprios · sons do soundboard')),
+      stat('Emojis', num(d.emojis), 'emojis próprios do servidor')),
     h('div', { class: 'section card' }, h('h2', {}, 'Mensagens por dia (14 dias)'),
       h('div', { class: 'bars' }, d.perDay.map((n) => h('div', { title: `${n} mensagens`, style: `height:${Math.max(2, (n / maxDay) * 100)}%` }))),
       h('div', { class: 'legend' }, h('span', {}, 'há 14 dias'), h('span', { class: 'spacer' }), h('span', {}, 'hoje'))),
@@ -1033,7 +1033,7 @@ async function viewBackups() {
     } catch (err) { toast(err.message); } finally { btn.disabled = false; }
   });
   return h('div', {},
-    h('div', { class: 'card row' }, h('div', {}, h('b', {}, 'Backup automático todo dia às 4h'), h('div', { class: 'muted small' }, `Banco de dados (todos os servidores e conversas), emojis, fotos, sons e chave das notificações, em ${b.dir}. Guarda os 3 mais recentes, 1 por dia nos últimos 14 dias e 1 por mês nos últimos 6 meses. Os anexos do chat vão para a subpasta anexos (só os novos a cada vez).`)), h('span', { class: 'spacer' }), btn),
+    h('div', { class: 'card row' }, h('div', {}, h('b', {}, 'Backup automático todo dia às 4h'), h('div', { class: 'muted small' }, `Banco de dados (todos os servidores e conversas), emojis, fotos e chave das notificações, em ${b.dir}. Guarda os 3 mais recentes, 1 por dia nos últimos 14 dias e 1 por mês nos últimos 6 meses. Os anexos do chat vão para a subpasta anexos (só os novos a cada vez).`)), h('span', { class: 'spacer' }), btn),
     b.warnings.length ? h('div', { class: 'alerts section' }, b.warnings.map((w) => h('div', { class: 'alert warn mono' }, w))) : null,
     restoreCard,
     h('div', { class: 'section grid two' },
@@ -1145,7 +1145,7 @@ async function viewSistema() {
     h('div', { class: 'section grid two' },
       h('div', { class: 'card' }, h('h2', {}, 'Espaço usado pelos dados'), table([{ label: 'O quê', get: (r) => r[0] }, { label: 'Tamanho', num: true, get: (r) => bytes(r[1]) }], [
         ['Banco de dados', (sz['malegna.db'] ?? 0) + (sz['malegna.db-wal'] ?? 0)],
-        ['Anexos do chat', sz.anexos ?? 0], ['Fotos (perfil, banner, ícones)', sz.fotos ?? 0], ['Emojis', sz.emojis ?? 0], ['Sons', sz.sons ?? 0], ['Backups no Mac', sz.backups ?? 0],
+        ['Anexos do chat', sz.anexos ?? 0], ['Fotos (perfil, banner, ícones)', sz.fotos ?? 0], ['Emojis', sz.emojis ?? 0], ['Backups no Mac', sz.backups ?? 0],
       ]), h('p', { class: 'muted small' }, `Medido ${ago(sz.at)} (a cada 10 min).`)),
       h('div', { class: 'card' }, h('h2', {}, 'Certificados HTTPS'), table([
         { label: 'Endereço', get: (c) => c.name },
@@ -1184,7 +1184,7 @@ async function bandwidthCard() {
   return h('div', { class: 'section card' },
     h('div', { class: 'row' }, h('h2', {}, 'Trava de velocidade dos arquivos'), h('span', { class: 'spacer' }),
       h('span', { class: `pill ${bw.limiting ? 'warn' : 'good'}` }, h('span', { class: 'dot' }), bw.limiting ? 'travando agora' : 'solta agora (ninguém na call)')),
-    h('p', { class: 'muted small' }, 'Anexos, instaladores do app, fotos e sons que saem do Mac não podem ocupar o upload todo: a call e a live ficam com o resto. Voz e live não passam por esta trava.'),
+    h('p', { class: 'muted small' }, 'Anexos, instaladores do app e fotos que saem do Mac não podem ocupar o upload todo: a call e a live ficam com o resto. Voz e live não passam por esta trava.'),
     h('div', { class: 'row' },
       h('label', { class: 'row small' }, 'Por arquivo, até ', per, ' Mbps'),
       h('label', { class: 'row small' }, 'Todos juntos, até ', total, ' Mbps'),

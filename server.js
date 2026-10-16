@@ -17,7 +17,6 @@ import { serveStatic } from './src/static.js';
 import { actions, RATE_FREE } from './src/actions/index.js';
 import { leaveRoom } from './src/games/lobby.js';
 import { publicKey } from './src/push.js';
-import { uploadSound, serveSound } from './src/soundboard.js';
 import { HttpError, ActionError, json, bearer, clientIp, readBody } from './src/util.js';
 import { ipBlocked, lockedOut, maintenance, disconnectUser, blockUser, blockIp, setMaintenance, adminDeleteMessage, adminDeleteFile, resetPassword, deleteAccount, reloadEveryone } from './src/moderation.js';
 import './src/call-minutes.js';
@@ -41,7 +40,6 @@ const routes = {
   'POST /api/emojis': (req, url) => uploadEmoji(req, url),
   'POST /api/image': (req, url) => uploadImage(req, url),
   'POST /api/attach': (req, url) => uploadAttachment(req, url),
-  'POST /api/sound': (req, url) => uploadSound(req, url),
 };
 
 // Arquivos enviados pelas pessoas: /prefixo/<id>
@@ -49,7 +47,6 @@ const files = {
   '/file/': (req, res, id) => serveFile(req, res, id),
   '/img/': (req, res, id) => serveImage(res, id),
   '/emoji/': (req, res, id) => serveEmoji(req, res, id),
-  '/sound/': (req, res, id) => serveSound(req, res, id),
 };
 
 const startedAt = Date.now();

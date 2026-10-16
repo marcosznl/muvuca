@@ -326,7 +326,7 @@ sample();
 let sizes = { at: 0 };
 async function measureSizes() {
   const out = { at: Date.now() };
-  const dirs = [['anexos', path.join(DATA, 'files')], ['fotos', path.join(DATA, 'images')], ['emojis', path.join(DATA, 'emojis')], ['sons', path.join(DATA, 'sounds')], ['backups', BACKUP_DIR]];
+  const dirs = [['anexos', path.join(DATA, 'files')], ['fotos', path.join(DATA, 'images')], ['emojis', path.join(DATA, 'emojis')], ['backups', BACKUP_DIR]];
   for (const [name, dir] of dirs) {
     try { out[name] = Number((await run('du', ['-sk', dir])).stdout.split('\t')[0]) * 1024; } catch { out[name] = 0; }
   }
@@ -388,11 +388,8 @@ function overview() {
 function usersList() {
   const now = Date.now();
   const online = new Set((latest.main?.users ?? []).map((u) => u.id));
-  let blockCols = '';
-  try { one('SELECT blocked_at FROM users LIMIT 1'); blockCols = 'u.blocked_at, u.blocked_reason,'; } catch { /* Muvuca ainda sem a coluna */ }
-  try { one('SELECT must_change FROM users LIMIT 1'); blockCols += ' u.must_change,'; } catch { /* Muvuca ainda sem senha temporária */ }
-  blockCols += " (u.id = (SELECT owner_id FROM servers WHERE id = (SELECT value FROM meta WHERE key = 'home_server'))) home_owner,";
-  const rows = all(`SELECT u.id, u.username, u.display_name name, u.created_at, u.last_seen, ${blockCols}
+  const rows = all(`SELECT u.id, u.username, u.display_name name, u.created_at, u.last_seen, u.blocked_at, u.blocked_reason, u.must_change,
+      (u.id = (SELECT owner_id FROM servers WHERE id = (SELECT value FROM meta WHERE key = 'home_server'))) home_owner,
       (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.expires_at > ?) sessions,
       (SELECT COUNT(*) FROM messages m WHERE m.user_id = u.id) messages,
       (SELECT COALESCE(SUM(size), 0) FROM files f WHERE f.owner_id = u.id) bytes,
@@ -632,7 +629,6 @@ function serverDetail(url) {
     })),
     perDay: Array.from({ length: 14 }, (_, i) => perDay.find((d) => d.d === i)?.n ?? 0),
     emojis: safe(() => one('SELECT COUNT(*) n FROM emojis WHERE server_id = ?', id).n, 0),
-    sounds: safe(() => one('SELECT COUNT(*) n FROM sounds WHERE server_id = ?', id).n, 0),
   };
 }
 
@@ -1292,9 +1288,7 @@ const api = {
     json(res, 200, { ok: true, message: `Conta @${u.username} excluída: ${r.messages} mensagens e ${r.files} anexos apagados${extra ? `; ${extra}` : ''}.` });
   },
   'GET /api/ips': (req, res) => {
-    let rows = [];
-    try { rows = all('SELECT ip, reason, created_at FROM blocked_ips ORDER BY created_at DESC'); } catch { /* ainda sem a tabela */ }
-    json(res, 200, { blocked: rows, you: clientIp(req) });
+    json(res, 200, { blocked: all('SELECT ip, reason, created_at FROM blocked_ips ORDER BY created_at DESC'), you: clientIp(req) });
   },
   'POST /api/ips/block': async (req, res) => {
     const b = await readBody(req);

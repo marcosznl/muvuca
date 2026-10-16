@@ -67,7 +67,7 @@ function memberRow(s, m, where, isOffline) {
     sub.append(icon(where.streaming ? 'monitor' : 'speaker', 12), ` ${where.streaming ? 'Ao vivo em' : 'Em'} ${where.channel}`);
     info.append(sub);
   } else if (state.activity[m.id] && !isOffline) {
-    // "Jogando Tron": clique entra na sala
+    // "Jogando Stop": clique entra na sala
     const act = state.activity[m.id];
     const sub = h('div', 'sub playing', 'Jogando ');
     sub.append(h('strong', '', act.name));

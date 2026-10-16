@@ -183,16 +183,6 @@ export function openDb(file) {
     );
     CREATE INDEX IF NOT EXISTS game_results_by_time ON game_results(created_at);
 
-    -- Sons do soundboard de cada servidor (arquivo em data/sounds/<id>)
-    CREATE TABLE IF NOT EXISTS sounds (
-      id         TEXT    PRIMARY KEY,
-      server_id  TEXT    NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-      name       TEXT    NOT NULL,
-      emoji      TEXT,
-      mime       TEXT    NOT NULL,
-      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-      created_at INTEGER NOT NULL
-    );
 
     -- Votos das enquetes (a enquete em si fica no meta da mensagem)
     CREATE TABLE IF NOT EXISTS poll_votes (
@@ -256,26 +246,6 @@ export function openDb(file) {
       channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
       role_id    TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
       PRIMARY KEY (channel_id, role_id)
-    );
-
-    -- Eventos agendados do servidor ("Jogatina sexta 21h") e quem vai
-    CREATE TABLE IF NOT EXISTS events (
-      id          TEXT    PRIMARY KEY,
-      server_id   TEXT    NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-      title       TEXT    NOT NULL,
-      description TEXT,
-      starts_at   INTEGER NOT NULL,
-      channel_id  TEXT    REFERENCES channels(id) ON DELETE SET NULL,
-      created_by  INTEGER,
-      created_at  INTEGER NOT NULL,
-      reminded    INTEGER NOT NULL DEFAULT 0
-    );
-    CREATE INDEX IF NOT EXISTS events_by_server ON events(server_id, starts_at);
-    CREATE TABLE IF NOT EXISTS event_rsvps (
-      event_id TEXT    NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-      user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      at       INTEGER NOT NULL,
-      PRIMARY KEY (event_id, user_id)
     );
 
     -- IPs bloqueados pelo painel administrativo (não acessam nada do Muvuca)
@@ -376,7 +346,6 @@ function migrate(db) {
   if (!db.prepare('PRAGMA table_info(channels)').all().some((c) => c.name === 'private')) db.exec('ALTER TABLE channels ADD COLUMN private INTEGER NOT NULL DEFAULT 0');
   if (!db.prepare('PRAGMA table_info(channels)').all().some((c) => c.name === 'slowmode')) db.exec('ALTER TABLE channels ADD COLUMN slowmode INTEGER');
   // Filtro de palavras do servidor: { words: [...], mode: 'block' | 'mask' }
-  if (!db.prepare('PRAGMA table_info(servers)').all().some((c) => c.name === 'word_filter')) db.exec('ALTER TABLE servers ADD COLUMN word_filter TEXT');
   if (!db.prepare('PRAGMA table_info(channels)').all().some((c) => c.name === 'bitrate')) {
     db.exec('ALTER TABLE channels ADD COLUMN bitrate INTEGER');
   }
@@ -409,7 +378,7 @@ function migrate(db) {
              ALTER TABLE servers ADD COLUMN leave_text TEXT;
              ALTER TABLE servers ADD COLUMN game_announce INTEGER NOT NULL DEFAULT 1;`);
   }
-  // Placar: vitória de várias pessoas na mesma partida (ex.: os inocentes no impostor)
+  // Placar: vitória de várias pessoas na mesma partida (jogos que saíram, como o Impostor)
   if (!db.prepare('PRAGMA table_info(game_players)').all().some((c) => c.name === 'won')) db.exec('ALTER TABLE game_players ADD COLUMN won INTEGER NOT NULL DEFAULT 0');
   // Mensagens diretas: "servidores" escondidos (kind = 'dm'); e tópico dos canais
   if (!db.prepare('PRAGMA table_info(servers)').all().some((c) => c.name === 'kind')) db.exec("ALTER TABLE servers ADD COLUMN kind TEXT NOT NULL DEFAULT 'server'");
@@ -435,6 +404,12 @@ function migrate(db) {
              DROP TABLE xp_events;`);
   }
   if (uCols.includes('xp')) db.exec('ALTER TABLE users DROP COLUMN xp');
+  // O soundboard saiu: os sons de cada servidor somem (os arquivos em data/sounds saem no store.js)
+  db.exec('DROP TABLE IF EXISTS sounds');
+  // Os eventos agendados saíram
+  db.exec('DROP TABLE IF EXISTS event_rsvps; DROP TABLE IF EXISTS events;');
+  // O filtro de palavras saiu
+  if (db.prepare('PRAGMA table_info(servers)').all().some((c) => c.name === 'word_filter')) db.exec('ALTER TABLE servers DROP COLUMN word_filter');
   if (!uCols.includes('blocked_at')) db.exec('ALTER TABLE users ADD COLUMN blocked_at INTEGER; ALTER TABLE users ADD COLUMN blocked_reason TEXT;');
   // Senha temporária dada pelo painel: a pessoa troca no primeiro login
   if (!uCols.includes('must_change')) db.exec('ALTER TABLE users ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0');
@@ -592,7 +567,6 @@ class Store {
       // usuários e sessões
       userByName: p('SELECT * FROM users WHERE username = ?'),
       userById: p('SELECT * FROM users WHERE id = ?'),
-      countUsers: p('SELECT COUNT(*) AS n FROM users'),
       insertUser: p('INSERT INTO users (username, display_name, password_hash, created_at) VALUES (?, ?, ?, ?)'),
       insertSession: p('INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)'),
       sessionUser: p(`SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
@@ -746,7 +720,6 @@ class Store {
                        WHERE m.id > COALESCE(r.last_read, 0) AND m.created_at > mem.joined_at
                          AND m.system = 0 AND (m.user_id IS NULL OR m.user_id != mem.user_id)
                        GROUP BY m.channel_id`),
-      lastMessageId: p('SELECT COALESCE(MAX(id), 0) AS id FROM messages WHERE channel_id = ?'),
       // busca
       search: p(`SELECT m.id FROM messages m JOIN channels c ON c.id = m.channel_id
                  WHERE c.server_id = ? AND c.type != 'voice' AND m.system = 0 AND m.text LIKE ? ESCAPE '\\'
@@ -774,12 +747,6 @@ class Store {
       pushSubsOf: p('SELECT endpoint, keys FROM push_subs WHERE user_id = ?'),
       deletePushSub: p('DELETE FROM push_subs WHERE endpoint = ?'),
       deleteUserPushSub: p('DELETE FROM push_subs WHERE user_id = ? AND endpoint = ?'),
-      // soundboard
-      soundsOf: p('SELECT * FROM sounds WHERE server_id = ? ORDER BY created_at'),
-      sound: p('SELECT * FROM sounds WHERE id = ?'),
-      insertSound: p('INSERT INTO sounds (id, server_id, name, emoji, mime, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'),
-      deleteSound: p('DELETE FROM sounds WHERE id = ?'),
-      soundIdsOf: p('SELECT id FROM sounds WHERE server_id = ?'),
       // enquetes
       insertPoll: p('INSERT INTO messages (channel_id, user_id, author_name, text, created_at, meta) VALUES (?, ?, ?, ?, ?, ?)'),
       votesOf: p('SELECT message_id, user_id, option FROM poll_votes WHERE message_id = ? ORDER BY rowid'),
@@ -841,7 +808,6 @@ class Store {
 
   usernameTaken(username) { return !!this.q.userByName.get(username); }
   userName(id) { return this.q.userById.get(unum(id))?.display_name ?? 'Alguém'; }
-  userCount() { return this.q.countUsers.get().n; }
 
   async checkLogin(username, password) {
     const row = this.q.userByName.get(username);
@@ -996,19 +962,17 @@ class Store {
       const friendIds = this.db.prepare('SELECT CASE WHEN a = ? THEN b ELSE a END AS other FROM friends WHERE a = ? OR b = ?').all(id, id, id).map((r) => uid(r.other));
       const files = this.db.prepare('SELECT id FROM files WHERE owner_id = ?').all(id).map((r) => r.id);
       const images = [row.avatar, row.banner_image].filter(Boolean);
-      const out = { username: row.username, name: row.display_name, files, images, emojis: [], sounds: [], icons: [], deletedServers: [], transferred: [], affected: [], friends: friendIds };
+      const out = { username: row.username, name: row.display_name, files, images, emojis: [], icons: [], deletedServers: [], transferred: [], affected: [], friends: friendIds };
       const messages = this.db.prepare('DELETE FROM messages WHERE user_id = ?').run(id).changes;
       out.messages = messages;
       this.db.prepare('DELETE FROM files WHERE owner_id = ?').run(id);
       for (const img of images) this.db.prepare('DELETE FROM images WHERE id = ?').run(img);
       this.db.prepare('DELETE FROM call_minutes WHERE user_id = ?').run(id);
-      this.db.prepare('UPDATE events SET created_by = NULL WHERE created_by = ?').run(id);
       for (const s of servers) {
         const others = this.db.prepare('SELECT user_id FROM members WHERE server_id = ? AND user_id != ? ORDER BY joined_at').all(s.id, id);
         const gone = s.kind === 'dm' ? others.length <= 1 : s.owner_id === id && others.length === 0;
         if (gone) {
           out.emojis.push(...this.emojiIds(s.id));
-          out.sounds.push(...this.soundIds(s.id));
           if (s.icon) out.icons.push(s.icon);
           this.q.deleteServer.run(s.id);
           out.deletedServers.push({ id: s.id, kind: s.kind, members: others.map((o) => uid(o.user_id)) });
@@ -1061,12 +1025,6 @@ class Store {
       if (!channelRoles.has(r.channel_id)) channelRoles.set(r.channel_id, []);
       channelRoles.get(r.channel_id).push(r.role_id);
     }
-    const events = this.db.prepare('SELECT * FROM events WHERE server_id = ? AND starts_at > ? ORDER BY starts_at LIMIT 20').all(serverId, Date.now() - 3 * 3_600_000);
-    const going = new Map();
-    for (const r of events.length ? this.db.prepare(`SELECT event_id, user_id FROM event_rsvps WHERE event_id IN (${events.map(() => '?').join(',')}) ORDER BY at`).all(...events.map((e) => e.id)) : []) {
-      if (!going.has(r.event_id)) going.set(r.event_id, []);
-      going.get(r.event_id).push(uid(r.user_id));
-    }
     return {
       id: s.id,
       name: s.name,
@@ -1081,11 +1039,6 @@ class Store {
         joinText: s.welcome_text ?? WELCOME_DEFAULTS.join, leaveText: s.leave_text ?? WELCOME_DEFAULTS.leave,
         gameAnnounce: s.game_announce === 1,
       },
-      filter: (() => { try { return s.word_filter ? JSON.parse(s.word_filter) : null; } catch { return null; } })(),
-      events: events.map((e) => ({
-        id: e.id, title: e.title, description: e.description ?? '', startsAt: e.starts_at, channelId: e.channel_id ?? null,
-        by: e.created_by ? uid(e.created_by) : null, going: going.get(e.id) ?? [],
-      })),
       categories: this.q.categories.all(serverId).map((k) => ({ id: k.id, name: k.name })),
       channels: this.q.channels.all(serverId).map((c) => ({
         id: c.id, type: c.type, name: c.name, categoryId: c.category_id, topic: c.topic ?? '',
@@ -1096,7 +1049,6 @@ class Store {
       roles: this.q.roles.all(serverId).map((r) => ({
         id: r.id, name: r.name, color: r.color, position: r.position, permissions: r.permissions, isDefault: r.is_default === 1,
       })),
-      sounds: this.q.soundsOf.all(serverId).map((x) => ({ id: x.id, name: x.name, emoji: x.emoji ?? '🔊' })),
       emojis: this.q.emojis.all(serverId).map((e) => ({
         id: e.id, name: e.name, animated: e.animated === 1, by: e.created_by ? uid(e.created_by) : null,
       })),
@@ -1208,27 +1160,6 @@ class Store {
     });
   }
   setChannelSlowmode(id, seconds) { this.db.prepare('UPDATE channels SET slowmode = ? WHERE id = ?').run(seconds || null, id); }
-  setWordFilter(serverId, filter) { this.db.prepare('UPDATE servers SET word_filter = ? WHERE id = ?').run(filter ? JSON.stringify(filter) : null, serverId); }
-  // ---------- Eventos ----------
-  event(id) { return this.db.prepare('SELECT * FROM events WHERE id = ?').get(String(id)); }
-  addEvent({ serverId, title, description, startsAt, channelId, userId }) {
-    const id = randomId('ev');
-    this.db.prepare('INSERT INTO events (id, server_id, title, description, starts_at, channel_id, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, serverId, title, description || null, startsAt, channelId || null, unum(userId), Date.now());
-    this.db.prepare('INSERT OR IGNORE INTO event_rsvps (event_id, user_id, at) VALUES (?, ?, ?)').run(id, unum(userId), Date.now()); // quem marcou já vai
-    return id;
-  }
-  deleteEvent(id) { this.db.prepare('DELETE FROM events WHERE id = ?').run(String(id)); }
-  rsvp(eventId, userId, on) {
-    if (on) this.db.prepare('INSERT OR IGNORE INTO event_rsvps (event_id, user_id, at) VALUES (?, ?, ?)').run(eventId, unum(userId), Date.now());
-    else this.db.prepare('DELETE FROM event_rsvps WHERE event_id = ? AND user_id = ?').run(eventId, unum(userId));
-  }
-  // Eventos que começam em até `ms` e ainda não tiveram lembrete
-  eventsToRemind(ms) {
-    return this.db.prepare('SELECT * FROM events WHERE reminded = 0 AND starts_at <= ? AND starts_at > ?').all(Date.now() + ms, Date.now() - 60_000);
-  }
-  markReminded(id) { this.db.prepare('UPDATE events SET reminded = 1 WHERE id = ?').run(id); }
-  eventGoing(id) { return this.db.prepare('SELECT user_id FROM event_rsvps WHERE event_id = ?').all(id).map((r) => uid(r.user_id)); }
   deleteChannel(id) { this.q.deleteChannel.run(id); } // as mensagens vão junto (ON DELETE CASCADE)
 
   // ---------- Anexos do chat ----------
@@ -1335,17 +1266,6 @@ class Store {
     return msg;
   }
 
-  // ---------- Soundboard ----------
-
-  createSound({ serverId, name, emoji, mime, user }) {
-    const id = randomId('snd');
-    this.q.insertSound.run(id, serverId, name, emoji || null, mime, unum(user.id), Date.now());
-    return id;
-  }
-  sound(id) { return this.q.sound.get(String(id)); }
-  soundIds(serverId) { return this.q.soundIdsOf.all(serverId).map((r) => r.id); }
-  deleteSound(id) { this.q.deleteSound.run(id); }
-
   // ---------- Enquetes ----------
 
   addPoll({ channelId, user, question, options, multi }) {
@@ -1406,7 +1326,6 @@ class Store {
   // ---------- Não lidas ----------
 
   markRead(userId, channelId, messageId) { this.q.markRead.run(unum(userId), channelId, Number(messageId)); }
-  markChannelRead(userId, channelId) { this.markRead(userId, channelId, this.q.lastMessageId.get(channelId).id); }
   readState(userId) { return Object.fromEntries(this.q.readStateOf.all(unum(userId)).map((r) => [r.channel_id, r.last_read])); }
   // canal -> { n: quantas não lidas, mentions: quantas mencionam a pessoa }
   unread(userId) {
@@ -1555,8 +1474,6 @@ class Store {
     };
   }
 
-  // ---------- Migração da versão sem banco ----------
-
   // O primeiro servidor ("home") nasce do channels.json, mantendo os ids dos canais (histórico e salas de voz)
   seedHomeServer(config) {
     let homeId = this.meta('home_server');
@@ -1568,25 +1485,5 @@ class Store {
     for (const c of config.voice ?? []) this.createChannel({ serverId: homeId, type: 'voice', name: c.name, id: c.id, categoryId: voiceCat });
     this.setMeta('home_server', homeId);
     return homeId;
-  }
-
-  // Importa o histórico antigo (data/chat.json) uma única vez
-  importLegacyChat(file) {
-    if (this.meta('legacy_chat_imported') || !fs.existsSync(file)) return 0;
-    const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
-    const count = this.transaction(() => {
-      let n = 0;
-      for (const [channelId, list] of Object.entries(saved)) {
-        if (!this.channel(channelId)) continue;
-        for (const m of list ?? []) {
-          this.q.insertMessage.run(channelId, null, String(m.name), String(m.text), Number(m.ts), null, null);
-          n++;
-        }
-      }
-      this.setMeta('legacy_chat_imported', new Date().toISOString());
-      return n;
-    });
-    fs.renameSync(file, `${file}.importado`);
-    return count;
   }
 }

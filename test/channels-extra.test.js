@@ -1,18 +1,7 @@
-// Canais privados, modo lento, filtro de palavras e eventos agendados
+// Canais privados, modo lento e menções de grupo
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyFilter, cleanFilter } from '../src/word-filter.js';
 import { startServer, Person, sleep } from './helpers.js';
-
-test('filtro: sem acento e sem maiúscula, "palavra*" pega o começo, menções ficam como estão', () => {
-  const f = cleanFilter('Bobão\nidiot*\n  x \n', 'mask');
-  assert.deepEqual(f, { words: ['bobao', 'idiot*'], mode: 'mask' });
-  const r = applyFilter(f, 'Seu BOBAO, que idiotice <@u5>');
-  assert.deepEqual(r.hits, ['bobao', 'idiotice']);
-  assert.equal(r.text, 'Seu *****, que ******** <@u5>');
-  assert.equal(applyFilter(f, 'tudo certo por aqui').hits.length, 0);
-  assert.equal(cleanFilter('', 'block'), null);
-});
 
 let server;
 let dono;
@@ -79,48 +68,6 @@ test('modo lento: segura a segunda mensagem; quem gerencia mensagens não espera
   assert.match(segunda.message, /Modo lento: espere \d s/);
   await dono.say(lento, 'dono 1');
   await dono.say(lento, 'dono 2'); // o dono não espera
-});
-
-test('filtro de palavras: bloqueia ou esconde; a lista só vai para quem gerencia o servidor', async () => {
-  assert.equal((await bia.request({ t: 'server:filter', serverId: home, words: 'feio', mode: 'block' })).t, 'error');
-  bia.events = bia.events.filter((e) => e.t !== 'server');
-  dono.events = dono.events.filter((e) => e.t !== 'server');
-  assert.equal((await dono.request({ t: 'server:filter', serverId: home, words: 'feio\nchat*', mode: 'block' })).t, 'ok');
-  assert.deepEqual((await snapOf(dono)).filter, { words: ['feio', 'chat*'], mode: 'block' });
-  assert.equal((await snapOf(bia)).filter, undefined, 'quem não gerencia não vê a lista');
-
-  const r = await bia.request({ t: 'msg', channel: geral, text: 'que FEIO isso' });
-  assert.match(r.message, /palavra bloqueada/);
-  await dono.request({ t: 'server:filter', serverId: home, words: 'feio', mode: 'mask' });
-  await sleep(100);
-  assert.equal((await bia.request({ t: 'msg', channel: geral, text: 'muito feio mesmo' })).t, 'ok');
-  const ev = (await bia.waitFor('msg', (e) => e.msg.text.includes('****'))).msg;
-  assert.equal(ev.text, 'muito **** mesmo');
-  await dono.say(geral, 'o dono pode falar feio'); // quem gerencia o servidor fica de fora
-  await dono.request({ t: 'server:filter', serverId: home, words: '' });
-});
-
-test('eventos: marcar (com permissão), "Vou", apagar; o aviso aparece no chat', async () => {
-  const daqui = Date.now() + 2 * 3_600_000;
-  assert.match((await bia.request({ t: 'event:create', serverId: home, title: 'Festa', startsAt: daqui })).message, /permissão para marcar/);
-  assert.match((await dono.request({ t: 'event:create', serverId: home, title: 'Passado', startsAt: Date.now() - 1000 })).message, /futuro/);
-  bia.events = bia.events.filter((e) => e.t !== 'server' && e.t !== 'msg');
-  const { id } = await dono.request({ t: 'event:create', serverId: home, title: 'Jogatina', description: 'Bomberman', startsAt: daqui });
-  assert.ok(id);
-  const aviso = await bia.waitFor('msg', (e) => e.msg.system && e.msg.kind === 'event');
-  assert.equal(aviso.msg.meta.eventId, id);
-  let ev = (await snapOf(bia)).events.find((e) => e.id === id);
-  assert.deepEqual(ev.going, [dono.me.id], 'quem marca já vai');
-
-  bia.events = bia.events.filter((e) => e.t !== 'server');
-  assert.equal((await bia.request({ t: 'event:rsvp', eventId: id, going: true })).t, 'ok');
-  ev = (await snapOf(bia)).events.find((e) => e.id === id);
-  assert.deepEqual(ev.going, [dono.me.id, bia.me.id]);
-
-  assert.equal((await bia.request({ t: 'event:delete', eventId: id })).t, 'error', 'só quem marcou ou quem gerencia');
-  bia.events = bia.events.filter((e) => e.t !== 'server');
-  assert.equal((await dono.request({ t: 'event:delete', eventId: id })).t, 'ok');
-  assert.equal((await snapOf(bia)).events.some((e) => e.id === id), false);
 });
 
 test('@todos e @cargo: só com a permissão; contam como menção para quem foi incluído', async () => {

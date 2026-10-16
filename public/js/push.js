@@ -67,7 +67,7 @@ export async function enablePush() {
     const reg = registration ?? await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription() ?? await subscribe(reg);
     await request({ t: 'push:subscribe', sub: sub.toJSON() });
-    toast('Notificações ativadas! Você vai ser avisado de menções, respostas, mensagens diretas e eventos.');
+    toast('Notificações ativadas! Você vai ser avisado de menções, respostas e mensagens diretas.');
     store.set('pushAsked', null);
     store.set('pushOff', null);
   } catch (err) {
@@ -108,8 +108,8 @@ export function maybeInvitePush() {
     const content = h('div', 'push-invite');
     const needsInstall = isIOS() && !installed();
     content.append(h('p', '', needsInstall
-      ? 'Para receber avisos no iPhone quando te mencionarem, responderem, mandarem mensagem direta ou um evento for começar, instale o Muvuca na Tela de Início:'
-      : 'Quer receber avisos neste celular quando te mencionarem, responderem, mandarem mensagem direta ou um evento for começar?'));
+      ? 'Para receber avisos no iPhone quando te mencionarem, responderem ou mandarem mensagem direta, instale o Muvuca na Tela de Início:'
+      : 'Quer receber avisos neste celular quando te mencionarem, responderem ou mandarem mensagem direta?'));
     if (needsInstall) {
       const steps = h('ol', 'install-steps');
       for (const step of ['Toque em Compartilhar (o quadrado com a seta) aqui no Safari.', 'Escolha "Adicionar à Tela de Início".', 'Abra o Muvuca pelo ícone novo: este aviso aparece de novo para você ativar.']) steps.append(h('li', '', step));

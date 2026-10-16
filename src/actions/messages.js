@@ -9,7 +9,6 @@ import { requireServer, requirePerm, requireChannelView } from '../guards.js';
 import { claimAttachments, removeFiles } from '../attachments.js';
 import { fail, underLimit } from '../util.js';
 import { checkSpam, SpamError } from '../antispam.js';
-import { applyFilter } from '../word-filter.js';
 import { audit } from '../audit.js';
 import { PERMS, can, canSeeChannel } from '../../public/js/permissions.js';
 
@@ -80,17 +79,6 @@ function checkSlowmode(ctx, user, channel, now) {
   return () => slowTimes.set(key, now); // só conta depois que a mensagem for aceita
 }
 
-// Filtro de palavras do servidor (quem gerencia o servidor fica de fora). Bloqueia ou troca por ***.
-function filterText(ctx, user, channel, text, ws, { block = false } = {}) {
-  if (ctx.snap.kind === 'dm' || !ctx.snap.filter || can(ctx.perms, PERMS.MANAGE_SERVER)) return text;
-  const r = applyFilter(ctx.snap.filter, text);
-  if (!r.hits.length) return text;
-  const blocking = block || ctx.snap.filter.mode !== 'mask';
-  audit(blocking ? 'filter:block' : 'filter:mask', { user, ip: ws?.ip ?? null, serverId: ctx.snap.id, detail: { canal: channel.name, palavras: [...new Set(r.hits)].slice(0, 5).join(', ') } });
-  if (blocking) fail('Sua mensagem tem uma palavra bloqueada neste servidor.');
-  return r.text;
-}
-
 // Canal com chat (texto ou música) de um servidor da pessoa
 function requireChatChannel(user, channelId) {
   const channel = db.channel(channelId);
@@ -123,7 +111,6 @@ export default {
     if (!text && !(m.attachments?.length)) return;
     const now = Date.now();
     const slowSent = checkSlowmode(ctx, user, channel, now);
-    text = filterText(ctx, user, channel, text, ws);
     text = checkGroupMentions(ctx, text);
     // Anexos já enviados por esta pessoa, para este canal, ainda sem mensagem
     const files = claimAttachments(m.attachments, user, channel.id);
@@ -173,7 +160,6 @@ export default {
     if (!question) fail('Escreva a pergunta.');
     if (options.length < 2) fail('Coloque pelo menos 2 opções.');
     const slowSent = checkSlowmode(ctx, user, channel, Date.now());
-    filterText(ctx, user, channel, [question, ...options].join(' \n '), null, { block: true }); // enquete: recusa (não mascara)
     slowSent();
     const msg = db.addPoll({ channelId: channel.id, user, question, options, multi: !!m.multi });
     db.markRead(user.id, channel.id, msg.id);
@@ -247,7 +233,7 @@ export default {
     requirePerm(ctx, PERMS.SEND_MESSAGES, 'Você não tem permissão para enviar mensagens aqui.');
     const text = String(m.text ?? '').trim().slice(0, LIMITS.msgLength);
     if (!text) fail('A mensagem não pode ficar vazia (para apagar, use Excluir).');
-    const clean = checkGroupMentions(ctx, filterText(ctx, user, { id: row.channel_id, name: ctx.snap.channels.find((c) => c.id === row.channel_id)?.name }, text, ws));
+    const clean = checkGroupMentions(ctx, text);
     if (clean === row.text) return;
     sendToServer(row.server_id, { t: 'msg:edit', msg: db.editMessage(row.id, clean) });
   },

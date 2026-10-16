@@ -32,7 +32,7 @@ export function announceLeave(serverId, user) {
   if (snap?.welcome.on) post(snap, fill(snap.welcome.leaveText, user.name, snap), SYSTEM.leave);
 }
 
-// "Fulano abriu uma sala de Tron" nos servidores da pessoa que deixam esse aviso ligado
+// "Fulano abriu uma sala de Stop" nos servidores da pessoa que deixam esse aviso ligado
 export function announceGameRoom(user, room, gameName) {
   if (!underLimit(gameAnnounceTimes, user.id, 1, 120_000)) return;
   for (const serverId of db.serverIdsOf(user)) {

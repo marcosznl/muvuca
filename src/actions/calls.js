@@ -38,7 +38,6 @@ function stopRinging(serverId, reason, by = null) {
   return r;
 }
 
-export const isRinging = (serverId) => ringing.has(serverId);
 
 export default {
   // Começar a ligar (quem liga já entra no canal pelo site). Chamada já em andamento: só entra, sem tocar de novo.

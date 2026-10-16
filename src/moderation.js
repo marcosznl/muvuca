@@ -5,7 +5,6 @@ import { sockets, send, sendToUser, broadcastPresence, sendToServer, pushServer 
 import { leaveMusicOf } from './music-rooms.js';
 import { removeImage } from './images.js';
 import { removeEmojiFile } from './emojis.js';
-import { removeSoundFile } from './soundboard.js';
 import { removeFiles } from './attachments.js';
 import { roomService, voiceAll, baseUserId } from './voice.js';
 import { uid } from '../db.js';
@@ -177,7 +176,6 @@ export async function deleteAccount(userId) {
   await removeFiles(r.files).catch(() => {});
   for (const id of [...r.images, ...r.icons]) await removeImage(id).catch(() => {});
   for (const id of r.emojis) await removeEmojiFile(id);
-  for (const id of r.sounds) await removeSoundFile(id);
   // Quem ficou vê na hora: membro some, mensagens dela somem, conversas encerradas fecham
   for (const sid of r.affected) {
     pushServer(sid);

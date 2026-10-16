@@ -15,7 +15,6 @@ import { dmRailItem, renderDmSidebar, dmTitle } from './dms.js';
 import { openUserSettings, currentLayout } from './user-settings.js';
 import { openNovidades, temNovidade } from './novidades.js';
 import { openQuickSwitch } from './quick-switch.js';
-import { eventsStrip, openEvents } from './events.js';
 
 // ---------- Coluna de servidores ----------
 
@@ -155,7 +154,6 @@ export function serverMenu(s, x, y) {
   contextMenu(x, y, [
     canIn(s, PERMS.CREATE_INVITE) && { label: 'Convidar pessoas', icon: 'user-plus', onClick: () => openInviteDialog(s) },
     manage && { label: 'Configurações do servidor', icon: 'settings', onClick: () => openServerSettings(s.id) },
-    { label: 'Eventos', icon: 'calendar', onClick: () => openEvents(s.id) },
     canIn(s, PERMS.MANAGE_CHANNELS) && { label: 'Criar canal', icon: 'plus', onClick: () => createChannel(s, 'text') },
     canIn(s, PERMS.MANAGE_CHANNELS) && { label: 'Criar categoria', icon: 'plus', onClick: () => createCategory(s) },
     state.mutes.has(s.id)
@@ -758,8 +756,6 @@ export function renderChannels() {
   box.replaceChildren();
   if (!s) return;
   const canManage = canIn(s, PERMS.MANAGE_CHANNELS);
-  const strip = eventsStrip(s); // próximo evento do servidor
-  if (strip) box.append(strip);
   // Canais sem categoria ficam no topo; os de uma categoria que não existe mais também
   const known = new Set((s.categories ?? []).map((k) => k.id));
   const loose = s.channels.filter((c) => !c.categoryId || !known.has(c.categoryId));
@@ -844,8 +840,4 @@ export function renderVoicePanel() {
 
 $('vp-channel').onclick = () => { const id = voiceChannelId(); if (id) selectChannel(id); };
 $('btn-disconnect').onclick = () => leaveVoice();
-
-export function copyText(text) {
-  navigator.clipboard?.writeText(text).then(() => toast('Copiado!')).catch(() => {});
-}
 

@@ -8,7 +8,6 @@ import { api, send, request } from './net.js';
 import { selectChannel } from './app.js';
 import { renderChannels, renderUserPanel, renderVoicePanel } from './sidebar.js';
 import { applyVolume as applyMusicVolume } from './music.js';
-import { BUILTIN_SOUNDS, soundboardVolume, setSoundboardVolume, playBoardSound } from './sounds.js';
 
 const { Room, RoomEvent, Track, VideoPresets, VideoQuality, ConnectionQuality, AudioPresets, DisconnectReason } = LivekitClient;
 
@@ -136,7 +135,6 @@ const poke = () => send({ t: 'voice:poke' });
 // 2º aparelho da mesma conta na call: entra como "u5:2", sem microfone e sem som (só câmera e tela)
 let secondDevice = false;
 const selfId = () => (secondDevice ? `${state.me.id}:2` : state.me.id);
-export const isSecondDevice = () => secondDevice;
 
 function selfEntry() {
   const lp = room?.localParticipant;
@@ -508,7 +506,7 @@ async function applyNoiseFilter() {
   }
 }
 
-// Configurações de voz: modo de entrada (detecção de voz ou apertar para falar), supressão de ruído e soundboard
+// Configurações de voz: modo de entrada (detecção de voz ou apertar para falar) e supressão de ruído
 export function openVoiceSettings() {
   const content = h('div', 'form voice-settings');
   const mode = h('div', 'field');
@@ -554,57 +552,11 @@ export function openVoiceSettings() {
   noiseRow.append(nt, noiseBox);
   noiseBox.onchange = () => { store.set('noiseAi', noiseBox.checked ? null : '0'); applyNoiseFilter(); };
 
-  const vol = h('label', 'field');
-  const range = h('input');
-  Object.assign(range, { type: 'range', min: 0, max: 100, value: Math.round(soundboardVolume() * 100) });
-  range.oninput = () => setSoundboardVolume(range.value);
-  vol.append(h('span', 'field-label', 'Volume do soundboard'), range);
-  content.append(mode, noiseRow, vol);
+  content.append(mode, noiseRow);
   paint();
   openModal({ title: 'Configurações de voz', content });
 }
 $('vp-settings').onclick = openVoiceSettings;
-
-// ---------- Soundboard ----------
-
-export function onBoardSound(m) {
-  playBoardSound(m);
-  const who = findChannel(roomChannel).server?.members.find((x) => x.id === m.by)?.name ?? 'Alguém';
-  const label = BUILTIN_SOUNDS.find(([id]) => `builtin:${id}` === m.sound)?.[2] ?? m.name;
-  const chip = h('div', 'board-chip', `🔊 ${who}: ${label}`);
-  document.body.append(chip);
-  setTimeout(() => chip.remove(), 2600);
-}
-
-function openSoundboard() {
-  const server = findChannel(roomChannel).server;
-  const box = h('div', 'soundboard');
-  box.append(h('div', 'soundboard-title', 'Soundboard'));
-  const grid = h('div', 'soundboard-grid');
-  const add = (sound, emoji, label) => {
-    const b = h('button', 'board-btn');
-    b.type = 'button';
-    b.append(h('span', 'board-emoji', emoji), h('span', 'board-name', label));
-    b.onclick = () => request({ t: 'sound:play', sound }).catch((err) => showBanner(err.message, { timeout: 3000 }));
-    grid.append(b);
-  };
-  for (const [id, emoji, label] of BUILTIN_SOUNDS) add(`builtin:${id}`, emoji, label);
-  for (const s of server?.sounds ?? []) add(s.id, s.emoji, s.name);
-  box.append(grid);
-  if (!(server?.sounds ?? []).length) box.append(h('div', 'muted small', 'Quem gerencia emojis pode subir sons do servidor nas configurações (Sons).'));
-  const overlay = document.getElementById('overlay-layer');
-  overlay.append(box);
-  const r = $('vp-soundboard').getBoundingClientRect();
-  const br = box.getBoundingClientRect();
-  box.style.left = `${Math.max(8, Math.min(r.left, innerWidth - br.width - 8))}px`;
-  box.style.top = `${Math.max(8, r.top - br.height - 8)}px`;
-  const outside = (e) => { if (!box.contains(e.target) && e.target !== $('vp-soundboard')) { box.remove(); document.removeEventListener('mousedown', outside, true); } };
-  setTimeout(() => document.addEventListener('mousedown', outside, true), 0);
-}
-$('vp-soundboard').onclick = () => {
-  const open = document.querySelector('.soundboard');
-  if (open) open.remove(); else openSoundboard();
-};
 
 // Liga/desliga o modo música; conectado, troca o microfone na hora (os filtros e o estéreo são definidos ao capturar)
 async function setMusicMode(on) {

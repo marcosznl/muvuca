@@ -6,7 +6,6 @@ import { icon } from './icons.js';
 import { state, findChannel, canIn, PERMS, nameOf, isMuted, chatChannelId } from './state.js';
 import { openProfileCard } from './profile.js';
 import { nameColor } from './permissions.js';
-import { openEvents } from './events.js';
 import { send, request } from './net.js';
 import { confirmDialog } from './dialogs.js';
 import { renderChannels, renderRail } from './sidebar.js';
@@ -307,12 +306,6 @@ function buildMessage(msg, prev, server = findChannel(msg.channel).server) {
     text.classList.remove('jumbo');
     row.append(h('div', 'gutter', hhmm(new Date(msg.ts))),
       icon({ music: 'headphones', join: 'arrow-right', leave: 'arrow-left', game: 'gamepad', call: 'phone', rename: 'pencil', event: 'calendar', owner: 'crown' }[kind] ?? 'headphones', 14), text);
-    if (kind === 'event' && msg.meta?.eventId) {
-      const see = h('button', 'btn small primary', 'Ver evento');
-      see.type = 'button';
-      see.onclick = () => openEvents(findChannel(msg.channel).server?.id);
-      row.append(see);
-    }
     if (kind === 'game' && msg.meta?.roomId) {
       const join = h('button', 'btn small primary', 'Entrar na sala');
       join.type = 'button';

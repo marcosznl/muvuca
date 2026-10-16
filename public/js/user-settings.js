@@ -104,7 +104,7 @@ export function openUserSettings() {
   if (!window.muvucaDesktop) {
     const row = h('div', 'user-settings-account');
     const on = pushEnabled();
-    const status = h('span', 'muted small', on ? 'Ativadas: menções, respostas, mensagens diretas e eventos.' : 'Desativadas neste aparelho.');
+    const status = h('span', 'muted small', on ? 'Ativadas: menções, respostas e mensagens diretas.' : 'Desativadas neste aparelho.');
     const toggle = button(on ? 'Desativar' : 'Ativar notificações', { kind: on ? 'secondary' : 'primary' });
     toggle.onclick = async () => { await (on ? disablePush() : enablePush()); modalRef?.close(); };
     row.append(toggle, status);

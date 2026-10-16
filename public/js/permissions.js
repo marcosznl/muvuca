@@ -18,7 +18,7 @@ export const PERMS = {
   PIN_MESSAGES: 1 << 14,    // fixar e desafixar mensagens
   MOVE_MEMBERS: 1 << 15,    // mover alguém de um canal de voz para outro
   MANAGE_NICKNAMES: 1 << 16, // mudar o apelido de membros dentro do servidor
-  MANAGE_EVENTS: 1 << 17,    // criar e apagar eventos agendados
+  // 1 << 17 era "gerenciar eventos" (os eventos saíram): não reaproveitar, cargos antigos ainda têm o bit
   MENTION_EVERYONE: 1 << 18, // @todos e @cargo avisam as pessoas
 };
 
@@ -46,7 +46,6 @@ export const PERM_INFO = [
   ['PIN_MESSAGES', 'Fixar mensagens', 'Fixar e desafixar mensagens no topo do canal.'],
   ['MOVE_MEMBERS', 'Mover membros', 'Levar alguém que está numa call para outro canal de voz do servidor.'],
   ['MANAGE_NICKNAMES', 'Gerenciar apelidos', 'Mudar o nome com que um membro (de cargo abaixo do seu) aparece neste servidor.'],
-  ['MANAGE_EVENTS', 'Gerenciar eventos', 'Marcar e apagar eventos do servidor (ex.: "Jogatina sexta 21h").'],
   ['MENTION_EVERYONE', 'Mencionar @todos e cargos', 'Usar @todos (avisa todo mundo do canal) e mencionar cargos (avisa quem tem o cargo).'],
 ];
 
@@ -75,14 +74,9 @@ export function canSeeChannel(server, userId, channel) {
 }
 
 // O servidor como aquela pessoa enxerga: sem os canais privados dela não ter acesso
-// (e a lista do filtro de palavras só para quem gerencia o servidor)
 export function serverViewFor(server, userId) {
-  if (!server) return server;
-  const filter = server.filter && can(computePerms(server, userId), PERMS.MANAGE_SERVER) ? server.filter : undefined;
-  if (!server.channels.some((c) => c.private)) return { ...server, filter };
-  const channels = server.channels.filter((c) => canSeeChannel(server, userId, c));
-  const ids = new Set(channels.map((c) => c.id));
-  return { ...server, filter, channels, events: (server.events ?? []).map((e) => (e.channelId && !ids.has(e.channelId) ? { ...e, channelId: null } : e)) };
+  if (!server || !server.channels.some((c) => c.private)) return server;
+  return { ...server, channels: server.channels.filter((c) => canSeeChannel(server, userId, c)) };
 }
 
 // Posição do cargo mais alto (o dono fica acima de todos)

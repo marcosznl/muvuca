@@ -618,7 +618,7 @@ test('jogos: quem assistia entra para jogar quando a partida acaba', async () =>
 
 test('jogos: todos os jogos da lista abrem, rodam e aceitam comandos', async () => {
   const { games } = await ana.request({ t: 'games:list' });
-  assert.ok(games.some((g) => g.id === 'tron'));
+  assert.deepEqual(games.map((g) => g.id).sort(), ['bomberman', 'desenho', 'stop']);
   for (const g of games.filter((x) => x.minPlayers <= 1)) {
     const { room } = await ana.request({ t: 'game:create', game: g.id });
     assert.equal(room.maxPlayers, g.maxPlayers);
@@ -630,20 +630,6 @@ test('jogos: todos os jogos da lista abrem, rodam e aceitam comandos', async () 
     await ana.request({ t: 'game:leave' });
   }
   assert.equal((await ana.request({ t: 'game:create', game: 'xadrez' })).t, 'error');
-});
-
-test('jogo de cartas: cada pessoa recebe só a própria mão', async () => {
-  const { room } = await ana.request({ t: 'game:create', game: 'cartas' });
-  await dono.request({ t: 'game:join', roomId: room.id });
-  await ana.request({ t: 'game:start', roomId: room.id });
-  const a = await ana.waitFor('game:state', (e) => e.roomId === room.id);
-  const d = await dono.waitFor('game:state', (e) => e.roomId === room.id);
-  assert.ok(a.state.hand.length >= 7 && d.state.hand.length >= 7);
-  const anaIds = new Set(a.state.hand.map((c) => c.id));
-  assert.ok(d.state.hand.every((c) => !anaIds.has(c.id)), 'a mão da Ana não vai para o dono');
-  assert.ok(a.state.players.every((p) => !('hand' in p)));
-  await dono.request({ t: 'game:leave' });
-  await ana.request({ t: 'game:leave' });
 });
 
 test('a sessão se renova com o uso (30 dias a partir do último uso)', async () => {

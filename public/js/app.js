@@ -1,6 +1,5 @@
 // Ponto de entrada: conexão, eventos do servidor e navegação entre servidores/canais
 import { $, store, showBanner, toast } from './util.js';
-import { eventsUpdated, onEventReminder } from './events.js';
 import { openUserSettings } from './user-settings.js';
 import { avisarNovidades } from './novidades.js';
 import { reportClientInfo } from './client-report.js';
@@ -23,7 +22,7 @@ import './quick-switch.js';
 import './voice-menus.js';
 import { setupPush, pushAfterLogin } from './push.js';
 import { closeEmojiPanel } from './chat-picker.js';
-import { renderStage, leaveVoice, voiceChannelId, applyAudioState, updateMediaButtons, mergeSelfIntoVoice, onBoardSound, onVoiceMove, syncMiniPlayer, resumeCall } from './voice.js';
+import { renderStage, leaveVoice, voiceChannelId, applyAudioState, updateMediaButtons, mergeSelfIntoVoice, onVoiceMove, syncMiniPlayer, resumeCall } from './voice.js';
 import { renderMembers } from './members.js';
 import {
   joinMusic, musicChannelId, onMusicState, onMusicQueue, rejoinMusic, musicChannelGone, placeMusicView, renderAllMusic,
@@ -237,7 +236,6 @@ function handle(m) {
       const isNew = !serverById(m.server.id);
       upsertServer(m.server);
       refreshSettings(m.server.id);
-      eventsUpdated();
       musicChannelGone();
       if (m.select) return selectServer(m.server.id);
       if (isNew) { renderRail(); if (state.view.dms) renderChannels(); return; } // conversa nova aparece na lista
@@ -314,9 +312,6 @@ function handle(m) {
     case 'voice:move':
       onVoiceMove(m);
       break;
-    case 'event:reminder':
-      onEventReminder(m);
-      break;
     case 'theme': // escolheu outro tema em outro aparelho (ou aba)
       receiveTheme(m.theme);
       break;
@@ -331,9 +326,6 @@ function handle(m) {
       break;
     case 'msg:reactions':
       onReactions(m);
-      break;
-    case 'sound':
-      onBoardSound(m);
       break;
     case 'msg:poll':
       onPollVotes(m);
@@ -457,7 +449,6 @@ if (store.get('hideMembers') === '1') $('app').classList.add('hide-members');
 
 // ---------- Início ----------
 
-store.set('password', null); // a versão antiga guardava a senha comum; agora usamos sessão
 setupPush(); // service worker: notificações e "instalar na tela inicial"
 if (sessionToken()) start();
 else showAuth({ onLoggedIn: start });
