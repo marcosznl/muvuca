@@ -1,7 +1,7 @@
 {
   "name": "muvuca-desktop",
   "productName": "Muvuca",
-  "version": "1.4.6",
+  "version": "1.4.7",
   "description": "Muvuca para Mac",
   "main": "main.js",
   "private": true,

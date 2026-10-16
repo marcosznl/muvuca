@@ -618,7 +618,7 @@ test('jogos: quem assistia entra para jogar quando a partida acaba', async () =>
 
 test('jogos: todos os jogos da lista abrem, rodam e aceitam comandos', async () => {
   const { games } = await ana.request({ t: 'games:list' });
-  assert.ok(games.some((g) => g.id === 'tron'));
+  assert.deepEqual(games.map((g) => g.id).sort(), ['bomberman', 'desenho', 'stop']);
   for (const g of games.filter((x) => x.minPlayers <= 1)) {
     const { room } = await ana.request({ t: 'game:create', game: g.id });
     assert.equal(room.maxPlayers, g.maxPlayers);
@@ -630,20 +630,6 @@ test('jogos: todos os jogos da lista abrem, rodam e aceitam comandos', async () 
     await ana.request({ t: 'game:leave' });
   }
   assert.equal((await ana.request({ t: 'game:create', game: 'xadrez' })).t, 'error');
-});
-
-test('jogo de cartas: cada pessoa recebe só a própria mão', async () => {
-  const { room } = await ana.request({ t: 'game:create', game: 'cartas' });
-  await dono.request({ t: 'game:join', roomId: room.id });
-  await ana.request({ t: 'game:start', roomId: room.id });
-  const a = await ana.waitFor('game:state', (e) => e.roomId === room.id);
-  const d = await dono.waitFor('game:state', (e) => e.roomId === room.id);
-  assert.ok(a.state.hand.length >= 7 && d.state.hand.length >= 7);
-  const anaIds = new Set(a.state.hand.map((c) => c.id));
-  assert.ok(d.state.hand.every((c) => !anaIds.has(c.id)), 'a mão da Ana não vai para o dono');
-  assert.ok(a.state.players.every((p) => !('hand' in p)));
-  await dono.request({ t: 'game:leave' });
-  await ana.request({ t: 'game:leave' });
 });
 
 test('a sessão se renova com o uso (30 dias a partir do último uso)', async () => {
@@ -676,19 +662,13 @@ test('a política de segurança deixa rodar WebAssembly (supressão de ruído da
   assert.doesNotMatch(script, /'unsafe-eval'/, 'eval de JavaScript continua bloqueado');
 });
 
-test('2º aparelho na call: identidade "conta:2", sem microfone, nome avisando', async () => {
+test('token da call: sempre a própria conta, com microfone (o "2º aparelho" saiu)', async () => {
   const payload = (tok) => JSON.parse(Buffer.from(tok.split('.')[1], 'base64url').toString());
-  const main = payload((await ana.post('/token', { channel: 'sala-1' })).body.token);
-  const second = payload((await ana.post('/token', { channel: 'sala-1', second: true })).body.token);
-  assert.equal(main.sub, ana.me.id);
-  assert.equal(second.sub, `${ana.me.id}:2`);
-  assert.match(second.name, /\(2º aparelho\)$/);
-  assert.equal(second.attributes?.companion, '1');
-  // Microfone (fonte 2) só no aparelho principal; câmera e tela nos dois
-  const sources = (p) => (p.video.canPublishSources ?? []).map((x) => String(x).toLowerCase());
-  assert.ok(sources(main).some((x) => x.includes('microphone') || x === '2'));
-  assert.ok(!sources(second).some((x) => x.includes('microphone') || x === '2'));
-  assert.ok(sources(second).some((x) => x.includes('camera') || x === '1'));
+  const t = payload((await ana.post('/token', { channel: 'sala-1', second: true })).body.token);
+  assert.equal(t.sub, ana.me.id);
+  assert.equal(t.name, ana.me.name);
+  const sources = (t.video.canPublishSources ?? []).map((x) => String(x).toLowerCase());
+  assert.ok(sources.some((x) => x.includes('microphone') || x === '2'));
 });
 
 test('mover da call: só com "Mover membros", só quem está numa call do servidor', async () => {

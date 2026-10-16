@@ -16,7 +16,7 @@ export const state = {
   status: {},           // pessoa online -> 'idle' (ausente) ou 'dnd' (não perturbe); sem nada = online
   typing: new Map(),    // canal -> Map(pessoa -> até quando mostrar "digitando")
   mutes: new Set(),     // canais e servidores que você silenciou
-  activity: {},         // pessoa -> { game, name, roomId } ("Jogando Tron")
+  activity: {},         // pessoa -> { game, name, roomId } ("Jogando Stop")
   friends: [],          // [{ user, status: 'friend' | 'incoming' | 'outgoing' }]
   micOn: store.get('micOn') !== '0',
   deafened: store.get('deafened') === '1',
@@ -63,7 +63,6 @@ export function findChannel(channelId) {
   return { server: null, channel: null };
 }
 
-export const currentChannel = () => findChannel(state.view.channelId).channel;
 
 export const permsIn = (serverOrId) => {
   const s = typeof serverOrId === 'string' ? serverById(serverOrId) : serverOrId;

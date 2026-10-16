@@ -127,23 +127,20 @@ test('status: não perturbe e invisível; ausente automático', async () => {
 
 test('placar da semana: partida com 2 pessoas conta; aviso de sala aberta no chat', async () => {
   await dono.request({ t: 'server:welcome', serverId: home, on: true, gameAnnounce: true });
-  const { room } = await dono.request({ t: 'game:create', game: 'velha' });
+  const { room } = await dono.request({ t: 'game:create', game: 'bomberman' });
   const ann = await bia.waitFor('msg', (e) => e.msg.kind === 'game');
   assert.equal(ann.msg.meta.roomId, room.id);
   await bia.request({ t: 'game:join', roomId: room.id });
   await dono.request({ t: 'game:start', roomId: room.id });
-  // Dono (X) faz a linha de cima; Bia joga embaixo
-  for (const [p, cell] of [[dono, 0], [bia, 3], [dono, 1], [bia, 4], [dono, 2]]) {
-    p.send({ t: 'game:input', roomId: room.id, cell });
-    await sleep(120);
-  }
+  // Bia sai no meio da partida: conta como eliminada e o dono vence
+  await dono.waitFor('game:state', (e) => e.roomId === room.id);
+  await bia.request({ t: 'game:leave' });
   const lb = await dono.waitFor('games:leaderboard', (e) => e.week.length > 0, 3000);
   assert.deepEqual(lb.week.find((r) => r.userId === dono.me.id), { userId: dono.me.id, name: 'dono', wins: 1, played: 1 });
   assert.equal(lb.week.find((r) => r.userId === bia.me.id).wins, 0);
   const again = await bia.request({ t: 'games:leaderboard' });
   assert.equal(again.week.length, 2);
   await dono.request({ t: 'game:leave' });
-  await bia.request({ t: 'game:leave' });
 });
 
 test('saúde e chave de notificação respondem', async () => {
@@ -260,28 +257,9 @@ test('prévia de link: recusa endereço interno e link inválido', async () => {
   assert.equal((await bia.request({ t: 'link:preview', url: 'file:///etc/passwd' })).t, 'error');
 });
 
-test('soundboard: sobe som (só quem gerencia emojis), recusa não-áudio e só toca dentro da call', async () => {
-  const mp3 = Buffer.concat([Buffer.from('ID3'), Buffer.alloc(300)]);
-  assert.equal((await bia.upload('/api/sound', { server: home, name: 'ihhh' }, mp3)).status, 403);
-  const bad = await dono.upload('/api/sound', { server: home, name: 'x' }, Buffer.from('texto'));
-  assert.equal(bad.status, 400);
-  const ok = await dono.upload('/api/sound', { server: home, name: 'Ihhh', emoji: '😬' }, mp3);
-  assert.equal(ok.status, 200);
-  await sleep(150);
-  const snd = snap(dono).sounds.find((x) => x.id === ok.body.id);
-  assert.deepEqual(snd, { id: ok.body.id, name: 'Ihhh', emoji: '😬' });
-  const file = await fetch(`${server.base}/sound/${snd.id}`);
-  assert.equal(file.headers.get('content-type'), 'audio/mpeg');
-  const play = await bia.request({ t: 'sound:play', sound: 'builtin:tada' });
-  assert.equal(play.t, 'error'); // não está em nenhuma call
-  await dono.request({ t: 'sound:delete', soundId: snd.id });
-  await sleep(150);
-  assert.equal(snap(dono).sounds.length, 0);
-});
-
 test('jogos de festa: chat da sala, "Jogando…", palpite escondido e mínimo de pessoas', async () => {
-  const { room } = await dono.request({ t: 'game:create', game: 'impostor' });
-  assert.match((await dono.request({ t: 'game:start', roomId: room.id })).message, /pelo menos 3/);
+  const { room } = await dono.request({ t: 'game:create', game: 'desenho' });
+  assert.match((await dono.request({ t: 'game:start', roomId: room.id })).message, /pelo menos 2/);
   await dono.request({ t: 'game:leave' });
 
   const { room: r2 } = await dono.request({ t: 'game:create', game: 'desenho' });

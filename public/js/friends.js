@@ -183,4 +183,3 @@ export function renderFriendsView(presenceOnly = false) {
   if (searching) { const i = view.querySelector('.friends-search input'); i?.focus(); i?.setSelectionRange(caret, caret); } // continua digitando
 }
 
-export function openFriendsTab(id) { tab = id; }

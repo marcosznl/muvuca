@@ -5,9 +5,8 @@ import { sockets, send, sendToUser, broadcastPresence, sendToServer, pushServer 
 import { leaveMusicOf } from './music-rooms.js';
 import { removeImage } from './images.js';
 import { removeEmojiFile } from './emojis.js';
-import { removeSoundFile } from './soundboard.js';
 import { removeFiles } from './attachments.js';
-import { roomService, voiceAll, baseUserId } from './voice.js';
+import { roomService, voiceAll } from './voice.js';
 import { uid } from '../db.js';
 
 // ---------- IPs bloqueados (consultados em todo pedido: ficam em memória) ----------
@@ -31,7 +30,7 @@ function kick(userId, code, message) {
 // Tira da call a conta em todos os aparelhos (o principal e o 2º)
 function removeFromVoice(userId) {
   for (const [channel, people] of Object.entries(voiceAll())) {
-    for (const p of people) if (baseUserId(p.id) === userId) roomService.removeParticipant(channel, p.id).catch(() => {});
+    for (const p of people) if (p.id === userId) roomService.removeParticipant(channel, p.id).catch(() => {});
   }
 }
 
@@ -177,7 +176,6 @@ export async function deleteAccount(userId) {
   await removeFiles(r.files).catch(() => {});
   for (const id of [...r.images, ...r.icons]) await removeImage(id).catch(() => {});
   for (const id of r.emojis) await removeEmojiFile(id);
-  for (const id of r.sounds) await removeSoundFile(id);
   // Quem ficou vê na hora: membro some, mensagens dela somem, conversas encerradas fecham
   for (const sid of r.affected) {
     pushServer(sid);

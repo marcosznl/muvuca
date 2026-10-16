@@ -621,19 +621,6 @@ $('mp-mute').onclick = toggleMute;
 $('mp-leave').onclick = () => leaveMusic();
 $('mp-channel').onclick = () => { if (m.channelId) selectChannel(m.channelId); };
 
-// Diagnóstico: em que segundo o player está e em que segundo deveria estar (pelo relógio do servidor)
-export function musicTiming() {
-  const t = m.room?.track;
-  if (!t || !m.playerReady) return null;
-  return {
-    videoId: t.videoId,
-    player: m.player.getCurrentTime(),
-    expected: (serverNow() - t.startedAt) / 1000,
-    offsetMs: Math.round(m.offset),
-    state: m.player.getPlayerState(),
-  };
-}
-
 // ---------- Divisória entre o vídeo e o chat (arrastar para redimensionar) ----------
 
 const VIDEO_MIN = 200;      // altura mínima do vídeo (px): o YouTube exige pelo menos 200 px para tocar

@@ -57,7 +57,8 @@ test('cartão da pessoa: por id, por "u12" e por @usuário', async () => {
   const r = await painel.get(`/api/pessoa?id=${id}`);
   assert.ok(r.body.messages.some((m) => m.text.includes('abacaxi')));
   assert.ok(r.body.servers.length >= 1);
-  assert.ok(Array.isArray(r.body.ips) && Array.isArray(r.body.audit) && Array.isArray(r.body.xp7));
+  assert.ok(Array.isArray(r.body.ips) && Array.isArray(r.body.audit) && typeof r.body.usage7.callMinutes === 'number');
+  assert.ok(!('xp7' in r.body) && !('level' in r.body.user)); // o XP saiu
   assert.equal((await painel.get('/api/pessoa?user=ninguem')).status, 404);
 });
 

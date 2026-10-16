@@ -100,20 +100,6 @@ function profileCard(p, { server = null, preview = false, editRoles = false, sel
     body.append(box);
   };
   if (p.bio) section('Sobre mim', h('div', 'profile-card-bio', p.bio));
-  // XP da conta (o mesmo em todos os servidores)
-  if (p.xp && !preview) {
-    const x = p.xp;
-    const fmt = (n) => n.toLocaleString('pt-BR');
-    const fill = h('div');
-    fill.style.width = `${Math.round((x.into / x.need) * 100)}%`;
-    const bar = h('div', 'xp-bar');
-    bar.append(fill);
-    const head = h('div', 'xp-level');
-    head.append(h('b', '', `Nível ${x.level}`), h('span', 'muted small', `${fmt(x.total)} XP${p.id === state.me?.id && state.me.xpRank ? ` · #${state.me.xpRank} no Muvuca` : ''}`));
-    const box = h('div');
-    box.append(head, bar, h('div', 'muted small', `${fmt(x.into)} / ${fmt(x.need)} XP para o nível ${x.level + 1}`));
-    section('Nível', box);
-  }
   if (server && p.joinedAt) section(`Membro de ${server.name} desde`, h('div', 'small', fmtDate(p.joinedAt)));
   if (server) {
     const chips = roleChips(server, p, { editable: editRoles });

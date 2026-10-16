@@ -1,5 +1,4 @@
-// Configurações (engrenagem lá embaixo, no lugar do antigo "sair"): tema, onde ficam os servidores,
-// trocar senha e sair da conta
+// Configurações (engrenagem lá embaixo, no lugar do antigo "sair"): tema, trocar senha e sair da conta
 import { h, store } from './util.js';
 import { openModal, button } from './dialogs.js';
 import { BASE_THEMES, COLOR_THEMES, currentTheme, setTheme, gradientOf } from './theme.js';
@@ -7,40 +6,6 @@ import { openChangePassword } from './profile.js';
 import { enablePush, disablePush, pushEnabled } from './push.js';
 import { openNovidades, temNovidade } from './novidades.js';
 import { openSessions } from './sessions.js';
-
-// ---------- Layout: servidores na coluna da esquerda (padrão) ou em abas no topo ----------
-export const LAYOUTS = [['side', 'Na lateral', 'Coluna de ícones à esquerda'], ['top', 'No topo', 'Abas com o nome do servidor']];
-export const currentLayout = () => store.get('layout') || 'side';
-
-export function applyLayout() {
-  document.getElementById('app')?.classList.toggle('layout-top', currentLayout() === 'top');
-}
-
-export async function setLayout(layout) {
-  store.set('layout', layout === 'side' ? null : layout);
-  applyLayout();
-  const { renderRail } = await import('./sidebar.js');
-  renderRail(); // no topo os servidores mostram o nome
-}
-
-applyLayout();
-
-// Grupo de botões lado a lado (um escolhido)
-function choices(options, current, onPick) {
-  const seg = h('div', 'seg');
-  const paint = (value) => { for (const b of seg.children) b.classList.toggle('selected', b.dataset.value === value); };
-  for (const [value, label, hint] of options) {
-    const b = h('button', 'seg-btn');
-    b.type = 'button';
-    b.dataset.value = value;
-    b.append(h('strong', '', label));
-    if (hint) b.append(h('span', '', hint));
-    b.onclick = () => { onPick(value); paint(value); };
-    seg.append(b);
-  }
-  paint(current);
-  return seg;
-}
 
 const group = (title, ...content) => {
   const g = h('div', 'seg-group');
@@ -98,13 +63,12 @@ export function openUserSettings() {
   const content = h('div', 'screen-dialog user-settings');
   content.append(
     group('Tema', themePicker()),
-    group('Servidores', choices(LAYOUTS, currentLayout(), setLayout)),
   );
   // Notificações deste aparelho (no app do computador elas já são as do próprio sistema)
   if (!window.muvucaDesktop) {
     const row = h('div', 'user-settings-account');
     const on = pushEnabled();
-    const status = h('span', 'muted small', on ? 'Ativadas: menções, respostas, mensagens diretas e eventos.' : 'Desativadas neste aparelho.');
+    const status = h('span', 'muted small', on ? 'Ativadas: menções, respostas e mensagens diretas.' : 'Desativadas neste aparelho.');
     const toggle = button(on ? 'Desativar' : 'Ativar notificações', { kind: on ? 'secondary' : 'primary' });
     toggle.onclick = async () => { await (on ? disablePush() : enablePush()); modalRef?.close(); };
     row.append(toggle, status);

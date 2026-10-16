@@ -20,7 +20,7 @@ export default {
   },
 
   // Mover alguém que está numa call para outro canal de voz do mesmo servidor (só aquela pessoa).
-  // O aparelho dela troca de canal sozinho; o 2º aparelho da conta (se tiver) fica onde está.
+  // O aparelho dela troca de canal sozinho.
   'voice:move'(user, m) {
     const to = db.channel(m.channelId);
     if (!to || to.type !== 'voice') fail('Canal de voz não encontrado.');

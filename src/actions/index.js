@@ -8,16 +8,14 @@ import profile from './profile.js';
 import games from './games.js';
 import friends from './friends.js';
 import calls from './calls.js';
-import events from './events.js';
 import { emojiActions } from '../emojis.js';
 import { imageActions } from '../images.js';
 import client from './client.js';
 import { pushActions } from '../push.js';
-import { soundActions } from '../soundboard.js';
 import { voiceStatsActions } from '../voice-stats.js';
 
 export const actions = {
-  ...messages, ...servers, ...channels, ...roles, ...media, ...profile, ...games, ...friends, ...calls, ...events, ...emojiActions, ...imageActions, ...pushActions, ...soundActions, ...voiceStatsActions, ...client,
+  ...messages, ...servers, ...channels, ...roles, ...media, ...profile, ...games, ...friends, ...calls, ...emojiActions, ...imageActions, ...pushActions, ...voiceStatsActions, ...client,
 };
 
 // Ações frequentes e baratas que não contam no limite de ações por minuto

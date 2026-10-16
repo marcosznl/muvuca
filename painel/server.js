@@ -15,13 +15,10 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { AUDIT_LABELS, AUDIT_GROUPS } from '../src/audit-labels.js';
-import { speedRoutes } from './speedtest.js';
 import { deployRoutes, deploying, pendingUpdate } from './deploy.js';
 import { startAlerts, alertRoutes, markPlanned, setPlannedUntil, sendAlert, downNow, quedasSince } from './alerts.js';
 import { startUpkeep, upkeepState, restoreTest } from './upkeep.js';
 import { SANDBOX, realOnly } from './sandbox.js';
-import { startPasskeys, passkeyRoutes } from './passkey.js';
-import { xpInfo, xpToNext, XP_RULES } from '../src/xp-curve.js';
 import { PERM_INFO, PERMS, can } from '../public/js/permissions.js';
 
 const run = promisify(execFile);
@@ -158,14 +155,14 @@ async function login(req, res) {
   return startSession(req, res);
 }
 
-// Sessão nova (senha ou passkey): cookie só deste site, que o JavaScript da página não lê
-function startSession(req, res, { via = 'senha' } = {}) {
+// Sessão nova (depois da senha): cookie só deste site, que o JavaScript da página não lê
+function startSession(req, res) {
   if (!loadAuth()) return json(res, 503, { error: 'O painel está sem senha (ou o login temporário venceu). No Mac, rode: ./painel.sh senha' });
   const now = Date.now();
   const ip = clientIp(req);
   const token = crypto.randomBytes(32).toString('hex');
   sessions.set(hashToken(token), { created: now, last: now, ip, ua: ua(req), stamp: authStamp(loadAuth()) });
-  audit('painel:login', { ip, detail: { aparelho: ua(req), ...(via !== 'senha' ? { via } : {}) } });
+  audit('painel:login', { ip, detail: { aparelho: ua(req) } });
   res.setHeader('Set-Cookie', `${cookieName}=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${SESSION_MAX_MS / 1000}`);
   return json(res, 200, { ok: true });
 }
@@ -328,7 +325,7 @@ sample();
 let sizes = { at: 0 };
 async function measureSizes() {
   const out = { at: Date.now() };
-  const dirs = [['anexos', path.join(DATA, 'files')], ['fotos', path.join(DATA, 'images')], ['emojis', path.join(DATA, 'emojis')], ['sons', path.join(DATA, 'sounds')], ['backups', BACKUP_DIR]];
+  const dirs = [['anexos', path.join(DATA, 'files')], ['fotos', path.join(DATA, 'images')], ['emojis', path.join(DATA, 'emojis')], ['backups', BACKUP_DIR]];
   for (const [name, dir] of dirs) {
     try { out[name] = Number((await run('du', ['-sk', dir])).stdout.split('\t')[0]) * 1024; } catch { out[name] = 0; }
   }
@@ -390,12 +387,8 @@ function overview() {
 function usersList() {
   const now = Date.now();
   const online = new Set((latest.main?.users ?? []).map((u) => u.id));
-  let blockCols = '';
-  try { one('SELECT blocked_at FROM users LIMIT 1'); blockCols = 'u.blocked_at, u.blocked_reason,'; } catch { /* Muvuca ainda sem a coluna */ }
-  try { one('SELECT xp FROM users LIMIT 1'); blockCols += ' u.xp,'; } catch { /* Muvuca ainda sem XP */ }
-  try { one('SELECT must_change FROM users LIMIT 1'); blockCols += ' u.must_change,'; } catch { /* Muvuca ainda sem senha temporária */ }
-  blockCols += " (u.id = (SELECT owner_id FROM servers WHERE id = (SELECT value FROM meta WHERE key = 'home_server'))) home_owner,";
-  const rows = all(`SELECT u.id, u.username, u.display_name name, u.created_at, u.last_seen, ${blockCols}
+  const rows = all(`SELECT u.id, u.username, u.display_name name, u.created_at, u.last_seen, u.blocked_at, u.blocked_reason, u.must_change,
+      (u.id = (SELECT owner_id FROM servers WHERE id = (SELECT value FROM meta WHERE key = 'home_server'))) home_owner,
       (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.expires_at > ?) sessions,
       (SELECT COUNT(*) FROM messages m WHERE m.user_id = u.id) messages,
       (SELECT COALESCE(SUM(size), 0) FROM files f WHERE f.owner_id = u.id) bytes,
@@ -408,7 +401,7 @@ function usersList() {
     for (const r of all("SELECT LOWER(user_name) name, COUNT(*) n FROM audit_log WHERE action = 'auth:login:fail' AND at > ? GROUP BY LOWER(user_name)", now - 7 * DAY)) fails.set(r.name, r.n);
   } catch { /* auditoria ainda não existe */ }
   return rows.map((r) => ({
-    ...r, online: online.has(`u${r.id}`), level: r.xp == null ? null : xpInfo(r.xp),
+    ...r, online: online.has(`u${r.id}`),
     lastLogin: lastLogin.get(r.id)?.at ?? null, lastIp: lastLogin.get(r.id)?.ip ?? null,
     fails7: fails.get(r.username.toLowerCase()) ?? 0,
   }));
@@ -501,15 +494,13 @@ function personDetail(url) {
     messages: searchMessages(new URL(`http://x/?user=${encodeURIComponent(user.username)}`)).slice(0, 8),
     audit: safe(() => all(`SELECT at, action, detail, ip, ok FROM audit_log WHERE user_id = ? ORDER BY id DESC LIMIT 12`, id)
       .map((r) => ({ ...r, label: AUDIT_LABELS[r.action] ?? r.action, detail: r.detail ? JSON.parse(r.detail) : null })), []),
-    // Uso nos últimos 7 dias: minutos em call (contados pelo XP de call, 1 por minuto) e jogos
+    // Uso nos últimos 7 dias: minutos em call (com mais alguém na call) e jogos
     usage7: {
-      callMinutes: safe(() => one("SELECT COUNT(*) n FROM xp_events WHERE user_id = ? AND reason = 'voice' AND at > ?", id, now - 7 * DAY).n, 0),
+      callMinutes: safe(() => one('SELECT COUNT(*) n FROM call_minutes WHERE user_id = ? AND at > ?', id, now - 7 * DAY).n, 0),
       messages: safe(() => one('SELECT COUNT(*) n FROM messages WHERE user_id = ? AND created_at > ? AND system = 0', id, now - 7 * DAY).n, 0),
       games: safe(() => all(`SELECT r.game, COUNT(*) n, SUM(r.winner_id = ?) wins FROM game_players p JOIN game_results r ON r.id = p.result_id
         WHERE p.user_id = ? AND r.created_at > ? GROUP BY r.game ORDER BY n DESC`, id, id, now - 7 * DAY), []),
     },
-    xp7: safe(() => all('SELECT reason, SUM(amount) n FROM xp_events WHERE user_id = ? AND at > ? GROUP BY reason', id, now - 7 * DAY)
-      .map((r) => ({ reason: XP_REASON[r.reason] ?? r.reason, n: r.n })), []),
   };
 }
 
@@ -637,17 +628,16 @@ function serverDetail(url) {
     })),
     perDay: Array.from({ length: 14 }, (_, i) => perDay.find((d) => d.d === i)?.n ?? 0),
     emojis: safe(() => one('SELECT COUNT(*) n FROM emojis WHERE server_id = ?', id).n, 0),
-    sounds: safe(() => one('SELECT COUNT(*) n FROM sounds WHERE server_id = ?', id).n, 0),
   };
 }
 
 // Planilhas (CSV para Excel/Numbers): contas e mensagens de um canal de servidor
 const csvLine = (cells) => cells.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(';');
 function usersCsv() {
-  const lines = [csvLine(['usuario', 'nome', 'conta criada', 'visto por ultimo', 'nivel', 'xp', 'mensagens', 'anexos (MB)', 'servidores', 'aparelhos', 'bloqueada'])];
+  const lines = [csvLine(['usuario', 'nome', 'conta criada', 'visto por ultimo', 'mensagens', 'anexos (MB)', 'servidores', 'aparelhos', 'bloqueada'])];
   for (const u of usersList()) {
     lines.push(csvLine([u.username, u.name, new Date(u.created_at).toLocaleString('pt-BR'), u.last_seen ? new Date(u.last_seen).toLocaleString('pt-BR') : '',
-      u.level?.level ?? '', u.level?.total ?? '', u.messages, (u.bytes / 1024 / 1024).toFixed(1), u.servers, u.sessions, u.blocked_at ? 'sim' : 'não']));
+      u.messages, (u.bytes / 1024 / 1024).toFixed(1), u.servers, u.sessions, u.blocked_at ? 'sim' : 'não']));
   }
   return `﻿${lines.join('\n')}`;
 }
@@ -715,37 +705,29 @@ function weeklySummary(url) {
   const safe = (fn, fallback) => { try { return fn(); } catch { return fallback; } };
   const msgCount = (a, b, dm) => one(`SELECT COUNT(*) n FROM messages m JOIN channels c ON c.id = m.channel_id JOIN servers s ON s.id = c.server_id
     WHERE m.created_at >= ? AND m.created_at < ? AND m.system = 0 AND s.kind ${dm ? '=' : '!='} 'dm'`, a, b).n;
-  // Minutos de call: 1 evento de XP de voz por minuto (com mais alguém na call e sem ensurdecer)
-  const voiceMin = (a, b) => safe(() => one("SELECT COUNT(*) n FROM xp_events WHERE reason = 'voice' AND at >= ? AND at < ?", a, b).n, 0);
-  const games = (a, b) => safe(() => one("SELECT COUNT(*) n FROM xp_events WHERE reason = 'game' AND at >= ? AND at < ?", a, b).n, 0);
+  // Minutos de call: 1 linha por minuto para cada pessoa numa call com mais alguém
+  const voiceMin = (a, b) => safe(() => one('SELECT COUNT(*) n FROM call_minutes WHERE at >= ? AND at < ?', a, b).n, 0);
+  const games = (a, b) => safe(() => one('SELECT COUNT(*) n FROM game_results WHERE created_at >= ? AND created_at < ?', a, b).n, 0);
   const active = (a, b) => safe(() => one(`SELECT COUNT(*) n FROM (
       SELECT user_id FROM messages WHERE created_at >= ? AND created_at < ? AND user_id IS NOT NULL AND system = 0
-      UNION SELECT user_id FROM xp_events WHERE at >= ? AND at < ? AND reason NOT LIKE 'admin%')`, a, b, a, b).n, 0);
+      UNION SELECT user_id FROM call_minutes WHERE at >= ? AND at < ?
+      UNION SELECT p.user_id FROM game_players p JOIN game_results r ON r.id = p.result_id WHERE r.created_at >= ? AND r.created_at < ?)`, a, b, a, b, a, b).n, 0);
   const totals = (a, b) => ({ messages: msgCount(a, b, false), dms: msgCount(a, b, true), voiceMin: voiceMin(a, b), games: games(a, b), active: active(a, b) });
   const cur = totals(start, end);
   const prev = totals(prevStart, start);
 
-  // Por pessoa: mensagens (servidores e privadas juntas, só a contagem), minutos de call, partidas, XP e nível
+  // Por pessoa: mensagens (servidores e privadas juntas, só a contagem), minutos de call e partidas
   const people = new Map();
-  const person = (id) => { if (!people.has(id)) people.set(id, { id, messages: 0, voiceMin: 0, games: 0, wins: 0, xp: 0 }); return people.get(id); };
+  const person = (id) => { if (!people.has(id)) people.set(id, { id, messages: 0, voiceMin: 0, games: 0, wins: 0 }); return people.get(id); };
   for (const r of all('SELECT user_id, COUNT(*) n FROM messages WHERE created_at >= ? AND created_at < ? AND system = 0 AND user_id IS NOT NULL GROUP BY user_id', start, end)) person(r.user_id).messages = r.n;
-  for (const r of safe(() => all('SELECT user_id, reason, COUNT(*) n, SUM(amount) xp FROM xp_events WHERE at >= ? AND at < ? GROUP BY user_id, reason', start, end), [])) {
-    const p = person(r.user_id);
-    if (r.reason === 'voice') p.voiceMin = r.n;
-    if (r.reason === 'game') p.games = r.n;
-    if (r.reason === 'game-won') p.wins = r.n;
-    if (!r.reason.startsWith('admin')) p.xp += r.xp;
-  }
-  const users = new Map(safe(() => all('SELECT id, username, display_name name, xp FROM users'), []).map((u) => [u.id, u]));
-  // XP no fim da semana = XP de hoje menos o que entrou depois dela
-  const after = new Map(safe(() => all('SELECT user_id, SUM(amount) n FROM xp_events WHERE at >= ? GROUP BY user_id', end), []).map((r) => [r.user_id, r.n]));
+  for (const r of safe(() => all('SELECT user_id, COUNT(*) n FROM call_minutes WHERE at >= ? AND at < ? GROUP BY user_id', start, end), [])) person(r.user_id).voiceMin = r.n;
+  for (const r of safe(() => all(`SELECT p.user_id, COUNT(*) n, SUM(p.won) wins FROM game_players p JOIN game_results g ON g.id = p.result_id
+      WHERE g.created_at >= ? AND g.created_at < ? GROUP BY p.user_id`, start, end), [])) { const p = person(r.user_id); p.games = r.n; p.wins = r.wins ?? 0; }
+  const users = new Map(safe(() => all('SELECT id, username, display_name name FROM users'), []).map((u) => [u.id, u]));
   const ranking = [...people.values()].map((p) => {
     const u = users.get(p.id);
     if (!u) return null;
-    const xpEnd = Math.max(0, (u.xp ?? 0) - (after.get(p.id) ?? 0));
-    const lvEnd = xpInfo(xpEnd).level;
-    const lvStart = xpInfo(Math.max(0, xpEnd - p.xp)).level;
-    return { ...p, username: u.username, name: u.name, level: lvEnd, levelsUp: lvEnd - lvStart };
+    return { ...p, username: u.username, name: u.name };
   }).filter(Boolean).sort((a, b) => (b.voiceMin + b.messages * 2 + b.games * 5) - (a.voiceMin + a.messages * 2 + a.games * 5));
 
   const channels = all(`SELECT s.name server, c.name channel, COUNT(*) n FROM messages m JOIN channels c ON c.id = m.channel_id JOIN servers s ON s.id = c.server_id
@@ -769,41 +751,6 @@ function weeklySummary(url) {
   };
 }
 
-// XP: ranking de todo mundo e de onde veio o XP nas últimas 24 h e 7 dias
-const XP_REASON = { message: 'mensagens', voice: 'call', game: 'jogos', 'game-won': 'jogos', admin: 'ajuste manual', 'admin-reset': 'ajuste manual' };
-function xpOverview() {
-  const now = Date.now();
-  let users = [];
-  try {
-    users = all('SELECT id, username, display_name name, xp, last_seen, blocked_at FROM users ORDER BY xp DESC, id');
-  } catch { return { ready: false }; }
-  const recent = new Map();
-  try {
-    for (const r of all('SELECT user_id, reason, SUM(amount) n, MAX(at) last FROM xp_events WHERE at > ? GROUP BY user_id, reason', now - 7 * DAY)) {
-      const k = recent.get(r.user_id) ?? { week: 0, weekBy: {} };
-      k.week += r.n;
-      const label = XP_REASON[r.reason] ?? r.reason;
-      k.weekBy[label] = (k.weekBy[label] ?? 0) + r.n;
-      recent.set(r.user_id, k);
-    }
-    for (const r of all('SELECT user_id, SUM(amount) n FROM xp_events WHERE at > ? GROUP BY user_id', now - DAY)) {
-      const k = recent.get(r.user_id) ?? { week: 0, weekBy: {} };
-      k.day = r.n;
-      recent.set(r.user_id, k);
-    }
-  } catch { /* ainda sem histórico */ }
-  const totals = (() => { try { return all('SELECT reason, SUM(amount) n FROM xp_events WHERE at > ? GROUP BY reason', now - 7 * DAY); } catch { return []; } })();
-  const curve = [1, 2, 3, 5, 10, 15, 20, 30, 40, 50, 75, 100].map((level) => {
-    let total = 0;
-    for (let n = 0; n < level; n++) total += xpToNext(n);
-    return { level, total, step: xpToNext(level - 1) };
-  });
-  return {
-    ready: true, rules: XP_RULES, curve,
-    week: totals.reduce((m, r) => { const l = XP_REASON[r.reason] ?? r.reason; m[l] = (m[l] ?? 0) + r.n; return m; }, {}),
-    users: users.map((u, i) => ({ ...u, rank: i + 1, info: xpInfo(u.xp ?? 0), day: recent.get(u.id)?.day ?? 0, week: recent.get(u.id)?.week ?? 0, weekBy: recent.get(u.id)?.weekBy ?? {} })),
-  };
-}
 
 function auditQuery(url) {
   const where = [];
@@ -1150,7 +1097,7 @@ function sameOrigin(req) {
   try { return new URL(origin).host === req.headers.host; } catch { return false; }
 }
 
-// Quem está usando agora (teste de velocidade e atualização avisam antes de atrapalhar)
+// Quem está usando agora (a atualização avisa antes de atrapalhar)
 const activityNow = () => ({
   voice: (latest.main?.voice ?? []).reduce((n, v) => n + v.count, 0),
   lives: (latest.main?.voice ?? []).reduce((n, v) => n + (v.people ?? []).filter((p) => p.streaming).length, 0),
@@ -1185,15 +1132,6 @@ function invitesOverview() {
     joins: joins.slice(0, 60),
   };
 }
-
-// Passkeys: os endereços em que o painel responde (o nome, sem porta)
-const passkeyAll = passkeyRoutes({
-  json, readBody, audit, clientIp,
-  allowedHosts: [`painel.${DOMAIN}`, 'localhost'],
-  startSession,
-  userName: () => loadAuth()?.user ?? 'admin',
-});
-const { public: passkeyPublic, ...passkeyApi } = passkeyAll;
 
 const api = {
   'GET /api/me': (req, res, s) => json(res, 200, { ok: true, since: s.created, ip: s.ip, domain: DOMAIN }),
@@ -1295,19 +1233,6 @@ const api = {
     audit('painel:file:delete', { ip: clientIp(req), detail: { arquivo: f.name, tamanho: f.size, de: f.username ? `@${f.username}` : '?', onde: `${f.server} · #${f.channel}`, ...(r.message === 'deleted' ? { mensagemApagada: true } : {}) } });
     json(res, 200, { ok: true, message: r.message === 'deleted' ? 'Anexo apagado (a mensagem só tinha ele, então saiu também).' : 'Anexo apagado.' });
   },
-  'GET /api/xp': (req, res) => json(res, 200, xpOverview()),
-  'POST /api/xp/adjust': async (req, res) => {
-    const b = await readBody(req);
-    const u = one('SELECT id, username FROM users WHERE id = ?', Number(b.id));
-    if (!u) return json(res, 404, { error: 'Conta não encontrada.' });
-    const reset = b.reset === true;
-    const amount = Math.trunc(Number(b.amount));
-    if (!reset && (!Number.isFinite(amount) || !amount)) return json(res, 400, { error: 'Digite quanto XP dar (ou tirar, com sinal de menos).' });
-    const r = await mainPost('/internal/xp/adjust', { userId: `u${u.id}`, amount, reset });
-    const reason = String(b.reason ?? '').slice(0, 200);
-    audit('painel:xp', { ip: clientIp(req), detail: { conta: u.username, ...(reset ? { zerou: true } : { ajuste: amount }), antes: r.before, depois: r.after, ...(reason ? { motivo: reason } : {}) } });
-    json(res, 200, { ok: true, message: reset ? `XP de @${u.username} zerado (tinha ${r.before.toLocaleString('pt-BR')}).` : `@${u.username}: ${r.before.toLocaleString('pt-BR')} → ${r.after.toLocaleString('pt-BR')} XP (nível ${r.level}).` });
-  },
   'POST /api/users/disconnect': async (req, res) => {
     const b = await readBody(req);
     const u = one('SELECT id, username FROM users WHERE id = ?', Number(b.id));
@@ -1356,9 +1281,7 @@ const api = {
     json(res, 200, { ok: true, message: `Conta @${u.username} excluída: ${r.messages} mensagens e ${r.files} anexos apagados${extra ? `; ${extra}` : ''}.` });
   },
   'GET /api/ips': (req, res) => {
-    let rows = [];
-    try { rows = all('SELECT ip, reason, created_at FROM blocked_ips ORDER BY created_at DESC'); } catch { /* ainda sem a tabela */ }
-    json(res, 200, { blocked: rows, you: clientIp(req) });
+    json(res, 200, { blocked: all('SELECT ip, reason, created_at FROM blocked_ips ORDER BY created_at DESC'), you: clientIp(req) });
   },
   'POST /api/ips/block': async (req, res) => {
     const b = await readBody(req);
@@ -1396,7 +1319,6 @@ const api = {
   'POST /api/service': async (req, res) => {
     try { json(res, 200, await serviceAction(req, await readBody(req))); } catch (err) { json(res, 400, { error: err.message }); }
   },
-  ...speedRoutes({ json, readBody, clientIp, audit, dataDir: path.dirname(DB_FILE), activity: activityNow }),
   // ---------- Convites ----------
   'GET /api/invites': (req, res) => json(res, 200, invitesOverview()),
   'POST /api/invites/create': async (req, res) => {
@@ -1423,7 +1345,6 @@ const api = {
     json(res, 200, { ok: r.ok, message: r.ok ? `Backup testado: abriu certinho (${r.counts.contas} contas, ${r.counts.mensagens} mensagens).` : `O teste falhou: ${r.error}` });
   },
   ...alertRoutes({ json, readBody, audit, clientIp }),
-  ...passkeyApi,
   ...deployRoutes({
     json, readBody, clientIp, root: ROOT, mainUrl: MAIN_URL, auditFn: audit, activityFn: activityNow,
     noticeFn: (b) => mainPost('/internal/maintenance', b),
@@ -1439,8 +1360,10 @@ startUpkeep({
   certFile: () => path.join(CADDY_CERTS, 'acme-v02.api.letsencrypt.org-directory', DOMAIN, `${DOMAIN}.crt`),
 });
 
-// Passkeys e alertas no celular (+ histórico de quedas)
-startPasskeys(path.dirname(DB_FILE)); // ao lado do banco (o painel de teste usa a pasta dele)
+// O login por Face ID / Touch ID e o teste de velocidade saíram do painel: os arquivos deles não servem mais
+for (const f of ['painel-passkeys.json', 'speedtests.json']) fs.rmSync(path.join(path.dirname(DB_FILE), f), { force: true });
+
+// Alertas no celular (+ histórico de quedas)
 startAlerts({
   dataDir: path.dirname(DB_FILE), domain: DOMAIN, one,
   latest: () => latest,
@@ -1463,11 +1386,6 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/login') {
       if (!sameOrigin(req)) return json(res, 403, { error: 'Origem não permitida.' });
       return await login(req, res);
-    }
-    const pub = passkeyPublic[`${req.method} ${url.pathname}`]; // entrar com passkey (sem sessão ainda)
-    if (pub) {
-      if (req.method !== 'GET' && !sameOrigin(req)) return json(res, 403, { error: 'Origem não permitida.' });
-      return await pub(req, res);
     }
     if (url.pathname.startsWith('/api/')) {
       const s = sessionOf(req);

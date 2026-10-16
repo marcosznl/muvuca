@@ -97,27 +97,7 @@ function showLogin() {
   $('#app').hidden = true;
   $('#login').hidden = false;
   $('#login-user').focus();
-  // Tem passkey cadastrada e o aparelho aceita: mostra "Entrar com Face ID / Touch ID"
-  if (window.PublicKeyCredential) {
-    fetch('/api/passkey/available').then((r) => r.json()).then((d) => { $('#login-passkey').hidden = !d.available; }).catch(() => {});
-  }
 }
-$('#login-passkey').addEventListener('click', async () => {
-  const btn = $('#login-passkey');
-  btn.disabled = true;
-  $('#login-error').textContent = '';
-  try {
-    const opts = await api('/api/passkey/login-options', { method: 'POST', body: {} });
-    const cred = await navigator.credentials.get({ publicKey: { challenge: fromB64u(opts.challenge), rpId: opts.rpId, timeout: opts.timeout, userVerification: 'required', allowCredentials: [] } });
-    await api('/api/passkey/login', { method: 'POST', body: {
-      id: toB64u(cred.rawId), clientDataJSON: toB64u(cred.response.clientDataJSON),
-      authenticatorData: toB64u(cred.response.authenticatorData), signature: toB64u(cred.response.signature),
-    } });
-    start();
-  } catch (err) {
-    $('#login-error').textContent = err.name === 'NotAllowedError' ? 'Cancelado.' : err.message;
-  } finally { btn.disabled = false; }
-});
 $('#login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const btn = e.submitter ?? $('#login-form button');
@@ -148,7 +128,6 @@ const TABS = {
   aovivo: ['Ao vivo', viewAoVivo, 5000],
   usuarios: ['Contas', viewUsuarios, 30000],
   convites: ['Convites', viewConvites, 60000],
-  xp: ['XP e níveis', viewXp, 30000],
   servidores: ['Servidores', viewServidores, 30000],
   mensagens: ['Mensagens', viewMensagens, 0],
   arquivos: ['Arquivos pesados', viewArquivos, 60000],
@@ -162,21 +141,20 @@ const TABS = {
   manut: ['Manutenção e reiniciar', viewManutencao, 30000],
   logs: ['Logs', viewLogs, 0],
   erros: ['Erros do site', viewErros, 30000],
-  seguranca: ['Login (Face ID / Touch ID)', viewSeguranca, 0],
   alertas: ['Alertas no celular', viewAlertas, 0],
   aparelhos: ['Aparelhos conectados', viewAparelhos, 30000],
 };
 const PAGES = {
   geral: ['Visão geral', ['geral', 'sistema', 'resumo']],
   aovivo: ['Ao vivo', ['aovivo']],
-  pessoas: ['Pessoas', ['usuarios', 'convites', 'xp']],
+  pessoas: ['Pessoas', ['usuarios', 'convites']],
   servidoresPg: ['Servidores', ['servidores']],
   conteudo: ['Conteúdo', ['mensagens', 'arquivos']],
   protecao: ['Segurança', ['auditoria', 'acessos', 'ips']],
   conexao: ['Conexão', ['internet', 'quedas']],
   manutencao: ['Manutenção', ['atualizar', 'backups', 'manut']],
   logs: ['Logs', ['logs', 'erros']],
-  config: ['Configurações do painel', ['seguranca', 'alertas', 'aparelhos']],
+  config: ['Configurações do painel', ['alertas', 'aparelhos']],
 };
 const pageOf = (sub) => Object.keys(PAGES).find((p) => PAGES[p][1].includes(sub));
 let tab = 'geral';
@@ -614,7 +592,6 @@ async function viewUsuarios() {
     body.replaceChildren(table([
       { label: 'Pessoa', get: (u) => personLink(u.id, h('b', {}, u.name), h('span', { class: 'muted small' }, ` @${u.username}`)) },
       { label: 'Agora', get: (u) => h('span', { class: `pill ${u.online ? 'good' : ''}` }, u.online ? 'online' : ago(u.last_seen)) },
-      { label: 'Nível', num: true, get: (u) => (u.level ? h('span', { title: `${num(u.level.total)} XP · ${num(u.level.into)}/${num(u.level.need)} para o próximo` }, h('b', {}, u.level.level), h('span', { class: 'muted small' }, ` · ${num(u.level.total)} XP`)) : '—') },
       { label: 'Conta criada', get: (u) => when(u.created_at) },
       { label: 'Último login', get: (u) => h('span', {}, u.lastLogin ? ago(u.lastLogin) : '—', u.lastIp ? h('div', { class: 'mono muted' }, u.lastIp) : null) },
       { label: 'Aparelhos', num: true, get: (u) => u.sessions },
@@ -657,7 +634,7 @@ function resetPasswordFor(u) {
 
 // Excluir a conta: pede o @ de novo (não dá para desfazer)
 function deleteAccountOf(u) {
-  const typed = prompt(`EXCLUIR a conta @${u.username} (${u.name})?\n\nApaga para sempre: as mensagens dela (em servidores e conversas privadas), anexos, foto, banner, XP e amizades. Servidores que ela criou passam para o membro mais antigo (ou somem, se só ela estava lá). Não dá para desfazer (só voltando um backup).\n\nPara confirmar, digite o usuário dela:`, '');
+  const typed = prompt(`EXCLUIR a conta @${u.username} (${u.name})?\n\nApaga para sempre: as mensagens dela (em servidores e conversas privadas), anexos, foto, banner e amizades. Servidores que ela criou passam para o membro mais antigo (ou somem, se só ela estava lá). Não dá para desfazer (só voltando um backup).\n\nPara confirmar, digite o usuário dela:`, '');
   if (typed === null) return;
   closePessoa();
   act('/api/users/delete', { id: u.id, confirm: typed }, { reload: tab });
@@ -709,7 +686,7 @@ async function serverDetailView(id) {
     act('/api/server/transfer', { id: d.id, userId: m.id }, { confirmText: `Passar a posse de "${d.name}" para ${m.name} (@${m.username})? ${d.owner ? `@${d.owner.username} continua no servidor, com os cargos que já tem.` : ''}`, reload: 'servidores' });
   };
   const remove = () => {
-    const typed = prompt(`EXCLUIR o servidor "${d.name}"?\n\nApaga para sempre os canais, as mensagens, os emojis e os sons dele, e todo mundo sai. Não dá para desfazer (só voltando um backup).\n\nPara confirmar, digite o nome do servidor:`, '');
+    const typed = prompt(`EXCLUIR o servidor "${d.name}"?\n\nApaga para sempre os canais, as mensagens e os emojis dele, e todo mundo sai. Não dá para desfazer (só voltando um backup).\n\nPara confirmar, digite o nome do servidor:`, '');
     if (typed === null) return;
     act('/api/server/delete', { id: d.id, confirm: typed }, {}).then((ok) => { if (ok) { serverSel = null; openTab('servidores'); } });
   };
@@ -726,7 +703,7 @@ async function serverDetailView(id) {
       stat('Mensagens (7 dias)', num(d.channels.reduce((n, c) => n + c.msgs7, 0)), top?.msgs7 ? `mais movimentado: ${typeIcon[top.type]}${top.name}` : 'nenhuma ainda'),
       stat('Em call agora', num(d.channels.reduce((n, c) => n + c.inCall.length, 0)), d.channels.filter((c) => c.inCall.length).map((c) => c.name).join(', ') || 'ninguém'),
       stat('Anexos', bytes(d.bytes)),
-      stat('Emojis e sons', `${num(d.emojis)} · ${num(d.sounds)}`, 'emojis próprios · sons do soundboard')),
+      stat('Emojis', num(d.emojis), 'emojis próprios do servidor')),
     h('div', { class: 'section card' }, h('h2', {}, 'Mensagens por dia (14 dias)'),
       h('div', { class: 'bars' }, d.perDay.map((n) => h('div', { title: `${n} mensagens`, style: `height:${Math.max(2, (n / maxDay) * 100)}%` }))),
       h('div', { class: 'legend' }, h('span', {}, 'há 14 dias'), h('span', { class: 'spacer' }), h('span', {}, 'hoje'))),
@@ -761,7 +738,7 @@ async function serverDetailView(id) {
 
 // ---------- Cartão da pessoa ----------
 // Clicar no nome de alguém (Contas, Ao vivo, Auditoria, Mensagens, busca) abre tudo da conta num lugar só,
-// com as ações (desconectar, bloquear, nova senha, XP, excluir). ref: id (12 ou "u12") ou @usuário.
+// com as ações (desconectar, bloquear, nova senha, excluir). ref: id (12 ou "u12") ou @usuário.
 const personLink = (ref, label, extra) => (ref ? h('button', { class: 'person-link', title: 'Abrir o cartão da pessoa', onclick: (e) => { e.stopPropagation(); openPessoa(ref); } }, label, extra ?? null) : h('b', {}, label));
 let pessoaOverlay = null;
 function closePessoa() { pessoaOverlay?.remove(); pessoaOverlay = null; }
@@ -778,11 +755,6 @@ async function openPessoa(ref) {
   const u = d.user;
   // Depois de uma ação: fecha o cartão e atualiza a aba aberta
   const doAct = (path, body, opts) => { closePessoa(); act(path, body, { ...opts, reload: tab }); };
-  const giveXp = () => {
-    const v = prompt(`Quanto XP dar para @${u.username}? (número negativo tira)`, '100');
-    if (v === null) return;
-    doAct('/api/xp/adjust', { id: u.id, amount: Number(v) }, {});
-  };
   const fact = (label, value) => h('div', { class: 'fact' }, h('span', { class: 'muted small' }, label), h('b', {}, value));
   box.replaceChildren(
     h('div', { class: 'row' },
@@ -793,7 +765,6 @@ async function openPessoa(ref) {
       u.home_owner ? h('span', { class: 'pill' }, 'dono do servidor principal') : null,
       h('span', { class: 'spacer' }), h('button', { class: 'btn ghost small', onclick: closePessoa, 'aria-label': 'Fechar' }, '✕')),
     h('div', { class: 'facts section' },
-      fact('Nível', u.level ? `${u.level.level} · ${num(u.level.total)} XP` : '—'),
       fact('Mensagens', num(u.messages)), fact('Anexos', bytes(u.bytes)), fact('Servidores', num(u.servers)),
       fact('Aparelhos', num(u.sessions)), fact('Conta criada', when(u.created_at)),
       fact('Último login', u.lastLogin ? `${ago(u.lastLogin)}` : '—'), fact('Senha errada (7 d)', num(u.fails7))),
@@ -803,7 +774,6 @@ async function openPessoa(ref) {
         ? h('button', { class: 'btn small', onclick: () => doAct('/api/users/block', { id: u.id, block: false }, { confirmText: `Desbloquear @${u.username}?` }) }, 'Desbloquear')
         : h('button', { class: 'btn small', onclick: () => doAct('/api/users/block', { id: u.id, block: true }, { confirmText: `Bloquear @${u.username}? A conta sai de todos os aparelhos e não consegue mais entrar até ser desbloqueada.`, askReason: 'Motivo (opcional, fica na auditoria):' }) }, 'Bloquear'),
       h('button', { class: 'btn small', onclick: () => resetPasswordFor(u) }, 'Nova senha'),
-      h('button', { class: 'btn small', onclick: giveXp }, 'Dar ou tirar XP'),
       h('button', { class: 'btn small', onclick: () => { closePessoa(); auditFilters = { user: u.username }; openTab('auditoria'); } }, 'Auditoria completa'),
       h('button', { class: 'btn small', onclick: () => { closePessoa(); msgQuery = { q: '', user: u.username }; openTab('mensagens'); } }, 'Todas as mensagens'),
       u.home_owner ? null : h('button', { class: 'btn small danger-ghost', onclick: () => deleteAccountOf(u) }, 'Excluir conta')),
@@ -817,10 +787,7 @@ async function openPessoa(ref) {
         h('li', {}, 'Mensagens: ', h('b', {}, num(d.usage7.messages))),
         d.usage7.games.length
           ? h('li', {}, 'Jogos: ', h('b', {}, d.usage7.games.map((g) => `${g.game} (${g.n}${g.wins ? `, ${g.wins} ${g.wins === 1 ? 'vitória' : 'vitórias'}` : ''})`).join(', ')))
-          : h('li', { class: 'muted' }, 'Nenhuma partida.')),
-      h('h3', { class: 'section' }, 'XP nos últimos 7 dias'), d.xp7.length
-        ? h('ul', { class: 'plain' }, d.xp7.map((x) => h('li', {}, `${x.reason}: `, h('b', {}, num(x.n)))))
-        : h('p', { class: 'empty' }, 'Nada nos últimos 7 dias.')),
+          : h('li', { class: 'muted' }, 'Nenhuma partida.'))),
       h('div', {}, h('h3', {}, 'IPs usados'), table([
         { label: 'IP', get: (r) => h('span', { class: 'mono' }, r.ip) },
         { label: 'Último', get: (r) => ago(r.last) },
@@ -1045,7 +1012,7 @@ async function viewBackups() {
     } catch (err) { toast(err.message); } finally { btn.disabled = false; }
   });
   return h('div', {},
-    h('div', { class: 'card row' }, h('div', {}, h('b', {}, 'Backup automático todo dia às 4h'), h('div', { class: 'muted small' }, `Banco de dados (todos os servidores e conversas), emojis, fotos, sons e chave das notificações, em ${b.dir}. Guarda os 3 mais recentes, 1 por dia nos últimos 14 dias e 1 por mês nos últimos 6 meses. Os anexos do chat vão para a subpasta anexos (só os novos a cada vez).`)), h('span', { class: 'spacer' }), btn),
+    h('div', { class: 'card row' }, h('div', {}, h('b', {}, 'Backup automático todo dia às 4h'), h('div', { class: 'muted small' }, `Banco de dados (todos os servidores e conversas), emojis, fotos e chave das notificações, em ${b.dir}. Guarda os 3 mais recentes, 1 por dia nos últimos 14 dias e 1 por mês nos últimos 6 meses. Os anexos do chat vão para a subpasta anexos (só os novos a cada vez).`)), h('span', { class: 'spacer' }), btn),
     b.warnings.length ? h('div', { class: 'alerts section' }, b.warnings.map((w) => h('div', { class: 'alert warn mono' }, w))) : null,
     restoreCard,
     h('div', { class: 'section grid two' },
@@ -1157,7 +1124,7 @@ async function viewSistema() {
     h('div', { class: 'section grid two' },
       h('div', { class: 'card' }, h('h2', {}, 'Espaço usado pelos dados'), table([{ label: 'O quê', get: (r) => r[0] }, { label: 'Tamanho', num: true, get: (r) => bytes(r[1]) }], [
         ['Banco de dados', (sz['malegna.db'] ?? 0) + (sz['malegna.db-wal'] ?? 0)],
-        ['Anexos do chat', sz.anexos ?? 0], ['Fotos (perfil, banner, ícones)', sz.fotos ?? 0], ['Emojis', sz.emojis ?? 0], ['Sons', sz.sons ?? 0], ['Backups no Mac', sz.backups ?? 0],
+        ['Anexos do chat', sz.anexos ?? 0], ['Fotos (perfil, banner, ícones)', sz.fotos ?? 0], ['Emojis', sz.emojis ?? 0], ['Backups no Mac', sz.backups ?? 0],
       ]), h('p', { class: 'muted small' }, `Medido ${ago(sz.at)} (a cada 10 min).`)),
       h('div', { class: 'card' }, h('h2', {}, 'Certificados HTTPS'), table([
         { label: 'Endereço', get: (c) => c.name },
@@ -1169,21 +1136,7 @@ async function viewSistema() {
   );
 }
 
-// ---------- Internet (teste de velocidade, só no botão) ----------
-const mbps = (b) => (b == null ? '—' : `${(b / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: b < 1e7 ? 1 : 0 })} Mbps`);
-// Responsividade (RPM): quanto a conexão engasga quando está cheia; afeta voz e jogo
-const rpmLevel = (r) => (r == null ? ['', '—'] : r >= 800 ? ['good', 'alta'] : r >= 200 ? ['warn', 'média'] : ['bad', 'baixa']);
-
-async function startSpeedtest(mode, btns) {
-  btns.forEach((b) => { b.disabled = true; });
-  try {
-    let r = await api('/api/speedtest', { method: 'POST', body: { mode } });
-    if (r.needsForce && confirm(`${r.message}\nTestar mesmo assim?`)) r = await api('/api/speedtest', { method: 'POST', body: { mode, force: true } });
-    if (r.message) toast(r.message);
-  } catch (err) { toast(err.message, 6000); }
-  openTab('internet');
-}
-
+// ---------- Internet: trava de velocidade dos anexos ----------
 // Trava de velocidade dos arquivos que saem do Mac: protege a call e a live quando alguém baixa algo grande
 async function bandwidthCard() {
   const st = await api('/api/status').catch(() => null);
@@ -1196,7 +1149,7 @@ async function bandwidthCard() {
   return h('div', { class: 'section card' },
     h('div', { class: 'row' }, h('h2', {}, 'Trava de velocidade dos arquivos'), h('span', { class: 'spacer' }),
       h('span', { class: `pill ${bw.limiting ? 'warn' : 'good'}` }, h('span', { class: 'dot' }), bw.limiting ? 'travando agora' : 'solta agora (ninguém na call)')),
-    h('p', { class: 'muted small' }, 'Anexos, instaladores do app, fotos e sons que saem do Mac não podem ocupar o upload todo: a call e a live ficam com o resto. Voz e live não passam por esta trava.'),
+    h('p', { class: 'muted small' }, 'Anexos, instaladores do app e fotos que saem do Mac não podem ocupar o upload todo: a call e a live ficam com o resto. Voz e live não passam por esta trava.'),
     h('div', { class: 'row' },
       h('label', { class: 'row small' }, 'Por arquivo, até ', per, ' Mbps'),
       h('label', { class: 'row small' }, 'Todos juntos, até ', total, ' Mbps'),
@@ -1205,62 +1158,7 @@ async function bandwidthCard() {
     h('p', { class: 'muted small' }, `Agora: ${bw.streams} ${bw.streams === 1 ? 'download' : 'downloads'} em andamento · ${bw.mbpsNow.toLocaleString('pt-BR')} Mbps saindo em arquivos.`));
 }
 
-async function viewInternet() {
-  const d = await api('/api/speedtest');
-  const last = d.lastOk;
-  const up = h('button', { class: 'btn primary', disabled: !!d.running }, 'Testar upload (recomendado)');
-  const full = h('button', { class: 'btn', disabled: !!d.running }, 'Teste completo (download + upload)');
-  up.addEventListener('click', () => startSpeedtest('upload', [up, full]));
-  full.addEventListener('click', () => startSpeedtest('full', [up, full]));
-  const a = d.activity;
-  const using = [a.voice && `${a.voice} em call`, a.lives && `${a.lives} em live`].filter(Boolean);
-  const top = h('div', { class: 'card' },
-    h('div', { class: 'row' }, up, full, h('span', { class: 'spacer' }),
-      d.running ? h('span', { class: 'pill warn' }, h('span', { class: 'dot' }), `Testando (${d.modes[d.running.mode]})… ${Math.round((Date.now() - d.running.startedAt) / 1000)} s`) : null),
-    h('p', { class: 'muted small' }, 'Usa o teste da própria Apple (vem no macOS). Ocupa a internet inteira por uns 20 a 40 s: quem estiver em call, live ou jogando sente. ',
-      'O teste só de upload gasta uns 600 MB de dados; o completo, de 1 a 2 GB.'),
-    using.length ? h('div', { class: 'alert warn' }, `Agora tem gente usando: ${using.join(', ')}. Se possível, teste depois.`) : null,
-    d.lastError && !d.running ? h('div', { class: 'alert bad' }, `O último teste falhou: ${d.lastError}.`) : null);
-
-  const [rk, rl] = rpmLevel(last?.rpm);
-  const stats = last ? h('div', { class: 'section grid cards' },
-    stat('Upload', mbps(last.up), 'o que limita o servidor (lives e calls)'),
-    stat('Download', mbps(last.down), last.down == null ? 'não medido (teste só de upload)' : 'o que você recebe'),
-    stat('Responsividade', last.rpm == null ? '—' : `${num(last.rpm)} RPM`, last.rpm == null ? 'medida só no teste completo' : h('span', {}, h('span', { class: `pill ${rk}` }, rl), ' quanto menos engasga, melhor para voz e jogo')),
-    stat('Latência', last.rtt == null ? '—' : `${last.rtt} ms`, 'sem carga, até o servidor de teste'),
-  ) : h('p', { class: 'empty section' }, 'Nenhum teste ainda. Aperte "Testar upload" com o servidor vazio.');
-
-  const c = d.capacity;
-  const capCard = c ? h('div', { class: 'card section' },
-    h('h2', {}, 'Quanto cabe com esse upload'),
-    h('p', { class: 'muted small' }, `Pelo teste de ${when(d.capacityFrom)}, deixando 20% de folga. São números aproximados de quem está assistindo ou ouvindo ao mesmo tempo.`),
-    h('div', { class: 'grid cards' },
-      stat('Live 1080p', `~${num(c.live1080)}`, 'pessoas assistindo (≈5 Mbps cada)'),
-      stat('Live 720p', `~${num(c.live720)}`, 'pessoas assistindo (≈2,5 Mbps cada)'),
-      stat('Câmera', `~${num(c.camera)}`, 'câmeras sendo vistas (≈1,5 Mbps)'),
-      stat('Voz', c.voice > 500 ? 'centenas' : `~${num(c.voice)}`, 'pessoas ouvindo (≈0,1 Mbps)'),
-    ),
-    h('p', { class: 'muted small' }, 'Tudo divide a mesma internet: uma live com 10 pessoas assistindo já usa ~50 Mbps do total.')) : null;
-
-  const ok = d.history.filter((r) => r.ok);
-  const chart = ok.length > 1 ? h('div', { class: 'card section' }, h('h2', {}, 'Histórico'),
-    lineChart(ok.map((r) => r.at), [
-      { label: 'Upload', color: css('--chart2'), values: ok.map((r) => r.up ?? 0) },
-      ...(ok.some((r) => r.down) ? [{ label: 'Download', color: css('--chart1'), values: ok.map((r) => r.down ?? 0) }] : []),
-    ], { format: bits })) : null;
-
-  const list = h('div', { class: 'card section' }, h('h2', {}, 'Testes feitos'), table([
-    { label: 'Quando', get: (r) => when(r.at) },
-    { label: 'Tipo', get: (r) => d.modes[r.mode] ?? r.mode },
-    { label: 'Upload', num: true, get: (r) => (r.ok ? mbps(r.up) : '—') },
-    { label: 'Download', num: true, get: (r) => (r.ok ? mbps(r.down) : '—') },
-    { label: 'Responsividade', num: true, get: (r) => (r.ok && r.rpm != null ? h('span', { class: `pill ${rpmLevel(r.rpm)[0]}` }, `${num(r.rpm)} RPM`) : '—') },
-    { label: 'Latência', num: true, get: (r) => (r.ok && r.rtt != null ? `${r.rtt} ms` : '—') },
-    { label: 'Resultado', get: (r) => (r.ok ? h('span', { class: 'muted small' }, `${r.iface ?? ''} · ${bytes(r.bytes)}`) : h('span', { class: 'error small' }, r.error)) },
-  ], [...d.history].reverse(), { empty: 'Nenhum teste ainda.', rowClass: (r) => (r.ok ? null : 'fail') }));
-
-  return h('div', {}, top, await bandwidthCard(), stats, capCard, chart, list);
-}
+async function viewInternet() { return h('div', {}, await bandwidthCard()); }
 
 // ---------- Mensagens (moderação) ----------
 let msgQuery = { q: '', user: '' };
@@ -1332,8 +1230,6 @@ async function viewResumo() {
         { label: 'Call', num: true, get: (r) => (r.voiceMin ? hoursMin(r.voiceMin) : '—') },
         { label: 'Mensagens', num: true, get: (r) => num(r.messages) },
         { label: 'Jogos', num: true, get: (r) => (r.games ? `${num(r.games)}${r.wins ? ` (${r.wins} 🏆)` : ''}` : '—') },
-        { label: 'XP ganho', num: true, get: (r) => `+${num(r.xp)}` },
-        { label: 'Nível', num: true, get: (r) => h('span', {}, `${r.level}`, r.levelsUp > 0 ? h('span', { class: 'good-text' }, ` ▲${r.levelsUp}`) : null) },
       ], d.ranking, { empty: 'Ninguém usou nesta semana.' })),
     h('div', { class: 'section grid two' },
       h('div', { class: 'card' }, h('h2', {}, 'Canais mais movimentados'), table([
@@ -1484,71 +1380,7 @@ async function viewAtualizar() {
   return h('div', {}, top, jobCard, versions);
 }
 
-// ---------- XP e níveis ----------
-let xpFilter = '';
-function xpBar(info) {
-  const bar = h('div', { class: 'bar', title: `${num(info.into)} / ${num(info.need)} XP para o nível ${info.level + 1}` }, h('span', { style: `width:${Math.round((info.into / info.need) * 100)}%` }));
-  return h('div', { style: 'min-width:120px' }, bar, h('div', { class: 'muted small' }, `${num(info.into)} / ${num(info.need)}`));
-}
-
-async function xpAdjust(u) {
-  const raw = prompt(`Dar ou tirar XP de @${u.username} (tem ${num(u.xp)} XP, nível ${u.info.level}).\nDigite um número: 500 dá, -500 tira.`, '');
-  if (raw === null) return;
-  const amount = Math.trunc(Number(String(raw).replace(/\./g, '').replace(',', '.')));
-  if (!amount) return toast('Digite um número diferente de zero.');
-  const reason = prompt('Motivo (opcional, fica na auditoria):', '');
-  if (reason === null) return;
-  await act('/api/xp/adjust', { id: u.id, amount, reason }, { reload: 'xp' });
-}
-
-async function viewXp() {
-  const d = await api('/api/xp');
-  if (!d.ready) return h('p', { class: 'error' }, 'O XP ainda não está ativo no Muvuca (atualize em Manutenção → Atualizar o Muvuca).');
-  const r = d.rules;
-  const input = h('input', { type: 'search', placeholder: 'Buscar pessoa…', value: xpFilter });
-  const body = h('div');
-  const render = () => {
-    const q = xpFilter.toLowerCase();
-    const rows = d.users.filter((u) => !q || u.username.toLowerCase().includes(q) || (u.name ?? '').toLowerCase().includes(q));
-    body.replaceChildren(table([
-      { label: '#', num: true, get: (u) => h('b', {}, u.rank) },
-      { label: 'Pessoa', get: (u) => h('span', {}, h('b', {}, u.name), ' ', h('span', { class: 'muted small' }, `@${u.username}`), u.blocked_at ? h('span', { class: 'pill bad', style: 'margin-left:6px' }, 'bloqueada') : null) },
-      { label: 'Nível', num: true, get: (u) => h('b', { style: 'font-size:16px' }, u.info.level) },
-      { label: 'XP total', num: true, get: (u) => num(u.xp) },
-      { label: 'Progresso', get: (u) => xpBar(u.info) },
-      { label: '24 h', num: true, get: (u) => (u.day ? `+${num(u.day)}` : '—') },
-      { label: '7 dias', num: true, get: (u) => (u.week ? h('span', { title: Object.entries(u.weekBy).map(([k, v]) => `${k}: ${num(v)}`).join('\n') }, `+${num(u.week)}`, h('div', { class: 'muted small' }, Object.entries(u.weekBy).map(([k, v]) => `${k} ${num(v)}`).join(' · '))) : '—') },
-      { label: '', get: (u) => h('div', { class: 'row', style: 'flex-wrap:nowrap' },
-        h('button', { class: 'btn small ghost', onclick: () => xpAdjust(u) }, 'Dar/tirar XP'),
-        u.xp ? h('button', { class: 'btn small ghost', onclick: () => act('/api/xp/adjust', { id: u.id, reset: true }, { confirmText: `Zerar o XP de @${u.username}? Ela volta ao nível 0 (tem ${num(u.xp)} XP).`, askReason: 'Motivo (opcional):', reload: 'xp' }) }, 'Zerar') : null) },
-    ], rows, { empty: 'Ninguém encontrado.' }));
-  };
-  input.addEventListener('input', () => { xpFilter = input.value; render(); });
-  render();
-  const weekTotal = Object.values(d.week).reduce((a, b) => a + b, 0);
-  return h('div', {},
-    h('div', { class: 'grid cards' },
-      stat('XP dado em 7 dias', num(weekTotal), 'para todo mundo'),
-      Object.entries(d.week).map(([k, v]) => stat(`Por ${k}`, num(v), weekTotal ? `${Math.round((v / weekTotal) * 100)}% do total` : '')),
-      stat('Maior nível', d.users[0] ? `${d.users[0].info.level}` : '—', d.users[0] ? `@${d.users[0].username}` : ''),
-    ),
-    h('div', { class: 'section card' }, h('div', { class: 'row' }, h('h2', {}, 'Ranking'), h('span', { class: 'spacer' }), input),
-      h('p', { class: 'muted small' }, 'XP é da conta (vale em todos os servidores). "Dar/tirar" e "Zerar" avisam a pessoa na hora e ficam na Auditoria.'), body),
-    h('div', { class: 'section grid two' },
-      h('div', { class: 'card' }, h('h2', {}, 'Como se ganha XP'), table([{ label: '', get: (x) => x[0] }, { label: '', get: (x) => h('b', {}, x[1]) }], [
-        ['Mensagem (com conteúdo)', `${r.message.min} a ${r.message.max} XP, no máximo 1 a cada ${Math.round(r.message.cooldownMs / 60000)} min (mínimo de ${r.message.minChars} caracteres)`],
-        ['Tempo em call', `${r.voicePerMinute} XP por minuto (com mais alguém na call, sem estar ensurdecido)`],
-        ['Partida com 2+ pessoas', `${r.gamePlayed} XP (+${r.gameWon} para quem vence)`],
-      ])),
-      h('div', { class: 'card' }, h('h2', {}, 'Curva de níveis'), table([
-        { label: 'Nível', num: true, get: (c) => c.level },
-        { label: 'XP total', num: true, get: (c) => num(c.total) },
-        { label: 'Só esse nível', num: true, get: (c) => num(c.step) },
-      ], d.curve))));
-}
-
-// ---------- Passkey (Face ID / Touch ID) e alertas: utilidades ----------
-const toB64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+// ---------- Alertas no celular: utilidades ----------
 function fromB64u(s) {
   const b = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4));
   return Uint8Array.from(b, (c) => c.charCodeAt(0));
@@ -1692,40 +1524,6 @@ async function viewConvites() {
         { label: 'Servidor', get: (j) => j.server ?? '—' },
       ], d.joins, { empty: 'Ninguém entrou por convite ainda.' })));
   return box;
-}
-
-// ---------- Segurança: passkeys ----------
-async function viewSeguranca() {
-  const list = await api('/api/passkeys');
-  const supported = !!window.PublicKeyCredential;
-  const add = h('button', { class: 'btn primary', disabled: !supported, onclick: async () => {
-    const name = prompt('Nome deste aparelho (para você reconhecer depois):', deviceName());
-    if (name === null) return;
-    try {
-      const o = await api('/api/passkey/register-options', { method: 'POST', body: {} });
-      const cred = await navigator.credentials.create({ publicKey: {
-        challenge: fromB64u(o.challenge), rp: o.rp, user: { ...o.user, id: fromB64u(o.user.id) },
-        pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
-        authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
-        excludeCredentials: o.excludeCredentials.map((c) => ({ type: 'public-key', id: fromB64u(c.id) })),
-        attestation: 'none', timeout: o.timeout,
-      } });
-      await act('/api/passkey/register', { name, clientDataJSON: toB64u(cred.response.clientDataJSON), attestationObject: toB64u(cred.response.attestationObject) }, { reload: 'seguranca' });
-    } catch (err) { toast(err.name === 'NotAllowedError' ? 'Cancelado.' : err.name === 'InvalidStateError' ? 'Este aparelho já tem passkey cadastrada.' : err.message, 6000); }
-  } }, 'Cadastrar este aparelho');
-  return h('div', {},
-    h('div', { class: 'card' }, h('h2', {}, 'Entrar com Face ID / Touch ID'),
-      h('p', {}, 'Cadastre este aparelho e, na próxima vez, entre no painel só com Face ID, Touch ID, digital ou o PIN do aparelho, sem digitar a senha. A senha continua valendo como reserva.'),
-      supported ? add : h('p', { class: 'muted' }, 'Este navegador não aceita passkeys.'),
-      h('p', { class: 'muted small' }, 'A chave fica guardada no seu aparelho (e sincroniza pelo iCloud/Google, se estiver ligado); o painel guarda só a parte pública para conferir.')),
-    h('div', { class: 'section card' }, h('h2', {}, `Passkeys cadastradas — ${list.length}`),
-      table([
-        { label: 'Aparelho', get: (c) => c.name },
-        { label: 'Cadastrada', get: (c) => when(c.created) },
-        { label: 'Último uso', get: (c) => (c.lastUsed ? ago(c.lastUsed) : 'nunca') },
-        { label: '', get: (c) => h('button', { class: 'btn small ghost', onclick: () => act('/api/passkey/delete', { id: c.id }, { confirmText: `Apagar a passkey "${c.name}"? Esse aparelho vai precisar da senha de novo.`, reload: 'seguranca' }) }, 'Apagar') },
-      ], list, { empty: 'Nenhuma passkey ainda.' })),
-    h('p', { class: 'muted small section' }, 'As sessões abertas (e o botão para tirar os outros aparelhos) ficam em Aparelhos conectados.'));
 }
 
 start();

@@ -72,7 +72,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 .app {
   height: 100dvh;
   display: grid;
-  --rail-col: 72px; /* coluna dos servidores (0 quando eles vão para o topo) */
+  --rail-col: 72px; /* coluna dos servidores */
   grid-template-columns: var(--rail-col) 240px 1fr 240px;
   grid-template-rows: 100%;
 }
@@ -959,10 +959,7 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 #me-avatar, #me-name { cursor: pointer; }
 #me-avatar:hover { filter: brightness(1.15); }
 .profile-edit { display: flex; gap: 20px; align-items: center; }
-.profile-info { display: grid; gap: 4px; min-width: 0; }
-.profile-info strong { color: var(--text-strong); font-size: 18px; }
 .profile-buttons { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
-.profile-info p { margin: 6px 0 0; }
 .icon-edit { display: flex; gap: 16px; align-items: center; }
 .icon-edit-buttons { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .icon-edit-buttons p { flex-basis: 100%; margin: 0; }
@@ -1170,8 +1167,6 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .att-doc:hover .att-doc-dl { color: var(--text-strong); }
 
 /* ---------- Área de jogos ---------- */
-.server-icon.games-icon { color: var(--green); }
-.rail-item .server-icon.games-icon:hover, .rail-item.active .server-icon.games-icon { background: var(--green); color: #fff; }
 .app.games-mode { grid-template-columns: var(--rail-col) 240px 1fr; }
 .app.games-mode .members, .app.games-mode #btn-members { display: none; }
 .game-emoji { width: 20px; text-align: center; font-family: "Apple Color Emoji", "Segoe UI Emoji", sans-serif; }
@@ -1254,7 +1249,6 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .touch-action { width: 84px; height: 84px; border-radius: 50%; font-size: 34px; font-family: "Apple Color Emoji", "Segoe UI Emoji", sans-serif; }
 .touch-action.small { width: 60px; height: 60px; font-size: 24px; }
 .game-series { font-size: 13px; font-weight: 600; color: var(--text-strong); background: var(--bg-side); border-radius: 12px; padding: 4px 10px; }
-.games-gap { height: 8px; }
 
 /* ======================================================================
    Reações, digitando, novas mensagens, status, busca, boas-vindas, placar
@@ -1334,7 +1328,6 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .avatar.with-status.status-invisible::after { background: #80848e; }
 .member .sub.status-text { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .me-name { cursor: pointer; }
-.profile-card-status { margin-top: 4px; font-size: 12px; color: var(--text); }
 
 /* Falando na voz: o anel verde pulsa */
 .tile.speaking { animation: speak-pulse 1.1s ease-in-out infinite; }
@@ -1379,7 +1372,6 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .leaderboard-list .rank { width: 26px; text-align: center; font-family: "Apple Color Emoji", "Segoe UI Emoji", var(--font); }
 .leaderboard-list .lb-name { color: var(--text-strong); font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .leaderboard-list .lb-score { font-weight: 700; color: var(--text-strong); }
-.confetti { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 200; }
 @media (max-width: 800px) {
   .game-cards { grid-template-columns: 1fr; }
 }
@@ -1626,41 +1618,17 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .chat-box textarea::placeholder { color: var(--muted); }
 .chat-box .icon-btn { margin-bottom: 2px; }
 
-/* Soundboard, apertar para falar e configurações de voz */
+/* Apertar para falar e configurações de voz */
 .vp-actions { grid-template-columns: repeat(4, 1fr); }
-.soundboard {
-  position: fixed; z-index: 120; width: 320px; max-width: calc(100vw - 16px); background: var(--bg-side);
-  border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.5); padding: 10px; display: grid; gap: 8px;
-}
-.soundboard-title { font-weight: 700; color: var(--text-strong); padding: 2px 4px; }
-.soundboard-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; max-height: 300px; overflow-y: auto; }
-.board-btn { display: grid; justify-items: center; gap: 2px; padding: 8px 4px; border-radius: 8px; background: var(--bg-dark); color: var(--text); }
-.board-btn:hover { background: var(--accent); color: #fff; }
-.board-btn:active { transform: scale(.95); }
-.board-emoji { font-size: 22px; font-family: "Apple Color Emoji", "Segoe UI Emoji", var(--font); }
-.board-name { font-size: 12px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-.board-chip {
-  position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); z-index: 150; background: rgba(17,18,20,.92);
-  color: var(--text-strong); padding: 8px 16px; border-radius: 20px; font-size: 14px; animation: chip-in .25s ease-out;
-}
-@keyframes chip-in { from { opacity: 0; transform: translate(-50%, 10px); } }
 .segmented { display: inline-flex; width: fit-content; justify-self: start; align-self: start; background: var(--bg-dark); border-radius: 8px; padding: 3px; gap: 3px; } /* do tamanho dos botões (não estica na largura toda) */
 .segmented .seg { display: inline-block; padding: 8px 14px; border-radius: 6px; color: var(--muted); font-weight: 600; }
 .segmented .seg.on { background: var(--accent); color: #fff; }
 .ptt-key-row { margin-top: 8px; }
 .voice-settings input[type=range] { width: 100%; accent-color: var(--accent); }
 #btn-mic.ptt-open { color: var(--green); }
-.sound-upload { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
-.sound-upload input { background: var(--bg-dark); border: 0; border-radius: 4px; padding: 9px 10px; color: var(--text); font: inherit; }
-.sound-upload input:not(.sound-emoji-input) { flex: 1; min-width: 140px; }
-.sound-emoji-input { width: 54px; text-align: center; }
-.sound-list { display: grid; gap: 6px; }
-.sound-row { display: flex; align-items: center; gap: 10px; background: var(--bg-side); border-radius: 8px; padding: 8px 12px; }
-.sound-name { flex: 1; color: var(--text-strong); }
-.sound-row .btn { padding: 6px 12px; font-size: 13px; }
 
 /* ======================================================================
-   Sala de jogo: chat ao lado; jogos de festa (Desenha aí, Stop, Impostor)
+   Sala de jogo: chat ao lado; jogos de festa (Desenha aí e Stop)
    ====================================================================== */
 .game-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 10px; }
 .game-body .game-stage { min-height: 0; }
@@ -1781,28 +1749,6 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .stop-total { background: var(--bg-side); border-radius: 12px; padding: 4px 12px; font-weight: 700; color: var(--text-strong); }
 @media (max-width: 700px) { .stop-fields { grid-template-columns: 1fr; } }
 
-/* Impostor */
-.imp { display: grid; gap: 12px; max-width: 640px; margin: 0 auto; padding: 4px; }
-.imp-role { border-radius: 12px; padding: 14px 16px; background: var(--bg-side); display: grid; gap: 4px; }
-.imp-role.impostor { background: linear-gradient(135deg, rgba(237,66,69,.35), rgba(0,0,0,.2)); }
-.imp-role.inocente { background: linear-gradient(135deg, rgba(35,165,90,.3), rgba(0,0,0,.2)); }
-.imp-role-title { font-size: 20px; font-weight: 800; color: var(--text-strong); }
-.imp-role-sub { color: var(--text); font-size: 14px; }
-.imp-turn { font-weight: 700; color: var(--text-strong); }
-.imp-input { display: flex; gap: 8px; }
-.imp-input input { flex: 1; background: var(--bg-dark); border: 0; border-radius: 6px; padding: 10px; color: var(--text); font: inherit; font-size: 16px; }
-.imp-section { font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--muted); }
-.imp-clues { display: grid; gap: 4px; }
-.imp-clue { display: flex; gap: 8px; background: var(--bg-side); border-radius: 6px; padding: 6px 10px; }
-.imp-clue strong { color: var(--text-strong); min-width: 90px; }
-.imp-vote { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; }
-.imp-vote-btn { background: var(--bg-side); border-radius: 8px; padding: 10px; color: var(--text-strong); font-weight: 600; border: 2px solid transparent; }
-.imp-vote-btn:not(:disabled):hover { border-color: rgba(255,255,255,.2); }
-.imp-vote-btn.on { border-color: var(--red); background: rgba(237,66,69,.15); }
-.imp-vote-btn:disabled { opacity: .5; cursor: default; }
-.imp-result { background: var(--bg-side); border-radius: 12px; padding: 14px 16px; display: grid; gap: 4px; }
-.imp-result-title { font-size: 20px; font-weight: 800; color: var(--text-strong); }
-
 /* ======================================================================
    Tema claro (menu do status → Tema). As cores vêm das variáveis; aqui
    ficam só os pontos que tinham cor escura fixa.
@@ -1838,7 +1784,7 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 [data-theme="light"] .msg:hover { background: rgba(0,0,0,.03); }
 [data-theme="light"] .msg.mentioned { background: rgba(250,168,26,.12); }
 [data-theme="light"] .welcome-preview, [data-theme="light"] .pin-item { background: #fff; box-shadow: 0 0 0 1px #e3e5e8; }
-[data-theme="light"] .toggle-row, [data-theme="light"] .invite-row, [data-theme="light"] .sound-row { box-shadow: 0 0 0 1px #e3e5e8; }
+[data-theme="light"] .toggle-row, [data-theme="light"] .invite-row { box-shadow: 0 0 0 1px #e3e5e8; }
 [data-theme="light"] .poll, [data-theme="light"] .link-card, [data-theme="light"] .voice-note { box-shadow: 0 0 0 1px #e3e5e8; }
 [data-theme="light"] .poll-option { background: #fff; }
 [data-theme="light"] .rail-sep { background: #d9dbdf; }
@@ -1853,17 +1799,6 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 [data-theme="light"] .game-chat-line.private { color: #b7791f; }
 [data-theme="light"] .leaderboard-list li.me .lb-name { color: #b7791f; }
 
-/* ---------- Troca rápida (Ctrl+K) ---------- */
-.quick-switch { position: fixed; inset: 0; z-index: 130; background: rgba(0,0,0,.55); display: grid; place-items: start center; padding-top: 12vh; }
-.qs-box { width: min(560px, calc(100vw - 24px)); background: var(--bg-side); border-radius: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.5); overflow: hidden; }
-.qs-input { width: 100%; border: 0; outline: none; background: var(--bg-dark); color: var(--text-strong); font: inherit; font-size: 18px; padding: 16px 18px; }
-.qs-list { max-height: 50vh; overflow-y: auto; padding: 6px; display: grid; gap: 2px; }
-.qs-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; color: var(--text); text-align: left; width: 100%; }
-.qs-item.on { background: var(--bg-active); color: var(--text-strong); }
-.qs-item .qs-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.qs-item .qs-where { font-size: 12px; color: var(--muted); }
-.qs-item .badge { background: var(--red); color: #fff; font-size: 11px; font-weight: 700; border-radius: 8px; padding: 0 6px; }
-.qs-hint { padding: 8px 14px; font-size: 12px; color: var(--muted); border-top: 1px solid rgba(127,127,127,.15); }
 [data-theme="light"] .mention { color: #3c45a5; background: rgba(88,101,242,.15); }
 [data-theme="light"] .mention:hover { color: #fff; background: var(--accent); }
 [data-theme="light"] .mention.me { color: #8a5a00; background: rgba(250,168,26,.2); }
@@ -1875,7 +1810,6 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .friends-view { display: flex; flex-direction: column; min-height: 0; flex: 1; overflow: hidden; }
 .friends-view[hidden] { display: none; }
 .friends-tabs { display: flex; align-items: center; gap: 6px; padding: 10px 20px; border-bottom: 1px solid var(--bg-dark); flex-wrap: wrap; }
-.friends-tabs-title { font-weight: 700; color: var(--text-strong); margin-right: 8px; padding-right: 14px; border-right: 1px solid var(--bg-hover); }
 .friends-tab { padding: 4px 10px; border-radius: 6px; color: var(--muted); font-size: 15px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
 .friends-tab:hover { background: var(--bg-hover); color: var(--text); }
 .friends-tab.on { background: var(--bg-active); color: var(--text-strong); }
@@ -1905,7 +1839,6 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .friends-empty { display: grid; justify-items: center; gap: 10px; margin-top: 60px; text-align: center; }
 @media (max-width: 700px) {
   .friends-tabs { padding: 8px 12px; }
-  .friends-tabs-title { display: none; }
   .friends-body { padding: 12px; }
   .friends-add-form { flex-direction: column; padding: 8px; }
   .friend-user { display: none; }
@@ -2035,13 +1968,6 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .maint-lock-box h2 { margin: 8px 0; color: var(--text-strong, #fff); }
 .maint-lock-icon { font-size: 48px; }
 
-/* XP da conta: barrinha no rodapé do painel do usuário e barra no cartão de perfil */
-.me-xp { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(128,128,128,.25); cursor: help; }
-.me-xp-fill { height: 100%; background: linear-gradient(90deg, #5865f2, #eb459e); transition: width .6s; }
-.xp-level { display: flex; align-items: baseline; gap: 8px; }
-.xp-level b { font-size: 14px; color: var(--text-strong); }
-.xp-bar { height: 6px; margin: 4px 0 2px; border-radius: 4px; background: var(--bg-dark, #1e1f22); overflow: hidden; }
-.xp-bar > div { height: 100%; background: linear-gradient(90deg, #5865f2, #eb459e); }
 
 /* Balão de pensamento (status personalizado) ao lado da foto no cartão */
 .thought-bubble {
@@ -2100,40 +2026,6 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .game-rooms-nav .channel { padding-top: 5px; padding-bottom: 5px; }
 .dm-friends .count { margin-left: auto; font-size: 11px; font-weight: 700; background: var(--accent); color: #fff; border-radius: 999px; padding: 1px 7px; }
 
-/* ---------- Servidores no topo (Configurações → Servidores → No topo), só no computador ---------- */
-@media (min-width: 701px) {
-  .app.layout-top { --rail-col: 0px; grid-template-rows: 52px minmax(0, 1fr); }
-  .app.layout-top .server-rail {
-    grid-column: 1 / -1; grid-row: 1; flex-direction: row; justify-content: flex-start;
-    padding: 0 12px; gap: 6px; overflow-x: auto; overflow-y: hidden;
-    border-bottom: 1px solid rgba(0,0,0,.25);
-  }
-  .app.layout-top .sidebar { grid-column: 2; } /* o resto segue na linha de baixo, na ordem */
-  .app.layout-top .rail-item { width: auto; flex: none; }
-  .app.layout-top .rail-pill { display: none; }
-  .app.layout-top .rail-sep { width: 2px; height: 24px; margin: 0 4px; }
-  .app.layout-top .server-icon { width: 34px; height: 34px; font-size: 13px; border-radius: 50%; }
-  .app.layout-top .rail-item .server-icon:hover, .app.layout-top .rail-item.active .server-icon { border-radius: 10px; }
-  /* Aba: ícone + nome, em formato de pílula */
-  .app.layout-top .rail-tab {
-    align-items: center; gap: 2px; padding: 3px 12px 3px 3px; border-radius: 999px; cursor: pointer;
-    transition: background .12s;
-  }
-  .app.layout-top .rail-tab:hover { background: var(--bg-hover); }
-  .app.layout-top .rail-tab.active { background: var(--bg-active); box-shadow: inset 0 0 0 1px var(--server-accent, rgba(255,255,255,.08)); }
-  .app.layout-top .rail-tab.active .server-icon { background: var(--server-color, var(--accent)); border-radius: 10px; }
-  .rail-name { display: none; }
-  .app.layout-top .rail-name {
-    display: inline-flex; align-items: center; gap: 6px; max-width: 160px; padding: 0 0 0 6px;
-    background: none; border: 0; color: var(--muted); font: inherit; font-size: 14px; font-weight: 600;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
-  }
-  .app.layout-top .rail-tab:hover .rail-name, .app.layout-top .rail-tab.active .rail-name { color: var(--text-strong); }
-  /* não lida: bolinha depois do nome */
-  .app.layout-top .rail-tab.unread .rail-name::after { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--text-strong); flex: none; }
-  .app.layout-top .rail-badge { position: static; margin-left: 4px; }
-  .app.layout-top .rail-item:not(.rail-tab) .rail-badge { position: absolute; right: -4px; bottom: -2px; }
-}
 /* Configurações: botões da conta lado a lado */
 .user-settings-account { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -2162,31 +2054,7 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 /* Canal privado: cadeado ao lado do nome */
 .channel-lock { display: inline-grid; place-items: center; color: var(--muted); margin-left: 2px; flex: none; }
 .channel-privacy .role-checklist { max-height: 260px; overflow-y: auto; }
-.filter-words { width: 100%; box-sizing: border-box; font-family: inherit; resize: vertical; }
 
-/* Eventos: faixa do próximo evento no topo dos canais e a janela com a lista */
-.events-strip {
-  display: flex; align-items: center; gap: 8px; width: calc(100% - 16px); margin: 8px 8px 0; padding: 8px 10px;
-  border: 0; border-radius: 8px; background: var(--bg-hover); color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: pointer;
-}
-.events-strip:hover { background: var(--bg-active); color: var(--text-strong); }
-.events-strip svg { color: var(--accent); flex: none; }
-.events-strip.has-next { background: rgba(88, 101, 242, .14); }
-.events-strip-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.events-strip .count { font-size: 11px; font-weight: 700; background: var(--accent); color: #fff; border-radius: 999px; padding: 1px 7px; }
-.events-going { font-size: 11px; font-weight: 700; color: var(--green); }
-.events-list { display: grid; gap: 10px; max-height: 60vh; overflow-y: auto; }
-.event-card { border-radius: 10px; background: var(--bg-side); padding: 12px 14px; display: grid; gap: 6px; }
-.event-card.live { box-shadow: inset 3px 0 0 var(--green); }
-.event-when { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--accent); }
-.event-card.live .event-when { color: var(--green); }
-.event-title { font-size: 16px; font-weight: 700; color: var(--text-strong); overflow-wrap: anywhere; }
-.event-desc { font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
-.event-foot { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
-.event-going { flex: 1; display: flex; align-items: center; gap: 2px; min-width: 0; }
-.event-going .avatar { width: 22px; height: 22px; font-size: 10px; margin-right: -4px; border: 2px solid var(--bg-side); }
-.event-going .muted { margin-left: 10px; }
-.event-foot .btn { padding: 6px 14px; font-size: 13px; }
 .user-settings-account { align-items: center; }
 .modal textarea { font-family: inherit; }
 /* Arrastar servidores na coluna (e nas abas do topo) para mudar a ordem */
@@ -2196,9 +2064,6 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 }
 .server-rail .rail-item.drop-before::before { top: -6px; }
 .server-rail .rail-item.drop-after::after { bottom: -6px; }
-.app.layout-top .server-rail .rail-item.drop-before::before, .app.layout-top .server-rail .rail-item.drop-after::after { top: 4px; bottom: 4px; width: 3px; height: auto; left: auto; right: auto; }
-.app.layout-top .server-rail .rail-item.drop-before::before { left: -5px; }
-.app.layout-top .server-rail .rail-item.drop-after::after { right: -5px; }
 /* Menções de grupo: @todos e @cargo (na cor do cargo) */
 .mention.group { --role-color: var(--accent); color: var(--role-color); background: color-mix(in srgb, var(--role-color) 18%, transparent); cursor: default; }
 .mention.group:hover { background: color-mix(in srgb, var(--role-color) 28%, transparent); }
@@ -2270,3 +2135,117 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .session-info { flex: 1; min-width: 0; }
 .session-name { color: var(--text-strong); font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .session-here { background: var(--green); color: #fff; font-size: 11px; font-weight: 700; border-radius: 8px; padding: 0 7px; }
+
+/* ======================================================================
+   App do Mac (1.4.7 em diante): cara de app do Mac, como o iPlayer
+   Fonte do sistema, coluna da esquerda translúcida (o macOS desenha o vidro fosco por trás do que fica
+   transparente aqui), títulos de seção em letra normal, seleção arredondada e menus com fundo desfocado.
+   Só vale com a classe .mac-app (posta pelo index.html quando o app avisa que tem esse visual).
+   ====================================================================== */
+.mac-drag { display: none; }
+:root.mac-app {
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Noto Sans", sans-serif;
+  --mac-line: rgba(255,255,255,.08);
+  --mac-hover: rgba(255,255,255,.07);
+  --mac-glass: rgba(30,31,34,.42); /* tom por cima do vidro fosco (escuro) */
+  --mac-menu: rgba(40,41,46,.82);
+  --mac-radius: 6px;
+  -webkit-font-smoothing: antialiased;
+}
+:root.mac-app[data-theme="light"] {
+  --mac-line: rgba(0,0,0,.1);
+  --mac-hover: rgba(0,0,0,.06);
+  --mac-glass: rgba(246,246,248,.4);
+  --mac-menu: rgba(246,246,248,.84);
+}
+:root.mac-app body { font-size: 14px; }
+
+/* Sem a faixa "Muvuca" de 30 px: os três botões ficam em cima da coluna dos servidores */
+:root.mac-app body::before { display: none; }
+:root.mac-app .app { height: 100dvh; margin-top: 0; }
+:root.mac-app #auth { padding-top: 0; }
+:root.mac-app .mac-drag {
+  display: block; position: fixed; left: 0; top: 0; width: 72px; height: 44px; z-index: 1000;
+  -webkit-app-region: drag;
+}
+:root.mac-app body:has(#auth:not([hidden])) .mac-drag { width: 100%; }
+:root.mac-app .server-rail { padding-top: 46px; }
+:root.mac-app .main-header { -webkit-app-region: drag; }
+:root.mac-app .main-header :is(button, a, input, select, textarea, label, [role="button"], [tabindex]) { -webkit-app-region: no-drag; }
+
+/* Coluna da esquerda translúcida (servidores + canais); a conversa e os membros ficam opacos.
+   Nos temas coloridos continua o degradê (sem vidro). */
+:root.mac-app:not([data-color]) body { background: transparent; }
+:root.mac-app:not([data-color]) .main { background: var(--bg-main); }
+:root.mac-app:not([data-color]) .server-rail,
+:root.mac-app:not([data-color]) .sidebar { background: var(--mac-glass); }
+:root.mac-app .server-rail { box-shadow: inset -1px 0 0 var(--mac-line); }
+:root.mac-app .sidebar { box-shadow: inset -1px 0 0 var(--mac-line); }
+:root.mac-app .members { box-shadow: inset 1px 0 0 var(--mac-line); }
+:root.mac-app .voice-panel, :root.mac-app .user-panel { background: transparent; border-bottom: 0; box-shadow: inset 0 1px 0 var(--mac-line); }
+:root.mac-app .server-name, :root.mac-app .main-header { box-shadow: 0 1px 0 var(--mac-line); }
+:root.mac-app .server-name:hover { background: var(--mac-hover); }
+
+/* Servidores: quadrados arredondados (como ícones de app), sem virar círculo */
+:root.mac-app .server-icon { border-radius: 12px; }
+:root.mac-app .rail-item .server-icon:hover, :root.mac-app .rail-item.active .server-icon { border-radius: 12px; }
+:root.mac-app .server-icon.add:hover { border-radius: 12px; }
+:root.mac-app .rail-pill { width: 3px; }
+
+/* Títulos de seção como no Finder: letra normal, pequena e cinza */
+:root.mac-app .category, :root.mac-app .field-label, :root.mac-app .settings-nav-title,
+:root.mac-app .settings-subtitle, :root.mac-app .card label, :root.mac-app .members .category {
+  text-transform: none; letter-spacing: 0; font-size: 11px; font-weight: 600;
+}
+:root.mac-app .settings-subtitle { font-size: 12px; }
+
+/* Linhas da barra lateral: mais baixas, cantos de 6 px; a selecionada na cor do Muvuca */
+:root.mac-app .channel { padding: 4px 8px; border-radius: var(--mac-radius); font-size: 13px; }
+:root.mac-app .channel:hover { background: var(--mac-hover); }
+:root.mac-app .channel.active { background: var(--accent); color: #fff; }
+:root.mac-app .channel.active > .ico { opacity: 1; }
+:root.mac-app .channel.active .count { color: rgba(255,255,255,.8); }
+:root.mac-app .voice-member, :root.mac-app .member { border-radius: var(--mac-radius); }
+:root.mac-app .voice-member:hover, :root.mac-app .member:hover { background: var(--mac-hover); }
+:root.mac-app .voice-member { font-size: 13px; }
+:root.mac-app .member .name { font-size: 13px; }
+:root.mac-app .settings-nav-item { border-radius: var(--mac-radius); font-size: 13px; padding: 5px 10px; }
+:root.mac-app .settings-nav-item.active { background: var(--accent); color: #fff; }
+:root.mac-app .icon-btn { border-radius: var(--mac-radius); }
+
+/* Botões, campos e janelas */
+:root.mac-app .btn { border-radius: var(--mac-radius); padding: 7px 14px; font-size: 13px; font-weight: 500; }
+:root.mac-app .card button[type=submit] { border-radius: var(--mac-radius); font-weight: 500; }
+:root.mac-app .card input, :root.mac-app .field input, :root.mac-app .copy-row input, :root.mac-app .input-prefix,
+:root.mac-app .field select { border-radius: var(--mac-radius); }
+:root.mac-app .card input:focus, :root.mac-app .field input:focus, :root.mac-app .field select:focus {
+  outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+:root.mac-app .chat-box { border-radius: 10px; }
+:root.mac-app .card { border-radius: 12px; }
+:root.mac-app .modal { border-radius: 12px; box-shadow: 0 0 0 1px var(--mac-line), 0 20px 50px rgba(0,0,0,.45); }
+:root.mac-app .modal-footer { border-radius: 0 0 12px 12px; }
+:root.mac-app .modal-backdrop { background: rgba(0,0,0,.35); }
+:root.mac-app .choice { border-radius: 10px; }
+
+/* Menus: vidro desfocado, cantos de 8 px, item destacado na cor do Muvuca */
+:root.mac-app .context-menu {
+  background: var(--mac-menu); border-radius: 8px; padding: 5px;
+  -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: 0 0 0 1px var(--mac-line), 0 10px 30px rgba(0,0,0,.35);
+}
+:root.mac-app .menu-item { padding: 5px 9px; border-radius: 4px; font-size: 13px; }
+:root.mac-app[data-theme="light"] .menu-item { color: #1d1d1f; }
+:root.mac-app .menu-sep { background: var(--mac-line); margin: 4px 6px; }
+
+/* Barras de rolagem finas, como as do Mac */
+:root.mac-app ::-webkit-scrollbar { width: 10px; height: 10px; }
+:root.mac-app ::-webkit-scrollbar-track { background: transparent; }
+:root.mac-app ::-webkit-scrollbar-thumb { background: rgba(128,128,128,.4); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
+:root.mac-app .messages::-webkit-scrollbar-track { background: transparent; }
+:root.mac-app .messages::-webkit-scrollbar-thumb { background: rgba(128,128,128,.4); background-clip: content-box; }
+:root.mac-app .modal-header h2 { font-size: 18px; }
+:root.mac-app[data-theme="light"] .btn.secondary {
+  background: #fff; color: #1d1d1f; box-shadow: 0 0 0 .5px rgba(0,0,0,.25), 0 1px 1.5px rgba(0,0,0,.1);
+}
+:root.mac-app[data-theme="light"] .btn.secondary:hover { background: #f5f5f7; }

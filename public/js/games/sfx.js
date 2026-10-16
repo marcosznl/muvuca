@@ -151,47 +151,11 @@ const RULES = {
     if (a && b && (b.bombs > a.bombs || b.range > a.range || b.speed > a.speed)) play('pickup');
     deaths(prev, s, me);
   },
-  tron(prev, s, me) {
-    countdown(prev, s);
-    deaths(prev, s, me, 'crash');
-  },
-  tanks(prev, s, me) {
-    countdown(prev, s);
-    if (s.bullets.length > prev.bullets.length && limit('shoot', 70)) play('shoot');
-    const before = byId(prev);
-    for (const p of s.players) {
-      const was = before.get(p.id);
-      if (!was) continue;
-      if (was.alive && !p.alive) { if (limit('explosion', 150)) play('explosion'); }
-      else if (p.hp < was.hp && limit('hit', 80)) play('hit');
-    }
-  },
-  agar(prev, s, me) {
-    countdown(prev, s);
-    const a = byId(prev).get(me);
-    const b = byId(s).get(me);
-    if (a && b) {
-      if (b.eaten > a.eaten) play('gulp');
-      else if (b.mass > a.mass && limit('eat', 70)) play('eat', 1 + Math.min(1, b.mass / 400));
-    }
-    deaths(prev, s, me);
-  },
-  velha(prev, s, me) {
-    const filled = (bd) => (bd ?? []).filter((v) => v !== null).length; // casas guardam 0/1 (índice do jogador)
-    if (filled(s.board) > filled(prev.board)) play('click', filled(s.board) % 2 === 0);
-    if (s.turn === me && prev.turn !== me && !s.over) play('yourTurn');
-  },
-  cartas(prev, s, me) {
-    if (JSON.stringify(s.top) !== JSON.stringify(prev.top)) play('card');
-    const a = byId(prev);
-    for (const p of s.players) {
-      const was = a.get(p.id);
-      if (was && p.cards > was.cards && limit('draw', 90)) play('draw');
-      if (was && p.called && !was.called) play('alert');
-    }
-    if ((s.pendingDraw ?? 0) > (prev.pendingDraw ?? 0)) play('ominous');
-    if (s.turn === me && prev.turn !== me && !s.over) play('yourTurn');
-  },
+
+
+
+
+
   desenho(prev, s, me) {
     if (s.phase !== prev.phase) {
       if (s.phase === 'draw') play('whoosh');
@@ -211,15 +175,7 @@ const RULES = {
     }
     if (s.phase === 'write' && secs(s.timeLeft) !== secs(prev.timeLeft) && secs(s.timeLeft) <= 5 && secs(s.timeLeft) > 0) play('tick');
   },
-  impostor(prev, s, me) {
-    if ((s.clues?.length ?? 0) > (prev.clues?.length ?? 0)) play('pop');
-    if (s.phase !== prev.phase) {
-      if (s.phase === 'vote') play('drum');
-      if (s.phase === 'guess') play('ominous');
-    }
-    if (s.phase === 'clues' && s.current === me && prev.current !== me) play('yourTurn');
-    if (s.votedCount > prev.votedCount) play('click');
-  },
+
 };
 
 // Chamado a cada estado novo da partida

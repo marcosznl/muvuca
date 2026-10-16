@@ -83,7 +83,7 @@ export const AUDIT_LABELS = {
   'painel:ip:unblock': 'Desbloqueou IP',
   'painel:maintenance': 'Modo manutenção',
   'painel:deploy': 'Atualizou o Muvuca',
-  'painel:xp': 'Ajustou XP de uma conta',
+  'painel:xp': 'Ajustou XP de uma conta (o XP saiu do Muvuca)',
   'painel:service': 'Serviços pelo painel (recarregar, voz, desligar/ligar)',
   'painel:server:rename': 'Renomeou um servidor (painel)',
   'painel:server:transfer': 'Passou a posse de um servidor (painel)',

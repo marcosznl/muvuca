@@ -17,10 +17,9 @@ import { serveStatic } from './src/static.js';
 import { actions, RATE_FREE } from './src/actions/index.js';
 import { leaveRoom } from './src/games/lobby.js';
 import { publicKey } from './src/push.js';
-import { uploadSound, serveSound } from './src/soundboard.js';
 import { HttpError, ActionError, json, bearer, clientIp, readBody } from './src/util.js';
 import { ipBlocked, lockedOut, maintenance, disconnectUser, blockUser, blockIp, setMaintenance, adminDeleteMessage, adminDeleteFile, resetPassword, deleteAccount, reloadEveryone } from './src/moderation.js';
-import { adjustXp } from './src/xp.js';
+import './src/call-minutes.js';
 import { auditAction, audit, purgeAudit } from './src/audit.js';
 import { internalStats, isInternal } from './src/internal.js';
 
@@ -41,7 +40,6 @@ const routes = {
   'POST /api/emojis': (req, url) => uploadEmoji(req, url),
   'POST /api/image': (req, url) => uploadImage(req, url),
   'POST /api/attach': (req, url) => uploadAttachment(req, url),
-  'POST /api/sound': (req, url) => uploadSound(req, url),
 };
 
 // Arquivos enviados pelas pessoas: /prefixo/<id>
@@ -49,7 +47,6 @@ const files = {
   '/file/': (req, res, id) => serveFile(req, res, id),
   '/img/': (req, res, id) => serveImage(res, id),
   '/emoji/': (req, res, id) => serveEmoji(req, res, id),
-  '/sound/': (req, res, id) => serveSound(req, res, id),
 };
 
 const startedAt = Date.now();
@@ -88,7 +85,6 @@ const internalActions = {
   '/internal/ip/block': (b) => blockIp(String(b.ip ?? ''), b.block === true, b.reason),
   '/internal/maintenance': (b) => setMaintenance(b),
   '/internal/reload': () => reloadEveryone(),
-  '/internal/xp/adjust': (b) => adjustXp(String(b.userId), b.amount, { reset: b.reset === true }),
   '/internal/message/delete': (b) => adminDeleteMessage(b.id),
   '/internal/bandwidth': (b) => setBandwidth(b),
   '/internal/user/reset-password': (b) => resetPassword(String(b.userId ?? ''), b.password),
@@ -198,7 +194,6 @@ function welcome(ws, token) {
     friends: db.friendsOf(user.id),
     readState: db.readState(user.id),
     maintenance: maintenance(),
-    xpRank: db.xpRank(user.id),
   });
   music.cancelLeave(user.id); // voltou a tempo depois de uma queda: continua na sala de música
   if (firstSocket) broadcastPresence();
@@ -274,7 +269,7 @@ setInterval(() => {
   }
   cleanupAuthFails();
 }, 30_000);
-setInterval(() => { db.purgeExpiredSessions(); purgeAudit(); db.purgeXpEvents(Date.now() - 90 * 86_400_000); db.purgeClientErrors(Date.now() - 30 * 86_400_000); }, 3_600_000);
+setInterval(() => { db.purgeExpiredSessions(); purgeAudit(); db.purgeCallMinutes(Date.now() - 90 * 86_400_000); db.purgeClientErrors(Date.now() - 30 * 86_400_000); }, 3_600_000);
 setInterval(cleanupFiles, 30 * 60_000); // anexos abandonados e de mensagens apagadas
 
 server.listen(PORT, HOST, () => {

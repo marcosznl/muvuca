@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { freePort } from '../test/helpers.js';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -36,7 +37,7 @@ export async function startStack() {
     await waitHttp('http://127.0.0.1:7880', lk, 'LiveKit');
   }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'muvuca-e2e-'));
-  const port = 43000 + Math.floor(Math.random() * 5000);
+  const port = await freePort();
   const srv = spawn(process.execPath, ['server.js'], {
     cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'],
     env: { PATH: process.env.PATH, PORT: String(port), DB_FILE: path.join(dir, 'teste.db'), ACCESS_PASSWORD: 'codigo-e2e',

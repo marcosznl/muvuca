@@ -10,14 +10,9 @@ import { PERMS, computePerms, can, canSeeChannel } from '../public/js/permission
 
 export const roomService = new RoomServiceClient(LIVEKIT_HTTP_URL, API_KEY, API_SECRET);
 
-// 2º aparelho da mesma conta na call: identidade "u5:2" (a conta continua sendo a u5). Entra sem microfone
-// (o som vai pelo aparelho principal; dois microfones perto dão eco) — só câmera e tela.
-export const baseUserId = (identity) => String(identity).split(':')[0];
-export const isCompanion = (identity) => String(identity).endsWith(':2');
-
-function publishGrant(perms, { companion = false } = {}) {
+function publishGrant(perms) {
   const sources = [];
-  if (can(perms, PERMS.SPEAK) && !companion) sources.push(TrackSource.MICROPHONE);
+  if (can(perms, PERMS.SPEAK)) sources.push(TrackSource.MICROPHONE);
   if (can(perms, PERMS.VIDEO)) sources.push(TrackSource.CAMERA, TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO);
   return { canPublish: sources.length > 0, canPublishSources: sources, canPublishData: true };
 }
@@ -36,7 +31,6 @@ function takeMoveTicket(userId, channelId) {
 export async function voiceToken(req) {
   const user = requireUser(req);
   const body = await readBody(req);
-  const second = body.second === true;
   const channel = db.channel(body.channel);
   if (!channel || channel.type !== 'voice' || !db.isMember(channel.server_id, user.id)) {
     throw new HttpError(404, 'Canal de voz não encontrado.');
@@ -46,27 +40,26 @@ export async function voiceToken(req) {
   if (!canSeeChannel(snap, user.id, snap.channels.find((c) => c.id === channel.id))) throw new HttpError(404, 'Canal de voz não encontrado.');
   const perms = computePerms(snap, user.id);
   // Movido por alguém com "Mover membros": entra mesmo sem permissão de conectar ou com o canal cheio (como no Discord)
-  const moved = !second && takeMoveTicket(user.id, channel.id);
+  const moved = takeMoveTicket(user.id, channel.id);
   if (!moved && !can(perms, PERMS.CONNECT)) throw new HttpError(403, 'Você não tem permissão para entrar neste canal.');
   // Limite de pessoas do canal (quem pode gerenciar canais entra mesmo cheio, como no Discord)
   const limit = snap.channels.find((c) => c.id === channel.id)?.userLimit ?? 0;
   if (limit > 0 && !moved && !can(perms, PERMS.MANAGE_CHANNELS)) {
     const inside = await roomService.listParticipants(channel.id).then((ps) => ps.map((p) => p.identity)).catch(() => voicePeople(channel.id).map((p) => p.id));
-    if (inside.filter((id) => baseUserId(id) !== user.id).length >= limit) throw new HttpError(403, `Esse canal está cheio (máximo de ${limit} ${limit === 1 ? 'pessoa' : 'pessoas'}).`);
+    if (inside.filter((id) => id !== user.id).length >= limit) throw new HttpError(403, `Esse canal está cheio (máximo de ${limit} ${limit === 1 ? 'pessoa' : 'pessoas'}).`);
   }
 
   // Entrada em canal de voz fica na auditoria (menos nas ligações das mensagens diretas)
-  if (snap.kind !== 'dm') audit('voice:join', { user, ip: clientIp(req), serverId: snap.id, detail: { servidor: snap.name, canal: channel.name, ...(second ? { aparelho: '2º aparelho' } : {}), ...(moved ? { movido: true } : {}) } });
+  if (snap.kind !== 'dm') audit('voice:join', { user, ip: clientIp(req), serverId: snap.id, detail: { servidor: snap.name, canal: channel.name, ...(moved ? { movido: true } : {}) } });
   const at = new AccessToken(API_KEY, API_SECRET, {
-    identity: second ? `${user.id}:2` : user.id, name: second ? `${user.name} (2º aparelho)` : user.name, ttl: '6h',
-    attributes: second ? { companion: '1' } : undefined,
+    identity: user.id, name: user.name, ttl: '6h',
   });
   at.addGrant({
     room: channel.id,
     roomJoin: true,
     canSubscribe: true,
     canUpdateOwnMetadata: true,
-    ...publishGrant(perms, { companion: second }),
+    ...publishGrant(perms),
   });
   const host = (req.headers.host || 'localhost').replace(/:\d+$/, '');
   // Modo local (sem LIVEKIT_URL): o LiveKit escuta só em 127.0.0.1
@@ -125,7 +118,6 @@ export async function pollVoice() {
           return {
             id: p.identity,
             name: p.name,
-            ...(isCompanion(p.identity) ? { companion: true, userId: baseUserId(p.identity) } : {}),
             muted: !has(TrackSource.MICROPHONE, true),
             deafened: p.attributes?.deafened === '1',
             camera: has(TrackSource.CAMERA, true),
@@ -156,11 +148,10 @@ export async function syncVoicePermissions(serverId) {
   if (!snap) return;
   for (const ch of snap.channels.filter((c) => c.type === 'voice')) {
     for (const p of voiceState[ch.id] ?? []) {
-      const uid = baseUserId(p.id); // 2º aparelho: vale a permissão da conta dona
-      const perms = snap.members.some((m) => m.id === uid) ? computePerms(snap, uid) : 0;
+      const perms = snap.members.some((m) => m.id === p.id) ? computePerms(snap, p.id) : 0;
       try {
         if (!can(perms, PERMS.CONNECT)) await roomService.removeParticipant(ch.id, p.id);
-        else await roomService.updateParticipant(ch.id, p.id, { permission: { canSubscribe: true, ...publishGrant(perms, { companion: isCompanion(p.id) }) } });
+        else await roomService.updateParticipant(ch.id, p.id, { permission: { canSubscribe: true, ...publishGrant(perms) } });
       } catch (err) {
         console.error('Não foi possível atualizar a voz de', p.name, err.message);
       }

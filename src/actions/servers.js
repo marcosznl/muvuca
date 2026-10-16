@@ -7,12 +7,10 @@ import { voiceFor, syncVoicePermissions, closeVoiceRoom } from '../voice.js';
 import { music, leaveMusicOf } from '../music-rooms.js';
 import { removeEmojiFile } from '../emojis.js';
 import { removeImage } from '../images.js';
-import { removeSoundFile } from '../soundboard.js';
 import { fail, clean, validColor } from '../util.js';
 import { announceJoin, announceLeave } from '../welcome.js';
 import { serverViewFor, PERMS, can } from '../../public/js/permissions.js';
 import { SYSTEM } from '../../db.js';
-import { cleanFilter } from '../word-filter.js';
 
 const HOUR = 3_600_000;
 export const INVITE_EXPIRY = [HOUR / 2, HOUR, 24 * HOUR, 7 * 24 * HOUR, null]; // null = nunca vence
@@ -28,10 +26,8 @@ export async function deleteServerNow(snap) {
   if (snap.id === HOME_SERVER) fail('O servidor principal não pode ser excluído.');
   for (const ch of snap.channels.filter((c) => c.type === 'music')) music.dropChannel(ch.id);
   const emojiIds = db.emojiIds(snap.id);
-  const soundIds = db.soundIds(snap.id);
   db.deleteServer(snap.id);
   for (const id of emojiIds) removeEmojiFile(id);
-  for (const id of soundIds) removeSoundFile(id);
   removeImage(snap.icon);
   for (const mem of snap.members) sendToUser(mem.id, { t: 'server:removed', serverId: snap.id, reason: 'O servidor foi excluído.' });
   for (const ch of snap.channels.filter((c) => c.type === 'voice')) await closeVoiceRoom(ch.id);
@@ -86,15 +82,6 @@ export default {
     const ids = [...new Set((Array.isArray(m.ids) ? m.ids : []).map(String))].filter((id) => mine.has(id)).slice(0, 200);
     db.setServerOrder(user.id, ids);
     sendToUser(user.id, { t: 'servers:order', ids }); // as outras abas e aparelhos também reorganizam
-  },
-
-  // Filtro de palavras: lista (uma por linha) e o que fazer (bloquear a mensagem ou trocar por ***)
-  'server:filter'(user, m) {
-    const ctx = requireServer(user, m.serverId);
-    if (ctx.snap.kind === 'dm') fail('Conversa privada não tem filtro.');
-    requirePerm(ctx, PERMS.MANAGE_SERVER, 'Você não tem permissão para mudar o filtro de palavras.');
-    db.setWordFilter(ctx.snap.id, cleanFilter(m.words, m.mode));
-    pushServer(ctx.snap.id);
   },
 
   async 'server:delete'(user, m) {

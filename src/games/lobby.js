@@ -4,16 +4,9 @@ import { sockets, sendToUser, broadcastPresence, setActivityProvider } from '../
 import { fail } from '../util.js';
 import { db } from '../store.js';
 import { announceGameRoom } from '../welcome.js';
-import { xpForGame } from '../xp.js';
 import * as bomberman from './bomberman.js';
-import * as tron from './tron.js';
-import * as tanks from './tanks.js';
-import * as agar from './agar.js';
-import * as velha from './velha.js';
-import * as cartas from './cartas.js';
 import * as desenho from './desenho.js';
 import * as stop from './stop.js';
-import * as impostor from './impostor.js';
 
 // Jogos disponíveis (o site mostra nome e descrição na lista).
 // Cada jogo é uma classe com input(), tick(ms), eliminate(id), state(), over e winner.
@@ -22,23 +15,11 @@ export const GAMES = {
     name: 'Bomberman', maxPlayers: bomberman.MAX_PLAYERS, options: bomberman.OPTIONS,
     create: (players, { options }) => new bomberman.Bomberman(players, { options }),
   },
-  tron: { name: 'Tron', maxPlayers: tron.MAX_PLAYERS, create: (players) => new tron.Tron(players) },
-  tanks: { name: 'Tanquinhos', maxPlayers: tanks.MAX_PLAYERS, create: (players) => new tanks.Tanks(players) },
-  agar: {
-    name: 'Agar', maxPlayers: agar.MAX_PLAYERS, options: agar.OPTIONS,
-    create: (players, { options }) => new agar.Agar(players, { options }),
-  },
-  velha: { name: 'Jogo da velha', maxPlayers: velha.MAX_PLAYERS, create: (players, opts) => new velha.Velha(players, opts) },
-  cartas: {
-    name: 'Última!', maxPlayers: cartas.MAX_PLAYERS, options: cartas.RULES,
-    create: (players, { options }) => new cartas.Cartas(players, { rules: options }),
-  },
   desenho: {
     name: 'Desenha aí', maxPlayers: desenho.MAX_PLAYERS, minPlayers: 2, options: desenho.OPTIONS,
     create: (players, { options }) => new desenho.Desenho(players, { options, customWords: db.gameWords() }),
   },
   stop: { name: 'Stop', maxPlayers: stop.MAX_PLAYERS, create: (players) => new stop.Stop(players) },
-  impostor: { name: 'Impostor', maxPlayers: impostor.MAX_PLAYERS, minPlayers: impostor.MIN_PLAYERS, create: (players) => new impostor.Impostor(players) },
 };
 
 const TICK_MS = 50;       // 20 atualizações por segundo
@@ -103,7 +84,7 @@ function broadcastRooms() {
 
 const members = (r) => [...r.players.map((p) => p.id), ...r.spectators];
 const sendToRoom = (r, msg) => { const data = JSON.stringify(msg); for (const id of members(r)) sendToUser(id, data); };
-// Jogos de cartas: cada um vê só a própria mão (stateFor); os outros jogos mandam o mesmo para todos
+// Jogos com informação escondida (stateFor, ex.: a palavra do Desenha aí): cada um recebe a sua versão
 const stateOf = (r, userId) => (r.engine.stateFor ? r.engine.stateFor(userId) : r.engine.state());
 function sendState(r) {
   if (!r.engine.stateFor) return sendToRoom(r, { t: 'game:state', roomId: r.id, state: r.engine.state() });
@@ -116,7 +97,7 @@ function changed(r) {
   broadcastPresence(); // "Jogando…" de quem entrou/saiu
 }
 
-// "Jogando Tron": quem está numa sala como jogador
+// "Jogando Stop": quem está numa sala como jogador
 setActivityProvider(() => {
   const out = {};
   for (const r of rooms.values()) {
@@ -311,7 +292,6 @@ function recordResult(r, winners) {
   const people = r.engine.players.map((p) => p.id).filter(isPerson);
   if (people.length < 2) return;
   db.addGameResult(r.game, winners.filter(isPerson), people);
-  xpForGame(people, winners.filter(isPerson));
   const msg = { t: 'games:leaderboard', week: weeklyLeaderboard(), all: allTimeLeaderboard() };
   for (const id of sockets.keys()) sendToUser(id, msg);
 }

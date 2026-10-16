@@ -7,19 +7,12 @@ import { state } from './state.js';
 import { renderDmSidebar } from './dms.js';
 import { request, send } from './net.js';
 import { colorOf } from './games/common.js';
-import { confetti } from './confetti.js';
 import { gameSounds, gameSoundsOn, setGameSounds, gameVolume, setGameVolume, sfx } from './games/sfx.js';
 import bomberman from './games/bomberman.js';
-import tron from './games/tron.js';
-import tanks from './games/tanks.js';
-import agar from './games/agar.js';
-import velha from './games/velha.js';
-import cartas from './games/cartas.js';
 import desenho from './games/desenho.js';
 import stop from './games/stop.js';
-import impostor from './games/impostor.js';
 
-const GAME_INFO = { bomberman, tron, tanks, agar, velha, cartas, desenho, stop, impostor };
+const GAME_INFO = { bomberman, desenho, stop };
 
 const games = { list: [], rooms: [], room: null, snaps: [], loaded: false, week: [], all: [], lbTab: 'week', chat: [] };
 
@@ -111,7 +104,7 @@ function chatPanel(r) {
   return panel;
 }
 
-// ---------- Jogos de tela comum (Stop, Impostor, Desenha aí) ----------
+// ---------- Jogos de tela comum (Stop e Desenha aí) ----------
 
 const domCtx = () => ({
   room: games.room,
@@ -315,7 +308,7 @@ function lobbyView() {
   return wrap;
 }
 
-// Regras da casa do jogo (ex.: cartas): quem manda na sala liga/desliga antes de começar; os outros só veem
+// Opções da sala (ex.: mapa do Bomberman): quem manda na sala liga/desliga antes de começar; os outros só veem
 function optionsBox(r) {
   const meta = games.list.find((g) => g.id === r.game)?.options ?? {};
   const keys = Object.keys(meta);
@@ -532,7 +525,6 @@ function soundControl() {
 
 // Relógio e números do jogo em cima; no meio, o resultado no fim (ou o recado que o jogo pedir)
 let lastStatus = '';
-let celebrated = null;
 function updateStatus(out) {
   const s = games.snaps[games.snaps.length - 1]?.s;
   if (!s || !out) return;
@@ -542,11 +534,6 @@ function updateStatus(out) {
   const overlay = document.getElementById('game-overlay');
   if (!overlay) return;
   let msg = out.overlay ?? '';
-  const matchKey = `${games.room?.id}:${games.room?.round}`;
-  if (s.over && celebrated !== matchKey) {
-    celebrated = matchKey; // uma festa por partida
-    if (s.winner === state.me?.id && s.players.length > 1) confetti(); // o som da vitória vem do games/sfx.js
-  }
   if (s.over) {
     const winner = s.players.find((p) => p.id === s.winner);
     if (winner) msg = `🏆 ${winner.id === state.me?.id ? 'Você venceu!' : `${winner.name} venceu!`}`;
@@ -574,14 +561,3 @@ window.addEventListener('keyup', (e) => { current()?.keyup?.(e, api); });
 
 // Trocou de aba ou de janela: solta tudo (senão a pessoa sai andando sozinha)
 window.addEventListener('blur', () => { current()?.blur?.(api); });
-
-// Mouse no palco do jogo (mira, para onde ir, casa clicada)
-for (const type of ['pointermove', 'pointerdown', 'pointerup']) {
-  window.addEventListener(type, (e) => {
-    const canvas = document.getElementById('game-canvas');
-    if (!canvas || !playing() || !current()?.pointer) return;
-    if (e.pointerType !== 'mouse' && e.target !== canvas) return; // dedo nas setas da tela não é mira
-    const rect = canvas.getBoundingClientRect();
-    current().pointer(type, { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height, button: e.button, target: e.target, canvas }, api);
-  });
-}

@@ -1,14 +1,13 @@
 // Canais de voz: conexão LiveKit, quadros de vídeo, volumes, indicador de fala, ping e painel de qualidade
 import { $, h, store, makeAvatar, showBanner, toast } from './util.js';
 import { icon } from './icons.js';
-import { openModal, button, contextMenu } from './dialogs.js';
+import { openModal, button, contextMenu, confirmDialog } from './dialogs.js';
 import { avatarOf } from './state.js';
 import { state, findChannel, canIn, PERMS, rememberedTextChannel } from './state.js';
 import { api, send, request } from './net.js';
 import { selectChannel } from './app.js';
 import { renderChannels, renderUserPanel, renderVoicePanel } from './sidebar.js';
 import { applyVolume as applyMusicVolume } from './music.js';
-import { BUILTIN_SOUNDS, soundboardVolume, setSoundboardVolume, playBoardSound } from './sounds.js';
 
 const { Room, RoomEvent, Track, VideoPresets, VideoQuality, ConnectionQuality, AudioPresets, DisconnectReason } = LivekitClient;
 
@@ -133,17 +132,11 @@ let joinedAt = 0;
 // Avisa o servidor que algo mudou na voz: ele atualiza a lista de todos na hora
 const poke = () => send({ t: 'voice:poke' });
 
-// 2º aparelho da mesma conta na call: entra como "u5:2", sem microfone e sem som (só câmera e tela)
-let secondDevice = false;
-const selfId = () => (secondDevice ? `${state.me.id}:2` : state.me.id);
-export const isSecondDevice = () => secondDevice;
-
 function selfEntry() {
   const lp = room?.localParticipant;
   return {
-    id: selfId(),
-    name: secondDevice ? `${state.me.name} (2º aparelho)` : state.me.name,
-    ...(secondDevice ? { companion: true, userId: state.me.id } : {}),
+    id: state.me.id,
+    name: state.me.name,
     muted: !lp?.isMicrophoneEnabled,
     deafened: state.deafened,
     camera: !!lp?.isCameraEnabled,
@@ -151,11 +144,10 @@ function selfEntry() {
   };
 }
 
-// Mostra você na sala na hora do clique, sem esperar o servidor consultar o LiveKit
 // Mostra você no canal de voz na hora (sem esperar o servidor). Se já está na lista, atualiza no mesmo lugar:
 // tirar e pôr no fim fazia as pessoas "trocarem de lugar" a cada mutar/desmutar (o servidor devolvia a ordem certa)
 function showSelfInChannel() {
-  const me = state.me ? selfId() : null;
+  const me = state.me ? state.me.id : null;
   for (const [id, list] of Object.entries(state.voice)) if (id !== roomChannel) state.voice[id] = list.filter((p) => p.id !== me);
   if (roomChannel) {
     const list = (state.voice[roomChannel] ??= []);
@@ -170,7 +162,7 @@ function showSelfInChannel() {
 export function mergeSelfIntoVoice(voice) {
   if (!roomChannel || !state.me || Date.now() - joinedAt > 5000) return voice;
   const list = voice[roomChannel] ?? [];
-  if (!list.some((p) => p.id === selfId())) voice[roomChannel] = [...list, selfEntry()];
+  if (!list.some((p) => p.id === state.me.id)) voice[roomChannel] = [...list, selfEntry()];
   return voice;
 }
 export const speakingNow = () => speakingSet;
@@ -184,26 +176,12 @@ function inCallElsewhere() {
   return null;
 }
 
-// Pergunta o que fazer: entrar com 2 dispositivos (sem microfone e sem som aqui) ou trocar para este aparelho
-function askSecondDevice(otherChannel, channelId) {
-  return new Promise((resolve) => {
-    const same = otherChannel === channelId;
-    const body = h('div', 'form');
-    body.append(
-      h('p', '', same ? 'Você já está nesta call em outro aparelho.' : 'Você já está em outra call num outro aparelho.'),
-      h('p', 'muted small', same
-        ? 'Com 2 dispositivos, este aqui entra sem microfone e sem som (para não dar eco): dá para ligar a câmera ou transmitir a tela daqui enquanto fala pelo outro. Ou troque, e o outro aparelho sai da call.'
-        : 'Trocando, o outro aparelho sai daquela call e você entra nesta por aqui.'));
-    let done = false;
-    let modal = null;
-    const finish = (v) => { if (done) return; done = true; modal?.close(); resolve(v); };
-    const cancel = button('Cancelar', { kind: 'link' });
-    const move = button('Trocar para este aparelho', { kind: same ? 'secondary' : 'primary' });
-    const both = button('Entrar com 2 dispositivos');
-    cancel.onclick = () => finish(null);
-    move.onclick = () => finish('move');
-    both.onclick = () => finish('second');
-    modal = openModal({ title: 'Você já está em call', content: body, actions: same ? [cancel, move, both] : [cancel, move], onClose: () => finish(null) });
+// Já está em call em outro aparelho: troca para este (o outro sai da call)?
+function askMoveHere(otherChannel, channelId) {
+  return confirmDialog({
+    title: 'Você já está em call',
+    message: otherChannel === channelId ? 'Você já está nesta call em outro aparelho. Trocando, o outro aparelho sai da call.' : 'Você já está em outra call num outro aparelho. Trocando, o outro sai daquela call e você entra nesta por aqui.',
+    confirm: 'Trocar para este aparelho', danger: false,
   });
 }
 
@@ -218,7 +196,7 @@ let retryTimer = null;
 const readCall = () => { try { return JSON.parse(sessionStorage.getItem(RESUME_KEY) ?? 'null'); } catch { return null; } };
 function rememberCall() {
   if (!room || !roomChannel) return;
-  try { sessionStorage.setItem(RESUME_KEY, JSON.stringify({ channelId: roomChannel, second: secondDevice, at: Date.now() })); } catch {}
+  try { sessionStorage.setItem(RESUME_KEY, JSON.stringify({ channelId: roomChannel, at: Date.now() })); } catch {}
 }
 function forgetCall() {
   clearTimeout(retryTimer);
@@ -237,18 +215,18 @@ export function resumeCall() {
   if (room || joining || retryTimer) return;
   const c = readCall();
   if (!c || Date.now() - c.at > RESUME_MS || !findChannel(c.channelId).channel) return forgetCall();
-  joinVoice(c.channelId, { resume: true, second: c.second });
+  joinVoice(c.channelId, { resume: true });
 }
 
 // Queda: tenta de novo em 1,5 s, 3 s, 6 s… (até ~1 min); para se a pessoa entrar em outra call ou sair
-function retryCall(channelId, second) {
+function retryCall(channelId) {
   const delays = [1500, 3000, 6000, 10_000, 15_000, 20_000];
   let i = 0;
   showBanner('A voz caiu. Reconectando…', { kind: 'info', timeout: 4000 });
   const attempt = async () => {
     retryTimer = null;
     if (room || !readCall() || !findChannel(channelId).channel) return;
-    await joinVoice(channelId, { resume: true, second, quiet: i < delays.length - 1 });
+    await joinVoice(channelId, { resume: true, quiet: i < delays.length - 1 });
     if (room) { showBanner('Voz reconectada.', { kind: 'info', timeout: 2500 }); return; }
     if (i < delays.length) retryTimer = setTimeout(attempt, delays[i++]);
     else forgetCall();
@@ -270,23 +248,17 @@ function unlockAudioOnGesture() {
 }
 
 // resume: voltando para a call depois de recarregar a página ou de uma queda (sem perguntas; quiet: sem aviso de erro)
-export async function joinVoice(channelId, { moved = false, resume = false, second: resumeSecond = false, quiet = false } = {}) {
+export async function joinVoice(channelId, { moved = false, resume = false, quiet = false } = {}) {
   if (joining) return;
   const { server } = findChannel(channelId);
   if (!moved && !canIn(server, PERMS.CONNECT)) return showBanner('Você não tem permissão para entrar neste canal.', { timeout: 4000 });
-  let second = resume && resumeSecond;
   // Voltando de um recarregar: o "outro aparelho" que a lista ainda mostra é esta mesma aba
   const other = moved || resume ? null : inCallElsewhere();
-  if (other) {
-    const choice = await askSecondDevice(other, channelId);
-    if (!choice) return;
-    second = choice === 'second';
-  }
+  if (other && !(await askMoveHere(other, channelId))) return;
   joining = true;
   try {
     if (room) await leaveVoice({ keepView: true });
-    const data = await api('/token', { channel: channelId, ...(second ? { second: true } : {}) });
-    secondDevice = second;
+    const data = await api('/token', { channel: channelId });
 
     const r = new Room({
       // Só recebe a resolução que o quadro realmente mostra. 'screen' conta os pixels reais da tela:
@@ -330,9 +302,8 @@ export async function joinVoice(channelId, { moved = false, resume = false, seco
           onVoiceClosed();
         } else {
           // Caiu sem ninguém pedir (internet, voz reiniciada pelo painel): continua na tela e tenta voltar sozinho
-          const wasSecond = secondDevice;
           onVoiceClosed({ keepView: true });
-          retryCall(channelId, wasSecond);
+          retryCall(channelId);
         }
         if (reason === DisconnectReason.DUPLICATE_IDENTITY) showBanner('Você entrou na voz em outra aba ou aparelho.', { kind: 'info', timeout: 5000 });
         else if (reason === DisconnectReason.PARTICIPANT_REMOVED) showBanner('Você foi desconectado da voz.', { timeout: 5000 });
@@ -348,7 +319,6 @@ export async function joinVoice(channelId, { moved = false, resume = false, seco
     joinedAt = Date.now();
     rememberCall();
     if (resume) unlockAudioOnGesture();
-    if (secondDevice) showBanner('Você entrou com 2 dispositivos: este aparelho está sem microfone e sem som (fica no outro). Dá para ligar a câmera ou transmitir a tela daqui.', { kind: 'info', timeout: 8000 });
     showSelfInChannel();
     await applyAudioState();
     updateMediaButtons();
@@ -391,7 +361,6 @@ function onVoiceClosed({ keepView = false } = {}) {
   syncDesktopPtt(); // saiu da call: o app para de escutar a tecla
   stopMacAppAudio();
   showSelfInChannel(); // some da lista na hora
-  secondDevice = false;
   poke();
   // Estava olhando o canal de voz: volta para o último canal de texto do servidor
   const { server, channel } = findChannel(state.view.channelId);
@@ -406,7 +375,7 @@ export async function applyAudioState() {
   if (!room) return;
   const lp = room.localParticipant;
   try {
-    const canSpeak = canIn(findChannel(roomChannel).server, PERMS.SPEAK) && !secondDevice; // 2º aparelho: o microfone é o do outro
+    const canSpeak = canIn(findChannel(roomChannel).server, PERMS.SPEAK);
     await lp.setMicrophoneEnabled(canSpeak && state.micOn && !state.deafened);
     await applyNoiseFilter();
     await applyPtt();
@@ -508,7 +477,7 @@ async function applyNoiseFilter() {
   }
 }
 
-// Configurações de voz: modo de entrada (detecção de voz ou apertar para falar), supressão de ruído e soundboard
+// Configurações de voz: modo de entrada (detecção de voz ou apertar para falar) e supressão de ruído
 export function openVoiceSettings() {
   const content = h('div', 'form voice-settings');
   const mode = h('div', 'field');
@@ -554,57 +523,11 @@ export function openVoiceSettings() {
   noiseRow.append(nt, noiseBox);
   noiseBox.onchange = () => { store.set('noiseAi', noiseBox.checked ? null : '0'); applyNoiseFilter(); };
 
-  const vol = h('label', 'field');
-  const range = h('input');
-  Object.assign(range, { type: 'range', min: 0, max: 100, value: Math.round(soundboardVolume() * 100) });
-  range.oninput = () => setSoundboardVolume(range.value);
-  vol.append(h('span', 'field-label', 'Volume do soundboard'), range);
-  content.append(mode, noiseRow, vol);
+  content.append(mode, noiseRow);
   paint();
   openModal({ title: 'Configurações de voz', content });
 }
 $('vp-settings').onclick = openVoiceSettings;
-
-// ---------- Soundboard ----------
-
-export function onBoardSound(m) {
-  playBoardSound(m);
-  const who = findChannel(roomChannel).server?.members.find((x) => x.id === m.by)?.name ?? 'Alguém';
-  const label = BUILTIN_SOUNDS.find(([id]) => `builtin:${id}` === m.sound)?.[2] ?? m.name;
-  const chip = h('div', 'board-chip', `🔊 ${who}: ${label}`);
-  document.body.append(chip);
-  setTimeout(() => chip.remove(), 2600);
-}
-
-function openSoundboard() {
-  const server = findChannel(roomChannel).server;
-  const box = h('div', 'soundboard');
-  box.append(h('div', 'soundboard-title', 'Soundboard'));
-  const grid = h('div', 'soundboard-grid');
-  const add = (sound, emoji, label) => {
-    const b = h('button', 'board-btn');
-    b.type = 'button';
-    b.append(h('span', 'board-emoji', emoji), h('span', 'board-name', label));
-    b.onclick = () => request({ t: 'sound:play', sound }).catch((err) => showBanner(err.message, { timeout: 3000 }));
-    grid.append(b);
-  };
-  for (const [id, emoji, label] of BUILTIN_SOUNDS) add(`builtin:${id}`, emoji, label);
-  for (const s of server?.sounds ?? []) add(s.id, s.emoji, s.name);
-  box.append(grid);
-  if (!(server?.sounds ?? []).length) box.append(h('div', 'muted small', 'Quem gerencia emojis pode subir sons do servidor nas configurações (Sons).'));
-  const overlay = document.getElementById('overlay-layer');
-  overlay.append(box);
-  const r = $('vp-soundboard').getBoundingClientRect();
-  const br = box.getBoundingClientRect();
-  box.style.left = `${Math.max(8, Math.min(r.left, innerWidth - br.width - 8))}px`;
-  box.style.top = `${Math.max(8, r.top - br.height - 8)}px`;
-  const outside = (e) => { if (!box.contains(e.target) && e.target !== $('vp-soundboard')) { box.remove(); document.removeEventListener('mousedown', outside, true); } };
-  setTimeout(() => document.addEventListener('mousedown', outside, true), 0);
-}
-$('vp-soundboard').onclick = () => {
-  const open = document.querySelector('.soundboard');
-  if (open) open.remove(); else openSoundboard();
-};
 
 // Liga/desliga o modo música; conectado, troca o microfone na hora (os filtros e o estéreo são definidos ao capturar)
 async function setMusicMode(on) {
@@ -649,7 +572,6 @@ async function applyVoiceBitrate() {
 }
 
 $('btn-mic').onclick = () => {
-  if (secondDevice && room) return showBanner('Este é o 2º aparelho da call: o microfone e o som ficam no outro.', { kind: 'info', timeout: 4000 });
   state.micOn = !state.micOn;
   if (state.micOn && state.deafened) state.deafened = false;
   store.set('micOn', state.micOn ? null : '0');
@@ -675,8 +597,6 @@ export async function watchStream(channelId, identity) {
 }
 
 function onTrackSubscribed(track, pub, participant) {
-  // 2º aparelho: não toca som nenhum (o som sai pelo aparelho principal; tocar aqui daria eco)
-  if (secondDevice && track.kind === Track.Kind.Audio) { pub.setSubscribed?.(false); return; }
   if (pub.source === Track.Source.Microphone) attachMeter(participant.identity, track.mediaStreamTrack);
   // Áudio remoto (voz e som da transmissão) toca num elemento escondido
   if (track.kind === Track.Kind.Audio) {
@@ -750,7 +670,7 @@ function escUserMenu(e) { if (e.key === 'Escape') { e.stopPropagation(); closeUs
 
 // Alguém com "Mover membros" te levou para outro canal de voz: troca sozinho (só o aparelho principal)
 export async function onVoiceMove({ channelId, by }) {
-  if (!room || secondDevice || roomChannel === channelId) return;
+  if (!room || roomChannel === channelId) return;
   const { channel } = findChannel(channelId);
   const wasViewing = state.view.channelId === roomChannel;
   await joinVoice(channelId, { moved: true });
@@ -1184,7 +1104,7 @@ function micWarn(text) {
 setInterval(() => {
   const pub = room?.localParticipant.getTrackPublication(Track.Source.Microphone);
   const track = pub?.track;
-  if (!room || secondDevice || !track || pub.isMuted || !state.micOn || state.deafened || meterCtx?.state !== 'running') {
+  if (!room || !track || pub.isMuted || !state.micOn || state.deafened || meterCtx?.state !== 'running') {
     micWatch.silentSent = 0; micWatch.zeroRaw = 0;
     return;
   }
@@ -1527,7 +1447,7 @@ function updateTile(el, { p, pub, screen }, isMain) {
   const avatarKey = `${name}|${avatarOf(String(p.identity).split(':')[0]) ?? ''}`; // troca se a pessoa mudar de nome ou foto
   if (!avatar || avatar.dataset.key !== avatarKey) {
     avatar?.remove();
-    avatar = makeAvatar(name, '', String(p.identity).split(':')[0]); // 2º aparelho ("u5:2"): foto da conta
+    avatar = makeAvatar(name, '', p.identity);
     avatar.dataset.key = avatarKey;
     el.prepend(avatar);
   }
@@ -1627,7 +1547,7 @@ function reportDelta(key, value, perSecond = false) {
   return perSecond ? ((value - prev.v) * 1000) / (now - prev.time) : value - prev.v;
 }
 async function reportStats() {
-  if (!room || secondDevice) return; // o relatório da conta é o do aparelho principal
+  if (!room) return;
   const lp = room.localParticipant;
   const pub = [];
   for (const p of lp.videoTrackPublications.values()) {

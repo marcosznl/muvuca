@@ -1,10 +1,9 @@
-// Testes dos jogos de festa: Desenha aí, Stop e Impostor (sem rede nem tela)
+// Testes dos jogos de festa: Desenha aí e Stop (sem rede nem tela)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Desenho, CHOOSE_MS, DRAW_MS, REVEAL_MS, GALLERY_MS, BEST_BONUS } from '../src/games/desenho.js';
 import { THEMES } from '../src/games/desenho-palavras.js';
 import { Stop, WRITE_MS, VOTE_MS, SCORE_MS, ROUNDS, FIXED_CATEGORIES } from '../src/games/stop.js';
-import { Impostor } from '../src/games/impostor.js';
 
 const people = (n) => Array.from({ length: n }, (_, i) => ({ id: `u${i + 1}`, name: ['Ana', 'Bia', 'Caio', 'Duda', 'Edu'][i] }));
 const run = (g, ms, step = 50) => { for (let t = 0; t < ms; t += step) g.tick(step); };
@@ -185,51 +184,4 @@ test('stop: 4 rodadas com letras diferentes', () => {
   for (let r = 0; r < ROUNDS && !g.over; r++) { run(g, WRITE_MS + VOTE_MS + SCORE_MS + 100, 500); if (!g.over) letters.add(g.letter); }
   assert.equal(g.over, true);
   assert.equal(letters.size, ROUNDS);
-});
-
-// ---------- Impostor ----------
-
-test('impostor: só ele não sabe a palavra; dicas na ordem; quem sabe não pode entregar', () => {
-  const g = new Impostor(people(4), { random: () => 0.3 });
-  const imp = g.impostor;
-  const innocent = g.players.find((p) => p.id !== imp).id;
-  assert.equal(g.stateFor(imp).word, null);
-  assert.equal(g.stateFor(imp).role, 'impostor');
-  assert.equal(g.stateFor(innocent).word, g.word);
-  const first = g.current;
-  g.input(first === imp ? innocent : imp, { text: 'dica fora da vez' });
-  assert.equal(g.clues.length, 0);
-  if (first !== imp) {
-    g.input(first, { text: `é ${g.word}` }); // entregou: não vale
-    assert.equal(g.clues.length, 0);
-  }
-  g.input(first, { text: 'amarelo' });
-  assert.equal(g.clues.length, 1);
-});
-
-test('impostor: pegaram e ele errou a palavra -> inocentes vencem juntos; acertou -> ele vence', () => {
-  const play = (guess) => {
-    const g = new Impostor(people(4), { random: () => 0.3 });
-    while (g.phase === 'clues') g.input(g.current, { text: 'dica' });
-    for (const p of g.players) g.input(p.id, { target: p.id === g.impostor ? g.players.find((x) => x.id !== g.impostor).id : g.impostor });
-    assert.equal(g.phase, 'guess');
-    g.input(g.impostor, { text: guess(g) });
-    return g;
-  };
-  const caught = play(() => 'nada a ver');
-  assert.equal(caught.outcome, 'caught');
-  assert.equal(caught.winners.length, 3);
-  assert.equal(caught.winner, null);
-  const lucky = play((g) => g.word.toUpperCase());
-  assert.equal(lucky.outcome, 'guessed');
-  assert.equal(lucky.winner, lucky.impostor);
-});
-
-test('impostor: empate na votação -> ele escapa', () => {
-  const g = new Impostor(people(4), { random: () => 0.3 });
-  while (g.phase === 'clues') g.input(g.current, { text: 'dica' });
-  const [a, b, c, d] = g.players.map((p) => p.id);
-  g.input(a, { target: b }); g.input(b, { target: a }); g.input(c, { target: d }); g.input(d, { target: c });
-  assert.equal(g.outcome, 'escaped');
-  assert.deepEqual(g.winners, [g.impostor]);
 });

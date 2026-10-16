@@ -57,7 +57,6 @@ export function checkSpam(userId, text, { now = Date.now() } = {}) {
 
 // Painel/testes: tira a trava de alguém
 export function clearSpam(userId) { people.delete(userId); }
-export const spamState = (userId) => people.get(userId) ?? null;
 
 // Limpa quem já não tem nada guardado (a cada 10 min)
 setInterval(() => {

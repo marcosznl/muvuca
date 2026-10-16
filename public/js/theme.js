@@ -89,6 +89,8 @@ export function applyTheme(theme = currentTheme()) {
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', vars?.dark ?? (mode === 'light' ? '#e3e5e8' : '#1e1f22'));
   // Para o index.html aplicar já na próxima abertura (antes do site carregar)
   store.set('themeBoot', JSON.stringify({ mode, color, props }));
+  // App do Mac: o vidro fosco da coluna da esquerda segue o claro/escuro do tema; nos coloridos, sai o vidro
+  window.muvucaDesktop?.setAppearance?.(theme === 'auto' ? 'system' : mode, !color);
 }
 
 // Escolheu um tema: aplica, guarda no aparelho e na conta (os outros aparelhos recebem na hora)

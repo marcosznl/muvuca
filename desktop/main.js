@@ -2,7 +2,7 @@
 // apertar para falar com o app em segundo plano, ícone na barra de menus, contador no Dock,
 // notificações nativas, abrir junto com o Mac e escolher tela/janela para a live.
 const {
-  app, BrowserWindow, Menu, Tray, Notification, desktopCapturer, ipcMain, nativeImage, powerSaveBlocker, session, shell, systemPreferences,
+  app, BrowserWindow, Menu, Tray, Notification, desktopCapturer, ipcMain, nativeImage, nativeTheme, powerSaveBlocker, session, shell, systemPreferences,
 } = require('electron');
 const path = require('node:path');
 const os = require('node:os');
@@ -56,14 +56,15 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: 'Muvuca',
-    // Barra de título integrada, como no Discord: no Mac os três botões ficam na faixa de 30 px do topo;
-    // no Windows, minimizar/maximizar/fechar ficam no canto direito da mesma faixa
+    // Mac: cara de app do Mac (como o iPlayer): os três botões ficam em cima da coluna da esquerda, que é
+    // translúcida (o site deixa essa coluna transparente e o macOS desenha o vidro fosco por trás).
+    // Windows: barra de título integrada, minimizar/maximizar/fechar no canto direito da faixa de 30 px
     ...(IS_MAC
-      ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 12, y: 8 } }
+      ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 14, y: 17 }, vibrancy: 'sidebar', visualEffectState: 'followWindow' }
       : { titleBarStyle: 'hidden', titleBarOverlay: { color: '#1e1f22', symbolColor: '#b5bac1', height: 30 } }),
     icon: IS_WIN ? path.join(__dirname, 'build', 'tray-win@2x.png') : undefined,
     autoHideMenuBar: true,
-    backgroundColor: '#1e1f22',
+    backgroundColor: IS_MAC ? '#00000000' : '#1e1f22',
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -358,6 +359,13 @@ let voiceMuted = false;
 // Em call ou ouvindo música: impede o "App Nap" do macOS (com o app escondido, o Mac o faria cochilar
 // para economizar energia, e a voz/live cortariam) — o Discord faz o mesmo durante as chamadas
 let napBlocker = null;
+// Tema do site (Mac): o vidro fosco acompanha claro/escuro do Muvuca, e some nos temas coloridos (degradê)
+ipcMain.on('appearance', (_e, a) => {
+  if (!IS_MAC) return;
+  nativeTheme.themeSource = ['light', 'dark', 'system'].includes(a?.mode) ? a.mode : 'system';
+  win?.setVibrancy(a?.glass === false ? null : 'sidebar');
+});
+
 ipcMain.on('voice:state', (_e, s) => {
   const muted = !!s?.muted;
   if (muted !== voiceMuted) { voiceMuted = muted; buildTray(); }
