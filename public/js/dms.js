@@ -1,4 +1,4 @@
-// Mensagens diretas: conversas privadas (com uma pessoa ou em grupo) no balãozinho do topo da coluna.
+// Mensagens diretas: conversas privadas (com uma pessoa ou em grupo), no bloco "Amigos" da lateral.
 // No servidor elas são "servidores" escondidos (kind: 'dm') com um canal só; aqui viram uma lista de conversas.
 import { $, h, makeAvatar, showBanner, store } from './util.js';
 import { icon } from './icons.js';
@@ -7,7 +7,7 @@ import { request } from './net.js';
 import { openModal, button, promptText, contextMenu } from './dialogs.js';
 import { selectServer } from './app.js';
 import { incomingCount } from './friends.js';
-import { gamesNav } from './games.js';
+import { renderChannels } from './sidebar.js';
 
 export const isDm = (s) => s?.kind === 'dm';
 export const dmServers = () => state.servers.filter(isDm);
@@ -39,32 +39,14 @@ export async function startDm(userIds) {
   try { await request({ t: 'dm:open', userIds }); } catch (err) { showBanner(err.message, { timeout: 4000 }); }
 }
 
-// Coluna da esquerda na área de mensagens diretas
-export function renderDmSidebar() {
-  const header = $('server-name');
-  header.replaceChildren(h('span', 'server-title', 'Mensagens diretas'));
-  header.onclick = null;
-  const box = $('channel-list');
-  box.replaceChildren();
-  // Topo como no Discord: "Encontre ou comece uma conversa" e o título da lista com o +
-  const newBtn = h('button', 'dm-new', 'Encontre ou comece uma conversa');
-  newBtn.onclick = openNewDm;
-  const section = h('div', 'dm-section');
-  const plus = h('button', 'dm-section-add');
-  plus.title = 'Nova conversa';
-  plus.append(icon('plus', 16));
-  plus.onclick = openNewDm;
-  section.append(h('span', '', 'Mensagens diretas'), plus);
-  // "Amigos": abre a página de amigos (com o número de pedidos esperando resposta)
-  const friendsBtn = h('button', 'channel dm-item dm-friends');
-  friendsBtn.classList.toggle('active', !state.view.serverId && !state.view.games);
-  friendsBtn.append(icon('friends', 22), h('span', 'dm-info name', 'Amigos'));
+// Bloco "Amigos" da lateral: "Todos os amigos" (página de amigos e pedidos) e as conversas privadas
+export function dmTree() {
+  const friendsBtn = h('button', 'channel tree-item');
+  friendsBtn.classList.toggle('active', !!state.view.dms && !state.view.serverId && !state.view.games);
+  friendsBtn.append(icon('friends', 18), h('span', 'name', 'Todos os amigos'));
   const pending = incomingCount();
   if (pending) friendsBtn.append(h('span', 'badge', String(pending)));
   friendsBtn.onclick = selectDmHome;
-  const nav = h('div', 'dm-nav');
-  nav.append(friendsBtn, ...gamesNav()); // Jogos logo abaixo de Amigos (com as salas abertas embaixo)
-  box.append(newBtn, nav, section);
   const list = h('ul', 'channel-list dm-list');
   const hide = hidden();
   const convs = dmServers().filter((s) => !hide.has(s.id) || s.id === state.view.serverId)
@@ -74,7 +56,7 @@ export function renderDmSidebar() {
     const b = h('button', 'channel dm-item');
     b.classList.toggle('active', s.id === state.view.serverId);
     const o = others(s);
-    const avatar = o.length === 1 ? makeAvatar(o[0].name, 'lg', o[0].id) : h('div', 'avatar lg dm-group', String(o.length + 1));
+    const avatar = o.length === 1 ? makeAvatar(o[0].name, 'sm', o[0].id) : h('div', 'avatar sm dm-group', String(o.length + 1));
     const online = o.length === 1 && state.online.has(o[0].id);
     if (o.length === 1) avatar.classList.add('with-status', `status-${online ? state.status[o[0].id] ?? 'online' : 'offline'}`);
     const unread = dmUnread(s);
@@ -111,9 +93,12 @@ export function renderDmSidebar() {
     li.append(b);
     list.append(li);
   }
-  if (!convs.length) list.append(h('li', 'muted small games-empty', 'Nenhuma conversa ainda. Clique no + ou em "Enviar mensagem" no perfil de alguém.'));
-  box.append(list);
+  const newBtn = h('button', 'channel tree-item tree-add');
+  newBtn.append(icon('plus', 16), h('span', 'name', 'Nova conversa'));
+  newBtn.onclick = openNewDm;
+  return [friendsBtn, list, newBtn];
 }
+export { openNewDm };
 
 // Grupo: nome livre (até 40 caracteres); vazio volta a mostrar os nomes das pessoas
 export async function renameGroup(s) {
@@ -134,7 +119,7 @@ async function closeDm(s) {
   set.add(s.id);
   setHidden(set);
   if (state.view.serverId === s.id) selectDmHome();
-  else renderDmSidebar();
+  else renderChannels();
 }
 
 // Área de mensagens diretas sem conversa aberta
@@ -183,20 +168,3 @@ function openNewDm() {
   setTimeout(() => search.focus(), 0);
 }
 
-// Botão do topo da coluna de servidores
-export function dmRailItem() {
-  const item = h('div', 'rail-item');
-  item.classList.toggle('active', !!state.view.dms || isDm(serverById(state.view.serverId)));
-  const btn = h('button', 'server-icon dm-icon');
-  btn.title = 'Muvuca: mensagens diretas, amigos e jogos';
-  btn.append(icon('muvuca', 26));
-  btn.onclick = () => {
-    const last = serverById(store.get('lastDm'));
-    if (isDm(last) && !incomingCount()) selectServer(last.id);
-    else selectDmHome();
-  };
-  item.append(h('span', 'rail-pill'), btn);
-  const n = totalDmUnread() + incomingCount();
-  if (n) item.append(h('span', 'rail-badge', n > 99 ? '99+' : String(n)));
-  return item;
-}

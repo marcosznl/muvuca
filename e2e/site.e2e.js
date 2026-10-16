@@ -135,7 +135,7 @@ test('chat ao lado da call: a mensagem vai para o canal escolhido', { skip: !(aw
   assert.deepEqual(bia.errors, []);
 });
 
-test('app do Mac: cara de app do Mac (coluna translúcida) e o vidro segue o tema', async () => {
+test('cara de app do Mac: no site e no app do Mac (só o app tem a coluna translúcida, que segue o tema)', async () => {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await context.addInitScript(() => {
     window.__appearance = [];
@@ -176,8 +176,38 @@ test('app do Mac: cara de app do Mac (coluna translúcida) e o vidro segue o tem
   assert.deepEqual(b.last, ['dark', false]);
   assert.match(b.bodyImage, /gradient/);
   await page.evaluate(async () => (await import('/js/theme.js')).setTheme('dark'));
-  // No navegador comum nada disso vale
-  assert.equal(await ana.evaluate(() => document.documentElement.classList.contains('mac-app')), false);
+  // No navegador: o mesmo visual, mas sem o vidro (que só o macOS desenha) e com a faixa de cima normal
+  await until(() => ana.evaluate(() => !document.documentElement.dataset.color), { what: 'o tema escuro chegar na outra aba' });
+  const web = await ana.evaluate(() => ({
+    look: document.documentElement.classList.contains('mac-look'), app: document.documentElement.classList.contains('mac-app'),
+    body: getComputedStyle(document.body).backgroundColor, category: getComputedStyle(document.querySelector('.category') ?? document.body).textTransform,
+  }));
+  assert.deepEqual([web.look, web.app, web.category], [true, false, 'none']);
+  assert.notEqual(web.body, 'rgba(0, 0, 0, 0)');
   assert.deepEqual(errs, []);
   await context.close();
 });
+
+test('lateral em blocos: Amigos, Jogos e Servidores abrem e fecham, e fica guardado depois do F5', async () => {
+  const page = await openAs(browser, stack, 'ana', { token: ana.token });
+  const titles = await page.$$eval('.tree-block-title', (t) => t.map((x) => x.textContent));
+  assert.deepEqual(titles, ['Amigos', 'Jogos', 'Servidores']);
+  assert.equal(await page.$('#server-rail'), null); // a coluna de ícones saiu
+  // A pasta do servidor mostra os canais; fechada, some com eles
+  assert.ok(await page.$(`.server-tree li[data-channel="${ids.text}"]`));
+  await page.click('.tree-server-toggle');
+  assert.equal(await page.$(`.server-tree li[data-channel="${ids.text}"]`), null);
+  await page.click('.tree-block:nth-child(2) .tree-block-toggle'); // fecha "Jogos"
+  await page.reload();
+  await page.waitForSelector('#app:not([hidden])');
+  assert.equal(await page.$eval('.tree-server', (r) => r.classList.contains('open')), false);
+  assert.equal(await page.$eval('.tree-block:nth-child(2)', (b) => b.classList.contains('closed')), true);
+  // Abre de novo e entra num canal pela lateral
+  await page.click('.tree-server-toggle');
+  await page.click(`.server-tree li[data-channel="${ids.text2 ?? ids.text}"] .channel`);
+  assert.equal(await page.evaluate(async () => (await import('/js/state.js')).state.view.channelId), ids.text2 ?? ids.text);
+  await page.click('.tree-block:nth-child(2) .tree-block-toggle'); // deixa como estava
+  assert.deepEqual(page.errors, []);
+  await page.context().close();
+});
+
