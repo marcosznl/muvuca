@@ -4,7 +4,6 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { xpInfo } from './src/xp-curve.js';
 import { DEFAULT_PERMS, PERMS } from './public/js/permissions.js';
 
 const scrypt = promisify(crypto.scrypt);
@@ -244,15 +243,13 @@ export function openDb(file) {
     CREATE INDEX IF NOT EXISTS audit_by_time ON audit_log(at);
     CREATE INDEX IF NOT EXISTS audit_by_user ON audit_log(user_id, at);
 
-    -- Histórico de XP ganho (painel administrativo: de onde veio o XP de cada um; guardado por 90 dias)
-    CREATE TABLE IF NOT EXISTS xp_events (
-      id      INTEGER PRIMARY KEY,
+    -- Minutos em call (painel administrativo: uso de cada um; 1 linha por minuto, guardado por 90 dias)
+    CREATE TABLE IF NOT EXISTS call_minutes (
       at      INTEGER NOT NULL,
-      user_id INTEGER NOT NULL,
-      amount  INTEGER NOT NULL,
-      reason  TEXT    NOT NULL
+      user_id INTEGER NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS xp_events_by_time ON xp_events(at);
+    CREATE INDEX IF NOT EXISTS call_minutes_by_time ON call_minutes(at);
+    CREATE INDEX IF NOT EXISTS call_minutes_by_user ON call_minutes(user_id, at);
 
     -- Canal privado: quais cargos enxergam (o dono e os administradores sempre veem)
     CREATE TABLE IF NOT EXISTS channel_roles (
@@ -431,8 +428,13 @@ function migrate(db) {
   // Última vez que a pessoa esteve conectada (painel administrativo)
   if (!uCols.includes('last_seen')) db.exec('ALTER TABLE users ADD COLUMN last_seen INTEGER');
   // Conta bloqueada pelo painel administrativo: não entra e todas as sessões deixam de valer
-  // XP da conta (ver src/xp.js)
-  if (!uCols.includes('xp')) db.exec('ALTER TABLE users ADD COLUMN xp INTEGER NOT NULL DEFAULT 0');
+  // O XP saiu do Muvuca: os minutos em call que ele contava passam para call_minutes; o resto é apagado
+  // (os backups antigos ainda têm o XP de cada um)
+  if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'xp_events'").get()) {
+    db.exec(`INSERT INTO call_minutes (at, user_id) SELECT at, user_id FROM xp_events WHERE reason = 'voice';
+             DROP TABLE xp_events;`);
+  }
+  if (uCols.includes('xp')) db.exec('ALTER TABLE users DROP COLUMN xp');
   if (!uCols.includes('blocked_at')) db.exec('ALTER TABLE users ADD COLUMN blocked_at INTEGER; ALTER TABLE users ADD COLUMN blocked_reason TEXT;');
   // Senha temporária dada pelo painel: a pessoa troca no primeiro login
   if (!uCols.includes('must_change')) db.exec('ALTER TABLE users ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0');
@@ -474,7 +476,6 @@ async function verifyPassword(password, stored) {
 }
 
 const publicUser = (row) => row && {
-  xp: xpInfo(row.xp ?? 0),
   id: uid(row.id), username: row.username, name: row.display_name,
   avatar: row.avatar ?? null, bio: row.bio ?? '', banner: row.banner ?? null, bannerImage: row.banner_image ?? null,
   presence: row.presence ?? 'online', statusText: row.status_text ?? '',
@@ -543,7 +544,7 @@ function groupReactions(rows) {
 // Escritas só nestas tabelas não mudam o snapshot (nenhuma tabela do snapshot depende delas):
 const OUTSIDE_SNAPSHOT = new Set([
   'sessions', 'invites', 'messages', 'music_plays', 'files', 'images', 'reactions', 'read_state', 'game_results',
-  'game_players', 'poll_votes', 'mutes', 'friends', 'game_words', 'audit_log', 'xp_events', 'blocked_ips', 'push_subs', 'client_errors',
+  'game_players', 'poll_votes', 'mutes', 'friends', 'game_words', 'audit_log', 'call_minutes', 'blocked_ips', 'push_subs', 'client_errors',
 ]);
 // Colunas de users que não aparecem no snapshot
 const USER_COLS_OUTSIDE = new Set(['last_seen', 'password_hash', 'must_change', 'theme']);
@@ -604,10 +605,8 @@ class Store {
       gamePlays: p('SELECT game, COUNT(*) AS n FROM game_results WHERE created_at > ? GROUP BY game'),
       purgeSessions: p('DELETE FROM sessions WHERE expires_at <= ?'),
       touchUser: p('UPDATE users SET last_seen = ? WHERE id = ?'),
-      addXp: p('UPDATE users SET xp = MAX(0, xp + ?) WHERE id = ? RETURNING xp'),
-      logXp: p('INSERT INTO xp_events (at, user_id, amount, reason) VALUES (?, ?, ?, ?)'),
-      purgeXp: p('DELETE FROM xp_events WHERE at < ?'),
-      xpRank: p('SELECT COUNT(*) + 1 AS n FROM users WHERE blocked_at IS NULL AND xp > (SELECT xp FROM users WHERE id = ?)'),
+      addCallMinute: p('INSERT INTO call_minutes (at, user_id) VALUES (?, ?)'),
+      purgeCallMinutes: p('DELETE FROM call_minutes WHERE at < ?'),
       setBlocked: p('UPDATE users SET blocked_at = ?, blocked_reason = ? WHERE id = ?'),
       deleteUserSessions: p('DELETE FROM sessions WHERE user_id = ?'),
       blockIp: p('INSERT OR REPLACE INTO blocked_ips (ip, reason, created_at) VALUES (?, ?, ?)'),
@@ -624,7 +623,7 @@ class Store {
       deleteServer: p('DELETE FROM servers WHERE id = ?'),
       ownedCount: p('SELECT COUNT(*) AS n FROM servers WHERE owner_id = ?'),
       serversOfUser: p('SELECT server_id FROM members WHERE user_id = ? ORDER BY rail_pos IS NULL, rail_pos, joined_at'), // a ordem que a pessoa escolheu; os novos no fim
-      members: p(`SELECT u.id, u.username, u.display_name, u.avatar, u.bio, u.banner, u.banner_image, u.status_text, u.xp, m.joined_at, m.nick FROM members m JOIN users u ON u.id = m.user_id
+      members: p(`SELECT u.id, u.username, u.display_name, u.avatar, u.bio, u.banner, u.banner_image, u.status_text, m.joined_at, m.nick FROM members m JOIN users u ON u.id = m.user_id
                   WHERE m.server_id = ? ORDER BY m.joined_at`),
       memberRoles: p('SELECT user_id, role_id FROM member_roles WHERE server_id = ?'),
       isMember: p('SELECT 1 FROM members WHERE server_id = ? AND user_id = ?'),
@@ -934,12 +933,9 @@ class Store {
   deleteOtherSessions(userId, keepToken) { return this.q.deleteOtherSessions.run(unum(userId), hashToken(String(keepToken))).changes; }
   purgeExpiredSessions() { this.q.purgeSessions.run(Date.now()); }
   touchUser(userId) { this.q.touchUser.run(Date.now(), unum(userId)); }
-  // XP da conta
-  xpOf(userId) { return this.q.userById.get(unum(userId))?.xp ?? 0; }
-  addXp(userId, amount) { return this.q.addXp.get(Math.floor(amount), unum(userId))?.xp ?? 0; }
-  xpRank(userId) { return this.q.xpRank.get(unum(userId)).n; }
-  logXp(userId, amount, reason) { this.q.logXp.run(Date.now(), unum(userId), Math.floor(amount), String(reason).slice(0, 40)); }
-  purgeXpEvents(before) { return this.q.purgeXp.run(before).changes; }
+  // Minutos em call (uso, para o painel)
+  addCallMinute(userId) { this.q.addCallMinute.run(Date.now(), unum(userId)); }
+  purgeCallMinutes(before) { return this.q.purgeCallMinutes.run(before).changes; }
   // Bloqueio pelo painel administrativo
   isBlocked(userId) { return !!this.q.userById.get(unum(userId))?.blocked_at; }
   setBlocked(userId, reason) { this.q.setBlocked.run(reason === null ? null : Date.now(), reason, unum(userId)); }
@@ -1005,7 +1001,7 @@ class Store {
       out.messages = messages;
       this.db.prepare('DELETE FROM files WHERE owner_id = ?').run(id);
       for (const img of images) this.db.prepare('DELETE FROM images WHERE id = ?').run(img);
-      this.db.prepare('DELETE FROM xp_events WHERE user_id = ?').run(id);
+      this.db.prepare('DELETE FROM call_minutes WHERE user_id = ?').run(id);
       this.db.prepare('UPDATE events SET created_by = NULL WHERE created_by = ?').run(id);
       for (const s of servers) {
         const others = this.db.prepare('SELECT user_id FROM members WHERE server_id = ? AND user_id != ? ORDER BY joined_at').all(s.id, id);
@@ -1107,7 +1103,7 @@ class Store {
       members: this.q.members.all(serverId).map((m) => ({
         // name: o que aparece neste servidor (o apelido, se tiver); globalName: o nome da conta
         id: uid(m.id), username: m.username, name: m.nick || m.display_name, globalName: m.display_name, nick: m.nick ?? null, avatar: m.avatar ?? null,
-        bio: m.bio ?? '', banner: m.banner ?? null, bannerImage: m.banner_image ?? null, statusText: m.status_text ?? '', joinedAt: m.joined_at, xp: xpInfo(m.xp ?? 0), roles: rolesByUser.get(m.id) ?? [],
+        bio: m.bio ?? '', banner: m.banner ?? null, bannerImage: m.banner_image ?? null, statusText: m.status_text ?? '', joinedAt: m.joined_at, roles: rolesByUser.get(m.id) ?? [],
       })),
     };
   }

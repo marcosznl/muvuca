@@ -46,7 +46,7 @@ test('quais instruções mexem no snapshot', () => {
   assert.equal(changesSnapshot('SELECT * FROM channels'), false);
   assert.equal(changesSnapshot('INSERT INTO messages (x) VALUES (?)'), false);
   assert.equal(changesSnapshot('UPDATE users SET last_seen = ? WHERE id = ?'), false);
-  assert.equal(changesSnapshot('UPDATE users SET xp = MAX(0, xp + ?) WHERE id = ? RETURNING xp'), true);
+  assert.equal(changesSnapshot('UPDATE users SET display_name = ? WHERE id = ?'), true);
   assert.equal(changesSnapshot('INSERT OR IGNORE INTO channel_roles (channel_id, role_id) VALUES (?, ?)'), true);
   assert.equal(changesSnapshot('DELETE FROM users WHERE id = ?'), true);
   assert.equal(changesSnapshot('VACUUM'), true); // na dúvida, mexe

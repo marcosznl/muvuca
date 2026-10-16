@@ -1,6 +1,6 @@
 // Coluna de servidores, lista de canais, painel "Voz conectada" e painel do usuário
 import { $, h, makeAvatar, paintServerIcon, toast, showBanner, store } from './util.js';
-import { openProfileCard, openMePopout } from './profile.js';
+import { openMePopout } from './profile.js';
 import { icon } from './icons.js';
 import { state, currentServer, canIn, PERMS, serverUnread, serverMentions, statusOf, STATUS_LABEL, isMuted, profileOf } from './state.js';
 import { soundsOn, setSounds } from './sounds.js';
@@ -802,24 +802,7 @@ export function renderUserPanel() {
   $('btn-deaf').replaceChildren(icon(state.deafened ? 'headphones-off' : 'headphones'));
   $('btn-deaf').classList.toggle('off', state.deafened);
   $('btn-deaf').title = state.deafened ? 'Parar de ensurdecer' : 'Ensurdecer';
-  renderXpBar();
   syncDesktopVoiceState();
-}
-
-// Barrinha de XP no rodapé do painel (o nível e os números aparecem ao passar o mouse)
-export function renderXpBar() {
-  const x = state.me?.xp;
-  const bar = $('me-xp');
-  if (!x || !bar) return;
-  bar.hidden = false;
-  bar.firstElementChild.style.width = `${Math.round((x.into / x.need) * 100)}%`;
-  const fmt = (n) => n.toLocaleString('pt-BR');
-  bar.title = `Nível ${x.level} · ${fmt(x.into)} / ${fmt(x.need)} XP para o nível ${x.level + 1}${state.me.xpRank ? ` · #${state.me.xpRank} no Muvuca` : ''}`;
-  bar.onclick = () => openProfileCardForMe();
-}
-function openProfileCardForMe() {
-  const r = $('me-avatar').getBoundingClientRect();
-  openProfileCard(state.me.id, r.left, r.top - 8);
 }
 
 // App do Mac: estado do microfone (menu da barra de menus) e se está em call/música (o Mac não pode "cochilar" o app)

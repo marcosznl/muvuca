@@ -8,7 +8,6 @@ import { linkPreview } from '../links.js';
 import { requireServer, requirePerm, requireChannelView } from '../guards.js';
 import { claimAttachments, removeFiles } from '../attachments.js';
 import { fail, underLimit } from '../util.js';
-import { xpForMessage } from '../xp.js';
 import { checkSpam, SpamError } from '../antispam.js';
 import { applyFilter } from '../word-filter.js';
 import { audit } from '../audit.js';
@@ -150,7 +149,6 @@ export default {
     db.markRead(user.id, channel.id, msg.id); // quem manda já leu tudo até aqui
     sendToServer(channel.server_id, { t: 'msg', msg });
     notifyMentions(msg, channel, ctx, user, replyTo ? original : null);
-    xpForMessage(user, text, files.length);
   },
 
   // Reação com emoji (liga ou desliga a sua)

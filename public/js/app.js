@@ -189,21 +189,10 @@ function handle(m) {
       showBanner('O Muvuca vai recarregar em instantes…', { kind: 'info', timeout: 6000 });
       setTimeout(() => location.reload(), 2000 + Math.random() * 3000);
       break;
-    // XP da conta: barrinha atualiza; subiu de nível, comemora
-    case 'xp':
-      if (!state.me) break;
-      state.me.xp = m.xp;
-      state.me.xpRank = m.rank ?? state.me.xpRank;
-      renderUserPanel();
-      if (m.levelUp) {
-        showBanner(`🎉 Você subiu para o nível ${m.levelUp}!`, { kind: 'info', timeout: 6000 });
-        sounds.win();
-      }
-      break;
     case 'welcome': {
       pushAfterLogin(); // notificações: refaz a inscrição perdida e convida no celular (uma vez)
       renderMaintBar(m.maintenance);
-      state.me = { ...m.you, xpRank: m.xpRank ?? null };
+      state.me = { ...m.you };
       // Tema da conta (escolhido em qualquer aparelho); conta ainda sem tema: leva o deste aparelho
       if (m.you.theme) receiveTheme(m.you.theme);
       else if (currentTheme() !== 'dark') send({ t: 'theme:set', theme: currentTheme() });

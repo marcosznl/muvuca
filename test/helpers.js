@@ -6,14 +6,23 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
+import net from 'node:net';
 import WebSocket from 'ws';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const ACCESS = 'codigo-de-teste';
 
+// Porta livre de verdade (o sistema escolhe): com porta sorteada, dois arquivos de teste rodando ao mesmo
+// tempo às vezes caíam na mesma, e um conversava com o servidor do outro
+export const freePort = () => new Promise((resolve, reject) => {
+  const srv = net.createServer();
+  srv.once('error', reject);
+  srv.listen(0, '127.0.0.1', () => { const { port } = srv.address(); srv.close(() => resolve(port)); });
+});
+
 export async function startServer() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'muvuca-test-'));
-  const port = 41000 + Math.floor(Math.random() * 9000);
+  const port = await freePort();
   const proc = spawn(process.execPath, ['server.js'], {
     cwd: ROOT,
     env: {
@@ -57,7 +66,7 @@ export async function startPainel(server) {
   const params = { N: 2 ** 10, r: 8, p: 1 };
   const hash = crypto.scryptSync(PAINEL_PASS, salt, 64, params);
   fs.writeFileSync(path.join(dir, 'auth.json'), JSON.stringify({ user: PAINEL_USER, salt: salt.toString('hex'), hash: hash.toString('hex'), ...params }));
-  const port = 41000 + Math.floor(Math.random() * 9000);
+  const port = await freePort();
   const proc = spawn(process.execPath, ['painel/server.js'], {
     cwd: ROOT,
     env: {

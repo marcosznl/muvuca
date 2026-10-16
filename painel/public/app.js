@@ -148,7 +148,6 @@ const TABS = {
   aovivo: ['Ao vivo', viewAoVivo, 5000],
   usuarios: ['Contas', viewUsuarios, 30000],
   convites: ['Convites', viewConvites, 60000],
-  xp: ['XP e níveis', viewXp, 30000],
   servidores: ['Servidores', viewServidores, 30000],
   mensagens: ['Mensagens', viewMensagens, 0],
   arquivos: ['Arquivos pesados', viewArquivos, 60000],
@@ -169,7 +168,7 @@ const TABS = {
 const PAGES = {
   geral: ['Visão geral', ['geral', 'sistema', 'resumo']],
   aovivo: ['Ao vivo', ['aovivo']],
-  pessoas: ['Pessoas', ['usuarios', 'convites', 'xp']],
+  pessoas: ['Pessoas', ['usuarios', 'convites']],
   servidoresPg: ['Servidores', ['servidores']],
   conteudo: ['Conteúdo', ['mensagens', 'arquivos']],
   protecao: ['Segurança', ['auditoria', 'acessos', 'ips']],
@@ -614,7 +613,6 @@ async function viewUsuarios() {
     body.replaceChildren(table([
       { label: 'Pessoa', get: (u) => personLink(u.id, h('b', {}, u.name), h('span', { class: 'muted small' }, ` @${u.username}`)) },
       { label: 'Agora', get: (u) => h('span', { class: `pill ${u.online ? 'good' : ''}` }, u.online ? 'online' : ago(u.last_seen)) },
-      { label: 'Nível', num: true, get: (u) => (u.level ? h('span', { title: `${num(u.level.total)} XP · ${num(u.level.into)}/${num(u.level.need)} para o próximo` }, h('b', {}, u.level.level), h('span', { class: 'muted small' }, ` · ${num(u.level.total)} XP`)) : '—') },
       { label: 'Conta criada', get: (u) => when(u.created_at) },
       { label: 'Último login', get: (u) => h('span', {}, u.lastLogin ? ago(u.lastLogin) : '—', u.lastIp ? h('div', { class: 'mono muted' }, u.lastIp) : null) },
       { label: 'Aparelhos', num: true, get: (u) => u.sessions },
@@ -657,7 +655,7 @@ function resetPasswordFor(u) {
 
 // Excluir a conta: pede o @ de novo (não dá para desfazer)
 function deleteAccountOf(u) {
-  const typed = prompt(`EXCLUIR a conta @${u.username} (${u.name})?\n\nApaga para sempre: as mensagens dela (em servidores e conversas privadas), anexos, foto, banner, XP e amizades. Servidores que ela criou passam para o membro mais antigo (ou somem, se só ela estava lá). Não dá para desfazer (só voltando um backup).\n\nPara confirmar, digite o usuário dela:`, '');
+  const typed = prompt(`EXCLUIR a conta @${u.username} (${u.name})?\n\nApaga para sempre: as mensagens dela (em servidores e conversas privadas), anexos, foto, banner e amizades. Servidores que ela criou passam para o membro mais antigo (ou somem, se só ela estava lá). Não dá para desfazer (só voltando um backup).\n\nPara confirmar, digite o usuário dela:`, '');
   if (typed === null) return;
   closePessoa();
   act('/api/users/delete', { id: u.id, confirm: typed }, { reload: tab });
@@ -761,7 +759,7 @@ async function serverDetailView(id) {
 
 // ---------- Cartão da pessoa ----------
 // Clicar no nome de alguém (Contas, Ao vivo, Auditoria, Mensagens, busca) abre tudo da conta num lugar só,
-// com as ações (desconectar, bloquear, nova senha, XP, excluir). ref: id (12 ou "u12") ou @usuário.
+// com as ações (desconectar, bloquear, nova senha, excluir). ref: id (12 ou "u12") ou @usuário.
 const personLink = (ref, label, extra) => (ref ? h('button', { class: 'person-link', title: 'Abrir o cartão da pessoa', onclick: (e) => { e.stopPropagation(); openPessoa(ref); } }, label, extra ?? null) : h('b', {}, label));
 let pessoaOverlay = null;
 function closePessoa() { pessoaOverlay?.remove(); pessoaOverlay = null; }
@@ -778,11 +776,6 @@ async function openPessoa(ref) {
   const u = d.user;
   // Depois de uma ação: fecha o cartão e atualiza a aba aberta
   const doAct = (path, body, opts) => { closePessoa(); act(path, body, { ...opts, reload: tab }); };
-  const giveXp = () => {
-    const v = prompt(`Quanto XP dar para @${u.username}? (número negativo tira)`, '100');
-    if (v === null) return;
-    doAct('/api/xp/adjust', { id: u.id, amount: Number(v) }, {});
-  };
   const fact = (label, value) => h('div', { class: 'fact' }, h('span', { class: 'muted small' }, label), h('b', {}, value));
   box.replaceChildren(
     h('div', { class: 'row' },
@@ -793,7 +786,6 @@ async function openPessoa(ref) {
       u.home_owner ? h('span', { class: 'pill' }, 'dono do servidor principal') : null,
       h('span', { class: 'spacer' }), h('button', { class: 'btn ghost small', onclick: closePessoa, 'aria-label': 'Fechar' }, '✕')),
     h('div', { class: 'facts section' },
-      fact('Nível', u.level ? `${u.level.level} · ${num(u.level.total)} XP` : '—'),
       fact('Mensagens', num(u.messages)), fact('Anexos', bytes(u.bytes)), fact('Servidores', num(u.servers)),
       fact('Aparelhos', num(u.sessions)), fact('Conta criada', when(u.created_at)),
       fact('Último login', u.lastLogin ? `${ago(u.lastLogin)}` : '—'), fact('Senha errada (7 d)', num(u.fails7))),
@@ -803,7 +795,6 @@ async function openPessoa(ref) {
         ? h('button', { class: 'btn small', onclick: () => doAct('/api/users/block', { id: u.id, block: false }, { confirmText: `Desbloquear @${u.username}?` }) }, 'Desbloquear')
         : h('button', { class: 'btn small', onclick: () => doAct('/api/users/block', { id: u.id, block: true }, { confirmText: `Bloquear @${u.username}? A conta sai de todos os aparelhos e não consegue mais entrar até ser desbloqueada.`, askReason: 'Motivo (opcional, fica na auditoria):' }) }, 'Bloquear'),
       h('button', { class: 'btn small', onclick: () => resetPasswordFor(u) }, 'Nova senha'),
-      h('button', { class: 'btn small', onclick: giveXp }, 'Dar ou tirar XP'),
       h('button', { class: 'btn small', onclick: () => { closePessoa(); auditFilters = { user: u.username }; openTab('auditoria'); } }, 'Auditoria completa'),
       h('button', { class: 'btn small', onclick: () => { closePessoa(); msgQuery = { q: '', user: u.username }; openTab('mensagens'); } }, 'Todas as mensagens'),
       u.home_owner ? null : h('button', { class: 'btn small danger-ghost', onclick: () => deleteAccountOf(u) }, 'Excluir conta')),
@@ -817,10 +808,7 @@ async function openPessoa(ref) {
         h('li', {}, 'Mensagens: ', h('b', {}, num(d.usage7.messages))),
         d.usage7.games.length
           ? h('li', {}, 'Jogos: ', h('b', {}, d.usage7.games.map((g) => `${g.game} (${g.n}${g.wins ? `, ${g.wins} ${g.wins === 1 ? 'vitória' : 'vitórias'}` : ''})`).join(', ')))
-          : h('li', { class: 'muted' }, 'Nenhuma partida.')),
-      h('h3', { class: 'section' }, 'XP nos últimos 7 dias'), d.xp7.length
-        ? h('ul', { class: 'plain' }, d.xp7.map((x) => h('li', {}, `${x.reason}: `, h('b', {}, num(x.n)))))
-        : h('p', { class: 'empty' }, 'Nada nos últimos 7 dias.')),
+          : h('li', { class: 'muted' }, 'Nenhuma partida.'))),
       h('div', {}, h('h3', {}, 'IPs usados'), table([
         { label: 'IP', get: (r) => h('span', { class: 'mono' }, r.ip) },
         { label: 'Último', get: (r) => ago(r.last) },
@@ -1332,8 +1320,6 @@ async function viewResumo() {
         { label: 'Call', num: true, get: (r) => (r.voiceMin ? hoursMin(r.voiceMin) : '—') },
         { label: 'Mensagens', num: true, get: (r) => num(r.messages) },
         { label: 'Jogos', num: true, get: (r) => (r.games ? `${num(r.games)}${r.wins ? ` (${r.wins} 🏆)` : ''}` : '—') },
-        { label: 'XP ganho', num: true, get: (r) => `+${num(r.xp)}` },
-        { label: 'Nível', num: true, get: (r) => h('span', {}, `${r.level}`, r.levelsUp > 0 ? h('span', { class: 'good-text' }, ` ▲${r.levelsUp}`) : null) },
       ], d.ranking, { empty: 'Ninguém usou nesta semana.' })),
     h('div', { class: 'section grid two' },
       h('div', { class: 'card' }, h('h2', {}, 'Canais mais movimentados'), table([
@@ -1482,69 +1468,6 @@ async function viewAtualizar() {
       { label: '', get: (r) => (r.id !== d.live && r.hasFile ? h('button', { class: 'btn small', disabled: running, onclick: () => deployAction('/api/rollback', { id: r.id }, `Voltar o Muvuca para a versão ${r.id}? A versão atual fica guardada, e o Muvuca reinicia (uns 10 segundos).`) }, 'Voltar para esta') : null) },
     ], d.releases, { empty: 'Nenhuma versão guardada ainda: a primeira é guardada na primeira atualização.' }));
   return h('div', {}, top, jobCard, versions);
-}
-
-// ---------- XP e níveis ----------
-let xpFilter = '';
-function xpBar(info) {
-  const bar = h('div', { class: 'bar', title: `${num(info.into)} / ${num(info.need)} XP para o nível ${info.level + 1}` }, h('span', { style: `width:${Math.round((info.into / info.need) * 100)}%` }));
-  return h('div', { style: 'min-width:120px' }, bar, h('div', { class: 'muted small' }, `${num(info.into)} / ${num(info.need)}`));
-}
-
-async function xpAdjust(u) {
-  const raw = prompt(`Dar ou tirar XP de @${u.username} (tem ${num(u.xp)} XP, nível ${u.info.level}).\nDigite um número: 500 dá, -500 tira.`, '');
-  if (raw === null) return;
-  const amount = Math.trunc(Number(String(raw).replace(/\./g, '').replace(',', '.')));
-  if (!amount) return toast('Digite um número diferente de zero.');
-  const reason = prompt('Motivo (opcional, fica na auditoria):', '');
-  if (reason === null) return;
-  await act('/api/xp/adjust', { id: u.id, amount, reason }, { reload: 'xp' });
-}
-
-async function viewXp() {
-  const d = await api('/api/xp');
-  if (!d.ready) return h('p', { class: 'error' }, 'O XP ainda não está ativo no Muvuca (atualize em Manutenção → Atualizar o Muvuca).');
-  const r = d.rules;
-  const input = h('input', { type: 'search', placeholder: 'Buscar pessoa…', value: xpFilter });
-  const body = h('div');
-  const render = () => {
-    const q = xpFilter.toLowerCase();
-    const rows = d.users.filter((u) => !q || u.username.toLowerCase().includes(q) || (u.name ?? '').toLowerCase().includes(q));
-    body.replaceChildren(table([
-      { label: '#', num: true, get: (u) => h('b', {}, u.rank) },
-      { label: 'Pessoa', get: (u) => h('span', {}, h('b', {}, u.name), ' ', h('span', { class: 'muted small' }, `@${u.username}`), u.blocked_at ? h('span', { class: 'pill bad', style: 'margin-left:6px' }, 'bloqueada') : null) },
-      { label: 'Nível', num: true, get: (u) => h('b', { style: 'font-size:16px' }, u.info.level) },
-      { label: 'XP total', num: true, get: (u) => num(u.xp) },
-      { label: 'Progresso', get: (u) => xpBar(u.info) },
-      { label: '24 h', num: true, get: (u) => (u.day ? `+${num(u.day)}` : '—') },
-      { label: '7 dias', num: true, get: (u) => (u.week ? h('span', { title: Object.entries(u.weekBy).map(([k, v]) => `${k}: ${num(v)}`).join('\n') }, `+${num(u.week)}`, h('div', { class: 'muted small' }, Object.entries(u.weekBy).map(([k, v]) => `${k} ${num(v)}`).join(' · '))) : '—') },
-      { label: '', get: (u) => h('div', { class: 'row', style: 'flex-wrap:nowrap' },
-        h('button', { class: 'btn small ghost', onclick: () => xpAdjust(u) }, 'Dar/tirar XP'),
-        u.xp ? h('button', { class: 'btn small ghost', onclick: () => act('/api/xp/adjust', { id: u.id, reset: true }, { confirmText: `Zerar o XP de @${u.username}? Ela volta ao nível 0 (tem ${num(u.xp)} XP).`, askReason: 'Motivo (opcional):', reload: 'xp' }) }, 'Zerar') : null) },
-    ], rows, { empty: 'Ninguém encontrado.' }));
-  };
-  input.addEventListener('input', () => { xpFilter = input.value; render(); });
-  render();
-  const weekTotal = Object.values(d.week).reduce((a, b) => a + b, 0);
-  return h('div', {},
-    h('div', { class: 'grid cards' },
-      stat('XP dado em 7 dias', num(weekTotal), 'para todo mundo'),
-      Object.entries(d.week).map(([k, v]) => stat(`Por ${k}`, num(v), weekTotal ? `${Math.round((v / weekTotal) * 100)}% do total` : '')),
-      stat('Maior nível', d.users[0] ? `${d.users[0].info.level}` : '—', d.users[0] ? `@${d.users[0].username}` : ''),
-    ),
-    h('div', { class: 'section card' }, h('div', { class: 'row' }, h('h2', {}, 'Ranking'), h('span', { class: 'spacer' }), input),
-      h('p', { class: 'muted small' }, 'XP é da conta (vale em todos os servidores). "Dar/tirar" e "Zerar" avisam a pessoa na hora e ficam na Auditoria.'), body),
-    h('div', { class: 'section grid two' },
-      h('div', { class: 'card' }, h('h2', {}, 'Como se ganha XP'), table([{ label: '', get: (x) => x[0] }, { label: '', get: (x) => h('b', {}, x[1]) }], [
-        ['Mensagem (com conteúdo)', `${r.message.min} a ${r.message.max} XP, no máximo 1 a cada ${Math.round(r.message.cooldownMs / 60000)} min (mínimo de ${r.message.minChars} caracteres)`],
-        ['Tempo em call', `${r.voicePerMinute} XP por minuto (com mais alguém na call, sem estar ensurdecido)`],
-        ['Partida com 2+ pessoas', `${r.gamePlayed} XP (+${r.gameWon} para quem vence)`],
-      ])),
-      h('div', { class: 'card' }, h('h2', {}, 'Curva de níveis'), table([
-        { label: 'Nível', num: true, get: (c) => c.level },
-        { label: 'XP total', num: true, get: (c) => num(c.total) },
-        { label: 'Só esse nível', num: true, get: (c) => num(c.step) },
-      ], d.curve))));
 }
 
 // ---------- Passkey (Face ID / Touch ID) e alertas: utilidades ----------
