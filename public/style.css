@@ -2105,7 +2105,7 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 /* Pasta do servidor */
 .tree-server-wrap { padding: 0 8px; }
 /* "Todos os amigos" e "Todos os jogos": mesma linha dos servidores, com o ícone no lugar da foto */
-.tree-top .tree-server-toggle > .ico { color: var(--muted); transition: none; transform: none; }
+.tree-top .tree-server-toggle > .ico { color: var(--muted); }
 .tree-top.current .tree-server-toggle > .ico { color: var(--accent); }
 .tree-server .count { font-size: 11px; color: var(--muted); flex: none; margin-right: 4px; }
 .tree-top-body { padding: 2px 0 4px; }
@@ -2121,8 +2121,7 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .tree-server { position: relative; display: flex; align-items: center; gap: 4px; padding: 0 4px 0 0; border-radius: 6px; margin: 1px 0; }
 .tree-server:hover { background: var(--bg-hover); }
 .tree-server-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; padding: 5px 6px; text-align: left; color: var(--text); font-weight: 500; }
-.tree-server-toggle > .ico { flex: none; color: var(--muted); transition: transform .15s; }
-.tree-server:not(.open) .tree-server-toggle > .ico { transform: rotate(-90deg); }
+.tree-server-toggle > .ico { flex: none; color: var(--muted); }
 .tree-server-toggle .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-server.current .tree-server-toggle, .tree-server.unread .tree-server-toggle { color: var(--text-strong); font-weight: 700; }
 .server-icon.tiny { width: 20px; height: 20px; border-radius: 6px; font-size: 9px; font-weight: 700; letter-spacing: 0; background: var(--server-color, var(--accent)); color: #fff; }
