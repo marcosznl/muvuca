@@ -188,25 +188,30 @@ test('cara de app do Mac: no site e no app do Mac (só o app tem a coluna transl
   await context.close();
 });
 
-test('lateral em blocos: Amigos, Jogos e Servidores abrem e fecham, e fica guardado depois do F5', async () => {
+test('lateral: Todos os amigos, Todos os jogos e os servidores abrem e fecham com um clique, e fica guardado depois do F5', async () => {
   const page = await openAs(browser, stack, 'ana', { token: ana.token });
-  const titles = await page.$$eval('.tree-block-title', (t) => t.map((x) => x.textContent));
-  assert.deepEqual(titles, ['Amigos', 'Jogos', 'Servidores']);
-  assert.equal(await page.$('#server-rail'), null); // a coluna de ícones saiu
-  // A pasta do servidor mostra os canais; fechada, some com eles
+  const titles = await page.$$eval('.tree-top .name', (t) => t.map((x) => x.textContent));
+  assert.deepEqual(titles, ['Todos os amigos', 'Todos os jogos']);
+  assert.equal(await page.$('.tree-block'), null); // sem os títulos "Amigos", "Jogos" e "Servidores"
+  assert.equal(await page.$('.tree-server-toggle .ico'), null); // servidores sem a seta
+  const server = '.tree-server:not(.tree-top) .tree-server-toggle';
+  // O servidor mostra os canais; um clique nele fecha
   assert.ok(await page.$(`.server-tree li[data-channel="${ids.text}"]`));
-  await page.click('.tree-server-toggle');
+  await page.click(server);
   assert.equal(await page.$(`.server-tree li[data-channel="${ids.text}"]`), null);
-  await page.click('.tree-block:nth-child(2) .tree-block-toggle'); // fecha "Jogos"
+  // "Todos os jogos": o clique abre a tela dos jogos e mostra cada jogo embaixo
+  const [, jogos] = await page.$$('.tree-top .tree-server-toggle');
+  await jogos.click();
+  await page.waitForSelector('.tree-game');
+  assert.equal(await page.evaluate(async () => !!(await import('/js/state.js')).state.view.games), true);
   await page.reload();
   await page.waitForSelector('#app:not([hidden])');
-  assert.equal(await page.$eval('.tree-server', (r) => r.classList.contains('open')), false);
-  assert.equal(await page.$eval('.tree-block:nth-child(2)', (b) => b.classList.contains('closed')), true);
-  // Abre de novo e entra num canal pela lateral
-  await page.click('.tree-server-toggle');
+  assert.equal(await page.$eval('.tree-server:not(.tree-top)', (r) => r.classList.contains('open')), false);
+  assert.ok(await page.$('.tree-game'), 'Todos os jogos continua aberto depois do F5');
+  // Abre o servidor de novo e entra num canal pela lateral
+  await page.click(server);
   await page.click(`.server-tree li[data-channel="${ids.text2 ?? ids.text}"] .channel`);
   assert.equal(await page.evaluate(async () => (await import('/js/state.js')).state.view.channelId), ids.text2 ?? ids.text);
-  await page.click('.tree-block:nth-child(2) .tree-block-toggle'); // deixa como estava
   assert.deepEqual(page.errors, []);
   await page.context().close();
 });

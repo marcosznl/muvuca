@@ -6,7 +6,6 @@ import { state, serverById } from './state.js';
 import { request } from './net.js';
 import { openModal, button, promptText, contextMenu } from './dialogs.js';
 import { selectServer } from './app.js';
-import { incomingCount } from './friends.js';
 import { renderChannels } from './sidebar.js';
 
 export const isDm = (s) => s?.kind === 'dm';
@@ -39,14 +38,11 @@ export async function startDm(userIds) {
   try { await request({ t: 'dm:open', userIds }); } catch (err) { showBanner(err.message, { timeout: 4000 }); }
 }
 
-// Bloco "Amigos" da lateral: "Todos os amigos" (página de amigos e pedidos) e as conversas privadas
+// Está na página de amigos (e pedidos)?
+export const inDmHome = () => !!state.view.dms && !state.view.serverId && !state.view.games;
+
+// O que aparece ao abrir "Todos os amigos" na lateral: as conversas privadas e "Nova conversa"
 export function dmTree() {
-  const friendsBtn = h('button', 'channel tree-item');
-  friendsBtn.classList.toggle('active', !!state.view.dms && !state.view.serverId && !state.view.games);
-  friendsBtn.append(icon('friends', 18), h('span', 'name', 'Todos os amigos'));
-  const pending = incomingCount();
-  if (pending) friendsBtn.append(h('span', 'badge', String(pending)));
-  friendsBtn.onclick = selectDmHome;
   const list = h('ul', 'channel-list dm-list');
   const hide = hidden();
   const convs = dmServers().filter((s) => !hide.has(s.id) || s.id === state.view.serverId)
@@ -96,7 +92,7 @@ export function dmTree() {
   const newBtn = h('button', 'channel tree-item tree-add');
   newBtn.append(icon('plus', 16), h('span', 'name', 'Nova conversa'));
   newBtn.onclick = openNewDm;
-  return [friendsBtn, list, newBtn];
+  return [list, newBtn];
 }
 export { openNewDm };
 

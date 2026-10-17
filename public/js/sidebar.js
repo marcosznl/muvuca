@@ -1,4 +1,4 @@
-// Lateral (blocos Amigos, Jogos e Servidores, cada servidor como pasta com os canais), painel "Voz conectada" e painel do usuário
+// Lateral (Todos os amigos, Todos os jogos e os servidores, cada um abre e fecha com um clique), painel "Voz conectada" e painel do usuário
 import { $, h, makeAvatar, paintServerIcon, toast, showBanner, store } from './util.js';
 import { openMePopout } from './profile.js';
 import { icon } from './icons.js';
@@ -11,8 +11,8 @@ import { selectServer, selectChannel } from './app.js';
 import { joinVoice, leaveVoice, watchStream, voiceChannelId, speakingNow, openUserVolumeMenu } from './voice.js';
 import { musicChannelId } from './music.js';
 import { openServerSettings, openInviteDialog } from './settings.js';
-import { dmTree, dmTitle, openNewDm, totalDmUnread, realServers } from './dms.js';
-import { gamesTree, openRoomsCount, inGames } from './games.js';
+import { dmTree, dmTitle, openNewDm, totalDmUnread, realServers, inDmHome, selectDmHome } from './dms.js';
+import { gamesTree, openRoomsCount, inGames, inGamesHome, openGamesHome } from './games.js';
 import { incomingCount } from './friends.js';
 import { openUserSettings } from './user-settings.js';
 import { openNovidades, temNovidade } from './novidades.js';
@@ -715,50 +715,51 @@ function channelItem(s, c, canManage) {
   return li;
 }
 
-// ---------- Lateral: blocos que abrem e fecham (como no iPlayer) ----------
-// Blocos fechados (amigos, jogos, servidores) e pastas de servidor abertas, guardados neste aparelho
-const closedBlocks = new Set(JSON.parse(store.get('treeClosed') || '[]'));
+// ---------- Lateral: itens que abrem e fecham com um clique (como no iPlayer) ----------
+// Abertos neste aparelho: "amigos", "jogos" e os ids dos servidores
 const openServers = new Set(JSON.parse(store.get('treeOpen') || '[]'));
-const saveTree = () => { store.set('treeClosed', JSON.stringify([...closedBlocks])); store.set('treeOpen', JSON.stringify([...openServers])); };
+const saveTree = () => store.set('treeOpen', JSON.stringify([...openServers]));
 let autoOpened = store.get('lastServer'); // servidor aberto sozinho ao entrar nele (recarregar não reabre o que você fechou)
-let firstTime = store.get('treeOpen') == null; // primeira vez com a lateral nova: todas as pastas abertas
+let firstTime = store.get('treeOpen') == null; // primeira vez com a lateral nova: tudo aberto
 
-function toggleBlock(key) {
-  if (closedBlocks.has(key)) closedBlocks.delete(key); else closedBlocks.add(key);
-  saveTree();
-  renderChannels();
-}
 function toggleServer(id) {
   if (openServers.has(id)) openServers.delete(id); else openServers.add(id);
   saveTree();
   renderChannels();
 }
 
-// Título do bloco: seta, nome, número (quando fechado) e um botão do lado (ex.: +)
-function block(key, title, { badge = 0, count = 0, action = null } = {}, content = []) {
-  const closed = closedBlocks.has(key);
-  const sec = h('section', 'tree-block');
-  sec.classList.toggle('closed', closed);
-  const head = h('div', 'tree-block-head');
-  const toggle = h('button', 'tree-block-toggle');
-  toggle.append(icon('chevron-down', 12), h('span', 'tree-block-title', title));
-  toggle.title = closed ? 'Abrir' : 'Fechar';
-  toggle.onclick = () => toggleBlock(key);
-  head.append(toggle);
-  if (closed && badge) head.append(h('span', 'badge', badge > 99 ? '99+' : String(badge)));
-  else if (count) head.append(h('span', 'count', String(count)));
-  if (action) head.append(action);
-  sec.append(head);
-  if (!closed) {
-    const body = h('div', 'tree-block-body');
+// "Todos os amigos" e "Todos os jogos": fechado, clicar abre e vai para a página; aberto e já na página, fecha
+// (o número vermelho aparece com ele fechado; aberto, cada conversa mostra o seu, e fica só `openBadge`)
+function topFolder(key, ico, title, { here, go, badge = 0, openBadge = 0, count = 0, action = null }, content) {
+  const open = openServers.has(key);
+  const wrap = h('div', 'tree-server-wrap');
+  const row = h('div', 'tree-server tree-top');
+  row.classList.toggle('open', open);
+  row.classList.toggle('current', here);
+  const toggle = h('button', 'tree-server-toggle');
+  toggle.append(icon(ico, 18), h('span', 'name', title));
+  toggle.onclick = () => {
+    if (open && here) openServers.delete(key);
+    else { openServers.add(key); go(); }
+    saveTree();
+    renderChannels();
+  };
+  row.append(toggle);
+  const n = open ? openBadge : badge;
+  if (n) row.append(h('span', 'badge', n > 99 ? '99+' : String(n)));
+  else if (count && !open) row.append(h('span', 'count', String(count)));
+  if (action) row.append(action);
+  wrap.append(row);
+  if (open) {
+    const body = h('div', 'server-tree tree-top-body');
     body.append(...content);
-    sec.append(body);
+    wrap.append(body);
   }
-  return sec;
+  return wrap;
 }
 
 function plusButton(title, onClick) {
-  const b = h('button', 'category-add');
+  const b = h('button', 'tree-more');
   b.title = title;
   b.append(icon('plus', 16));
   b.onclick = (e) => { e.stopPropagation(); onClick(); };
@@ -778,7 +779,7 @@ function serverFolder(s) {
   const ico = h('span', 'server-icon tiny');
   paintServerIcon(ico, s);
   if (!s.icon) ico.textContent = [...ico.textContent].slice(0, 2).join(''); // no ícone pequeno cabem 2 letras
-  toggle.append(icon('chevron-down', 12), ico, h('span', 'name', s.name));
+  toggle.append(ico, h('span', 'name', s.name));
   toggle.title = open ? `Fechar ${s.name}` : `Abrir ${s.name}`;
   toggle.onclick = () => toggleServer(s.id);
   row.append(toggle);
@@ -836,6 +837,7 @@ export function renderChannels() {
   if (firstTime && realServers().length) {
     firstTime = false;
     for (const x of realServers()) openServers.add(x.id);
+    openServers.add('amigos');
     saveTree();
   }
   const cur = state.view.serverId;
@@ -844,12 +846,19 @@ export function renderChannels() {
     if (!openServers.has(cur)) { openServers.add(cur); saveTree(); }
   }
   const scroll = box.scrollTop;
+  const addServer = h('button', 'channel tree-item tree-add');
+  addServer.append(icon('plus', 16), h('span', 'name', 'Adicionar servidor'));
+  addServer.onclick = openAddServer;
+  const addWrap = h('div', 'tree-server-wrap');
+  addWrap.append(addServer);
   box.replaceChildren(
-    block('amigos', 'Amigos', { badge: totalDmUnread() + incomingCount(), action: plusButton('Nova conversa', openNewDm) }, dmTree()),
-    block('jogos', 'Jogos', { count: inGames() ? 0 : openRoomsCount() }, gamesTree()),
-    block('servidores', 'Servidores', {
-      badge: realServers().reduce((n, x) => n + serverMentions(x), 0), action: plusButton('Adicionar um servidor', openAddServer),
-    }, realServers().map(serverFolder)),
+    topFolder('amigos', 'friends', 'Todos os amigos', {
+      here: inDmHome(), go: selectDmHome, badge: totalDmUnread() + incomingCount(), openBadge: incomingCount(), action: plusButton('Nova conversa', openNewDm),
+    }, dmTree()),
+    topFolder('jogos', 'gamepad', 'Todos os jogos', { here: inGamesHome(), go: openGamesHome, count: inGames() ? 0 : openRoomsCount() }, gamesTree()),
+    h('div', 'tree-sep'),
+    ...realServers().map(serverFolder),
+    addWrap,
   );
   box.scrollTop = scroll;
 }

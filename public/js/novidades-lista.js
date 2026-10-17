@@ -13,6 +13,7 @@ export const NOVIDADES = [
     itens: [
       'App do Mac 1.4.7: visual de app do Mac, como o Finder e o Música. A coluna da esquerda fica translúcida, deixando aparecer de leve o que está atrás da janela, e os três botões da janela ficam em cima dela. Também tem a letra do sistema, seleção arredondada e menus com fundo desfocado. Nos temas coloridos continua o degradê. O app se atualiza sozinho.',
       'Ícone novo: o M branco arredondado sobre o azul do Muvuca, no app do Mac, na aba do navegador e no Muvuca instalado no celular.',
+      'Lateral mais simples: "Todos os amigos" e "Todos os jogos" abrem e fecham com um clique (em Todos os jogos aparecem os jogos e as salas abertas de cada um), e cada servidor também abre e fecha com um clique no nome, sem setas. Para criar ou entrar num servidor, use "Adicionar servidor" no fim da lista.',
       'Lateral nova, como no iPlayer: tudo numa coluna só, em blocos que abrem e fecham. Amigos (todos os amigos e as conversas), Jogos (as salas abertas) e Servidores, cada um como uma pasta com os canais dentro. A coluna de ícones dos servidores saiu. O que você abre ou fecha fica guardado; arraste as pastas para mudar a ordem dos servidores.',
       'O site no navegador (e o app do Windows) ganhou o mesmo visual: letra do sistema, canal escolhido em azul com cantos arredondados, menus com fundo desfocado e títulos das seções em letra normal. Só a coluna translúcida é exclusiva do app do Mac.',
       'O XP e os níveis saíram do Muvuca: não tem mais barrinha de XP nem nível no perfil.',

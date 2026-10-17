@@ -188,37 +188,55 @@ function closeDrawer() {
 
 export function renderGamesSidebar() { renderChannels(); } // as salas abertas ficam no bloco "Jogos" da lateral
 
-// Item "Jogos" (abaixo de Amigos) e, dentro dos jogos, as salas abertas logo embaixo dele
-// Bloco "Jogos" da lateral: "Todos os jogos" (a tela com os jogos e o placar) e as salas abertas
+// Lateral: "Todos os jogos" abre a tela dos jogos; aberto, mostra cada jogo com as salas abertas dele
 export const openRoomsCount = () => games.rooms.length;
+export const inGamesHome = () => inGames() && !games.room;
+
+export function openGamesHome() {
+  closeDrawer();
+  if (!inGames()) return import('./app.js').then(({ selectGames }) => selectGames());
+  if (games.room) leaveRoom(); else renderGamesView();
+}
+
+async function goToGames() {
+  closeDrawer();
+  if (!inGames()) (await import('./app.js')).selectGames();
+}
+
 export function gamesTree() {
-  const here = inGames();
-  const btn = h('button', 'channel tree-item');
-  btn.classList.toggle('active', here && !games.room);
-  btn.append(icon('gamepad', 18), h('span', 'name', 'Todos os jogos'));
-  btn.onclick = () => {
-    closeDrawer();
-    if (!here) return import('./app.js').then(({ selectGames }) => selectGames());
-    if (games.room) leaveRoom(); else renderGamesView();
-  };
-  const rooms = h('ul', 'channel-list game-rooms-nav');
-  for (const r of games.rooms) {
-    const b = h('button', 'channel');
-    b.classList.toggle('active', games.room?.id === r.id);
-    const host = r.players.find((p) => p.id === r.hostId)?.name ?? r.players[0]?.name ?? 'sala';
-    b.append(h('span', 'game-emoji', GAME_INFO[r.game]?.emoji ?? '🎮'), h('span', 'name', `Sala de ${host}`),
-      h('span', r.status === 'playing' ? 'count live' : 'count', r.status === 'playing' ? 'jogando' : `${r.players.length}/${r.maxPlayers}`));
-    b.title = GAME_INFO[r.game]?.title ?? '';
-    b.onclick = async () => { // fora da área de jogos: abre ela e entra na sala
-      closeDrawer();
-      if (!inGames()) (await import('./app.js')).selectGames();
-      joinRoom(r.id);
-    };
-    const li = h('li');
-    li.append(b);
-    rooms.append(li);
+  const out = [];
+  const order = games.list.map((g) => g.id);
+  const rank = (id) => (order.includes(id) ? order.indexOf(id) : order.length);
+  for (const [id, info] of Object.entries(GAME_INFO).sort(([x], [y]) => rank(x) - rank(y))) {
+    const rooms = games.rooms.filter((r) => r.game === id);
+    const row = h('div', 'tree-game');
+    const b = h('button', 'channel tree-item');
+    b.append(h('span', 'game-emoji', info.emoji), h('span', 'name', info.title));
+    if (rooms.length) b.append(h('span', 'count', String(rooms.length)));
+    b.title = 'Ver os jogos';
+    b.onclick = () => openGamesHome();
+    const add = h('button', 'tree-more');
+    add.title = `Criar sala de ${info.title}`;
+    add.append(icon('plus', 16));
+    add.onclick = async (e) => { e.stopPropagation(); await goToGames(); createRoom(id); };
+    row.append(b, add);
+    out.push(row);
+    if (!rooms.length) continue;
+    const list = h('ul', 'channel-list game-rooms-nav');
+    for (const r of rooms) {
+      const rb = h('button', 'channel');
+      rb.classList.toggle('active', games.room?.id === r.id);
+      const host = r.players.find((p) => p.id === r.hostId)?.name ?? r.players[0]?.name ?? 'sala';
+      rb.append(h('span', 'name', `Sala de ${host}`),
+        h('span', r.status === 'playing' ? 'count live' : 'count', r.status === 'playing' ? 'jogando' : `${r.players.length}/${r.maxPlayers}`));
+      rb.onclick = async () => { await goToGames(); joinRoom(r.id); }; // fora da área de jogos: abre ela e entra na sala
+      const li = h('li');
+      li.append(rb);
+      list.append(li);
+    }
+    out.push(list);
   }
-  return games.rooms.length ? [btn, rooms] : [btn];
+  return out;
 }
 
 // ---------- Área principal ----------
