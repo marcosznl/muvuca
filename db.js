@@ -430,6 +430,16 @@ function migrate(db) {
     db.prepare('UPDATE roles SET permissions = permissions | ? WHERE is_default = 1').run(PERMS.MUSIC_DJ);
     db.prepare("INSERT INTO meta (key, value) VALUES ('perm_music_dj', ?)").run(new Date().toISOString());
   }
+  // Salas de DJ (fora dos servidores, para todo mundo): quem criou a sala e a senha (opcional)
+  const djCols = db.prepare('PRAGMA table_info(channels)').all().map((c) => c.name);
+  if (!djCols.includes('owner_id')) db.exec('ALTER TABLE channels ADD COLUMN owner_id INTEGER');
+  if (!djCols.includes('password_hash')) db.exec('ALTER TABLE channels ADD COLUMN password_hash TEXT');
+  // Quem já digitou a senha de uma sala (não precisa digitar de novo até a senha mudar)
+  db.exec(`CREATE TABLE IF NOT EXISTS dj_access (
+    channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (channel_id, user_id)
+  )`);
 }
 
 // ---------- Senhas e tokens ----------
@@ -460,6 +470,8 @@ const publicUser = (row) => row && {
 // Tipos de mensagem de sistema (coluna messages.system)
 // Conversa direta: mensagens, fixar e ligar (voz, câmera e tela)
 const DM_PERMS = PERMS.SEND_MESSAGES | PERMS.PIN_MESSAGES | PERMS.CONNECT | PERMS.SPEAK | PERMS.VIDEO;
+// Salas de DJ: conversar no chat da sala e tocar na cabine (criar, mudar e apagar sala têm ações próprias)
+const DJ_PERMS = PERMS.SEND_MESSAGES | PERMS.MUSIC_DJ;
 
 export const SYSTEM = { music: 1, join: 2, leave: 3, game: 4, call: 5, rename: 6, event: 7, owner: 8 };
 const SYSTEM_KIND = Object.fromEntries(Object.entries(SYSTEM).map(([k, v]) => [v, k]));
@@ -596,7 +608,8 @@ class Store {
       setOwner: p('UPDATE servers SET owner_id = ? WHERE id = ?'),
       deleteServer: p('DELETE FROM servers WHERE id = ?'),
       ownedCount: p('SELECT COUNT(*) AS n FROM servers WHERE owner_id = ?'),
-      serversOfUser: p('SELECT server_id FROM members WHERE user_id = ? ORDER BY rail_pos IS NULL, rail_pos, joined_at'), // a ordem que a pessoa escolheu; os novos no fim
+      serversOfUser: p(`SELECT m.server_id FROM members m JOIN servers s ON s.id = m.server_id WHERE m.user_id = ?
+                        ORDER BY s.kind = 'dj', m.rail_pos IS NULL, m.rail_pos, m.joined_at`), // a ordem que a pessoa escolheu; os novos no fim (salas de DJ por último)
       members: p(`SELECT u.id, u.username, u.display_name, u.avatar, u.bio, u.banner, u.banner_image, u.status_text, m.joined_at, m.nick FROM members m JOIN users u ON u.id = m.user_id
                   WHERE m.server_id = ? ORDER BY m.joined_at`),
       memberRoles: p('SELECT user_id, role_id FROM member_roles WHERE server_id = ?'),
@@ -968,6 +981,7 @@ class Store {
       this.db.prepare('DELETE FROM files WHERE owner_id = ?').run(id);
       for (const img of images) this.db.prepare('DELETE FROM images WHERE id = ?').run(img);
       this.db.prepare('DELETE FROM call_minutes WHERE user_id = ?').run(id);
+      this.db.prepare('UPDATE channels SET owner_id = NULL WHERE owner_id = ?').run(id); // salas de DJ dela continuam
       for (const s of servers) {
         const others = this.db.prepare('SELECT user_id FROM members WHERE server_id = ? AND user_id != ? ORDER BY joined_at').all(s.id, id);
         const gone = s.kind === 'dm' ? others.length <= 1 : s.owner_id === id && others.length === 0;
@@ -1045,6 +1059,8 @@ class Store {
         ...(c.private ? { private: true, roles: channelRoles.get(c.id) ?? [] } : {}),
         ...(c.slowmode ? { slowmode: c.slowmode } : {}),
         ...(c.type === 'voice' ? { bitrate: c.bitrate ?? VOICE_BITRATE.default, userLimit: c.user_limit ?? 0 } : {}),
+        ...(s.kind === 'dj' ? { ownerId: c.owner_id ? uid(c.owner_id) : null } : {}),
+        ...(s.kind === 'dj' && c.password_hash ? { locked: true, access: this.djAccess(c.id) } : {}),
       })),
       roles: this.q.roles.all(serverId).map((r) => ({
         id: r.id, name: r.name, color: r.color, position: r.position, permissions: r.permissions, isDefault: r.is_default === 1,
@@ -1473,6 +1489,57 @@ class Store {
       hasMore,
     };
   }
+
+  // ---------- Salas de DJ ----------
+  // Ficam numa área escondida (kind = 'dj') da qual todo mundo é membro, fora da lista de servidores.
+  // Na primeira vez, os canais de música que existiam nos servidores viram salas (com o histórico).
+  seedDjLobby() {
+    let id = this.meta('dj_server');
+    if (!id || !this.server(id)) {
+      id = this.createServer({ name: 'Salas de DJ', owner: null, withDefaultChannels: false });
+      this.q.setKind.run('dj', id);
+      this.setMeta('dj_server', id);
+    }
+    this.q.setRolePerms.run(DJ_PERMS, id);
+    this.transaction(() => {
+      this.db.prepare(`UPDATE channels SET owner_id = (SELECT owner_id FROM servers WHERE servers.id = channels.server_id),
+        server_id = ?, category_id = NULL WHERE type = 'music' AND server_id != ?`).run(id, id);
+      // A categoria "Canais de música" que ficou vazia sai dos servidores
+      this.db.prepare(`DELETE FROM categories WHERE name = 'Canais de música' AND server_id != ?
+        AND NOT EXISTS (SELECT 1 FROM channels WHERE channels.category_id = categories.id)`).run(id);
+      this.db.prepare('INSERT OR IGNORE INTO members (server_id, user_id, joined_at) SELECT ?, id, ? FROM users').run(id, Date.now());
+    });
+    return id;
+  }
+  djRoom(channelId) {
+    const c = this.db.prepare("SELECT c.* FROM channels c JOIN servers s ON s.id = c.server_id WHERE c.id = ? AND s.kind = 'dj' AND c.type = 'music'").get(String(channelId));
+    return c ? { id: c.id, name: c.name, serverId: c.server_id, ownerId: c.owner_id ? uid(c.owner_id) : null, passwordHash: c.password_hash ?? null } : null;
+  }
+  djRoomCount(serverId, userId = null) {
+    return userId
+      ? this.db.prepare("SELECT COUNT(*) n FROM channels WHERE server_id = ? AND type = 'music' AND owner_id = ?").get(serverId, unum(userId)).n
+      : this.db.prepare("SELECT COUNT(*) n FROM channels WHERE server_id = ? AND type = 'music'").get(serverId).n;
+  }
+  async createDjRoom(serverId, { name, owner, password = '' }) {
+    const id = this.createChannel({ serverId, type: 'music', name });
+    this.db.prepare('UPDATE channels SET owner_id = ?, password_hash = ? WHERE id = ?').run(unum(owner.id), password ? await hashPassword(password) : null, id);
+    return id;
+  }
+  renameDjRoom(channelId, name) { this.db.prepare('UPDATE channels SET name = ? WHERE id = ?').run(name, channelId); }
+  // Senha nova (ou sem senha): quem tinha liberado precisa digitar de novo
+  async setDjPassword(channelId, password) {
+    const hash = password ? await hashPassword(password) : null;
+    this.transaction(() => {
+      this.db.prepare('UPDATE channels SET password_hash = ? WHERE id = ?').run(hash, channelId);
+      this.db.prepare('DELETE FROM dj_access WHERE channel_id = ?').run(channelId);
+    });
+  }
+  async checkDjPassword(channelId, password) {
+    const row = this.db.prepare('SELECT password_hash FROM channels WHERE id = ?').get(channelId);
+    return !!row?.password_hash && verifyPassword(String(password), row.password_hash);
+  }
+  grantDjAccess(channelId, userId) { this.db.prepare('INSERT OR IGNORE INTO dj_access (channel_id, user_id) VALUES (?, ?)').run(channelId, unum(userId)); }
+  djAccess(channelId) { return this.db.prepare('SELECT user_id FROM dj_access WHERE channel_id = ?').all(channelId).map((r) => uid(r.user_id)); }
 
   // O primeiro servidor ("home") nasce do channels.json, mantendo os ids dos canais (histórico e salas de voz)
   seedHomeServer(config) {

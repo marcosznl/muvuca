@@ -64,8 +64,10 @@ export function computePerms(server, userId) {
 
 export const can = (perms, flag) => (perms & flag) === flag;
 
-// Canal privado: só o dono, administradores e quem tem um dos cargos escolhidos enxergam (e entram)
+// Canal privado: só o dono, administradores e quem tem um dos cargos escolhidos enxergam (e entram).
+// Sala de DJ com senha: só quem criou e quem já digitou a senha (os outros veem a sala, mas não entram)
 export function canSeeChannel(server, userId, channel) {
+  if (channel?.locked) return channel.ownerId === userId || (channel.access ?? []).includes(userId);
   if (!channel?.private) return true;
   if (!server || server.ownerId === userId) return true;
   if (can(computePerms(server, userId), PERMS.ADMINISTRATOR)) return true;
@@ -75,6 +77,9 @@ export function canSeeChannel(server, userId, channel) {
 
 // O servidor como aquela pessoa enxerga: sem os canais privados dela não ter acesso
 export function serverViewFor(server, userId) {
+  if (server?.kind === 'dj') { // a sala com senha aparece na lista, sem dizer quem tem acesso
+    return { ...server, channels: server.channels.map(({ access, ...c }) => (c.locked ? { ...c, open: canSeeChannel(server, userId, { ...c, access }) } : c)) };
+  }
   if (!server || !server.channels.some((c) => c.private)) return server;
   return { ...server, channels: server.channels.filter((c) => canSeeChannel(server, userId, c)) };
 }

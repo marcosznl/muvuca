@@ -474,18 +474,6 @@ test('convite: quem entra por convite vira membro', async () => {
 
 // ---------- Mais ações (cobertura da divisão em módulos) ----------
 
-test('canal de música: entrar, cabine de DJ e sair', async () => {
-  const ch = await dono.request({ t: 'channel:create', serverId: home, type: 'music', name: 'Pista' });
-  const joined = await ana.request({ t: 'music:join', channelId: ch.channelId });
-  assert.equal(joined.t, 'music:joined');
-  assert.ok(joined.state.listeners.includes(ana.me.id));
-  assert.equal((await ana.request({ t: 'music:booth', channelId: ch.channelId, join: true })).t, 'ok');
-  assert.equal((await ana.request({ t: 'music:kick', channelId: ch.channelId, userId: dono.me.id })).t, 'error'); // sem "Gerenciar música"
-  assert.equal((await ana.request({ t: 'music:join', channelId: 'geral' })).t, 'error'); // não é canal de música
-  await ana.request({ t: 'music:leave', channelId: ch.channelId });
-  assert.equal((await ana.request({ t: 'time' })).t, 'time');
-});
-
 test('renomear e excluir canal', async () => {
   const ch = await dono.request({ t: 'channel:create', serverId: home, type: 'text', name: 'Bate Papo' });
   await sleep(100);

@@ -35,7 +35,9 @@ export default {
   'channel:create'(user, m) {
     const ctx = requireServer(user, m.serverId);
     requirePerm(ctx, PERMS.MANAGE_CHANNELS, 'Você não tem permissão para criar canais.');
-    const type = ['voice', 'music'].includes(m.type) ? m.type : 'text';
+    if (m.type === 'music') fail('As salas de DJ agora ficam fora dos servidores: crie em "Salas de DJ", na lateral.');
+    if (ctx.snap.kind === 'dj') fail('Crie a sala pelo "+" de "Salas de DJ".');
+    const type = m.type === 'voice' ? 'voice' : 'text';
     const name = channelName(type, m.name);
     if (!name) fail('Dê um nome ao canal.');
     if (db.countChannels(ctx.snap.id, type) >= LIMITS.channelsPerType) fail(`Limite de ${LIMITS.channelsPerType} canais desse tipo.`);

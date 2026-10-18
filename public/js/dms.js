@@ -10,7 +10,7 @@ import { renderChannels } from './sidebar.js';
 
 export const isDm = (s) => s?.kind === 'dm';
 export const dmServers = () => state.servers.filter(isDm);
-export const realServers = () => state.servers.filter((s) => !isDm(s));
+export const realServers = () => state.servers.filter((s) => !isDm(s) && s.kind !== 'dj'); // sem as salas de DJ (têm lugar próprio)
 const others = (s) => s.members.filter((m) => m.id !== state.me?.id);
 
 // Nome da conversa: a outra pessoa (ou os nomes do grupo)

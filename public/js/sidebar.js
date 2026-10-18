@@ -13,6 +13,7 @@ import { musicChannelId } from './music.js';
 import { openServerSettings, openInviteDialog } from './settings.js';
 import { dmTree, dmTitle, openNewDm, totalDmUnread, realServers, inDmHome, selectDmHome } from './dms.js';
 import { gamesTree, openRoomsCount, inGames, inGamesHome, openGamesHome } from './games.js';
+import { djTree, djRooms, djUnread, inDjRoom, openCreateDjRoom } from './dj.js';
 import { incomingCount } from './friends.js';
 import { openUserSettings } from './user-settings.js';
 import { openNovidades, temNovidade } from './novidades.js';
@@ -46,7 +47,7 @@ function railDraggable(item, id) {
     railDrag = null;
     clearRailMarks();
     if (!moving || moving === id) return;
-    const ids = state.servers.filter((x) => x.kind !== 'dm').map((x) => x.id).filter((x) => x !== moving);
+    const ids = realServers().map((x) => x.id).filter((x) => x !== moving);
     ids.splice(ids.indexOf(id) + (after ? 1 : 0), 0, moving);
     applyServerOrder(ids);
     request({ t: 'servers:order', ids }).catch((err) => showBanner(err.message, { timeout: 4000 }));
@@ -153,7 +154,6 @@ async function leaveServer(s) {
 const TYPES = {
   text: { icon: 'hash', label: 'Texto', desc: 'Mande mensagens, emojis e links', placeholder: 'novo-canal' },
   voice: { icon: 'speaker', label: 'Voz', desc: 'Converse por voz, câmera e transmita a tela', placeholder: 'Nova sala' },
-  music: { icon: 'headphones', label: 'Música', desc: 'Ouçam músicas do YouTube juntos, com cabine de DJ', placeholder: 'Pista' },
 };
 
 // Janela "Criar canal": escolhe o tipo e o nome; o canal nasce na categoria indicada (ou fora de todas)
@@ -721,6 +721,8 @@ const openServers = new Set(JSON.parse(store.get('treeOpen') || '[]'));
 const saveTree = () => store.set('treeOpen', JSON.stringify([...openServers]));
 let autoOpened = store.get('lastServer'); // servidor aberto sozinho ao entrar nele (recarregar não reabre o que você fechou)
 let firstTime = store.get('treeOpen') == null; // primeira vez com a lateral nova: tudo aberto
+// Salas de DJ chegaram depois: abertas na primeira vez para todo mundo ver que existem
+if (!store.get('treeDj')) { openServers.add('dj'); store.set('treeDj', '1'); store.set('treeOpen', JSON.stringify([...openServers])); }
 
 function toggleServer(id) {
   if (openServers.has(id)) openServers.delete(id); else openServers.add(id);
@@ -730,7 +732,7 @@ function toggleServer(id) {
 
 // "Todos os amigos" e "Todos os jogos": fechado, clicar abre e vai para a página; aberto e já na página, fecha
 // (o número vermelho aparece com ele fechado; aberto, cada conversa mostra o seu, e fica só `openBadge`)
-function topFolder(key, ico, title, { here, go, badge = 0, openBadge = 0, count = 0, action = null }, content) {
+function topFolder(key, ico, title, { here, go = null, badge = 0, openBadge = 0, count = 0, action = null }, content) {
   const open = openServers.has(key);
   const wrap = h('div', 'tree-server-wrap');
   const row = h('div', 'tree-server tree-top');
@@ -739,8 +741,8 @@ function topFolder(key, ico, title, { here, go, badge = 0, openBadge = 0, count 
   const toggle = h('button', 'tree-server-toggle');
   toggle.append(icon(ico, 18), h('span', 'name', title));
   toggle.onclick = () => {
-    if (open && here) openServers.delete(key);
-    else { openServers.add(key); go(); }
+    if (open && (here || !go)) openServers.delete(key); // sem página própria (Salas de DJ): o clique só abre e fecha
+    else { openServers.add(key); go?.(); }
     saveTree();
     renderChannels();
   };
@@ -838,10 +840,11 @@ export function renderChannels() {
     firstTime = false;
     for (const x of realServers()) openServers.add(x.id);
     openServers.add('amigos');
+    openServers.add('dj');
     saveTree();
   }
   const cur = state.view.serverId;
-  if (cur && cur !== autoOpened && state.servers.some((x) => x.id === cur && x.kind !== 'dm')) {
+  if (cur && cur !== autoOpened && realServers().some((x) => x.id === cur)) {
     autoOpened = cur;
     if (!openServers.has(cur)) { openServers.add(cur); saveTree(); }
   }
@@ -856,6 +859,9 @@ export function renderChannels() {
       here: inDmHome(), go: selectDmHome, badge: totalDmUnread() + incomingCount(), openBadge: incomingCount(), action: plusButton('Nova conversa', openNewDm),
     }, dmTree()),
     topFolder('jogos', 'gamepad', 'Todos os jogos', { here: inGamesHome(), go: openGamesHome, count: inGames() ? 0 : openRoomsCount() }, gamesTree()),
+    topFolder('dj', 'headphones', 'Salas de DJ', {
+      here: inDjRoom(), badge: djUnread(), count: djRooms().length, action: plusButton('Nova sala de DJ', openCreateDjRoom),
+    }, djTree()),
     h('div', 'tree-sep'),
     ...realServers().map(serverFolder),
     addWrap,

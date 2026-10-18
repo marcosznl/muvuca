@@ -258,7 +258,7 @@ export function openProfileCard(userId, x, y, serverId = state.view.serverId) {
   const p = profileOf(userId, s);
   if (!p) return;
   const me = userId === state.me?.id;
-  const inServer = s && s.kind !== 'dm';
+  const inServer = s && s.kind !== 'dm' && s.kind !== 'dj';
   const perms = inServer ? permsIn(s) : 0;
   const manageRoles = !me && inServer && can(perms, PERMS.MANAGE_ROLES) && canManageMember(s, p);
   const canKick = !me && inServer && can(perms, PERMS.KICK_MEMBERS) && p.id !== s.ownerId && topPosition(s, p.id) < myTop(s);

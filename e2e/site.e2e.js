@@ -192,7 +192,7 @@ test('lateral: Todos os amigos, Todos os jogos e os servidores abrem e fecham co
   const page = await openAs(browser, stack, 'ana', { token: ana.token });
   try { // falhou no meio: fecha o navegador do mesmo jeito (senão o teste fica preso até estourar o tempo)
     const titles = await page.$$eval('.tree-top .name', (t) => t.map((x) => x.textContent));
-    assert.deepEqual(titles, ['Todos os amigos', 'Todos os jogos']);
+    assert.deepEqual(titles, ['Todos os amigos', 'Todos os jogos', 'Salas de DJ']);
     assert.equal(await page.$('.tree-block'), null); // sem os títulos "Amigos", "Jogos" e "Servidores"
     assert.equal(await page.$('.tree-server:not(.tree-top) .tree-server-toggle .ico'), null); // servidores sem a seta
     const server = '.tree-server:not(.tree-top) .tree-server-toggle';

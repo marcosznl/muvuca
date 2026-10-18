@@ -84,6 +84,8 @@ export const AUDIT_LABELS = {
   'painel:maintenance': 'Modo manutenção',
   'painel:deploy': 'Atualizou o Muvuca',
   'painel:xp': 'Ajustou XP de uma conta (o XP saiu do Muvuca)',
+  'dj:create': 'Criou sala de DJ',
+  'dj:delete': 'Apagou sala de DJ',
   'painel:service': 'Serviços pelo painel (recarregar, voz, desligar/ligar)',
   'painel:server:rename': 'Renomeou um servidor (painel)',
   'painel:server:transfer': 'Passou a posse de um servidor (painel)',

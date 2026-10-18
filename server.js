@@ -92,7 +92,7 @@ const internalActions = {
   // Convites pelo painel: criados em nome do dono do servidor
   '/internal/invite/create': (b) => {
     const srv = db.server(String(b.serverId ?? ''));
-    if (!srv || srv.kind === 'dm') throw new Error('Servidor não encontrado.');
+    if (!srv || srv.kind !== 'server') throw new Error('Servidor não encontrado.');
     const expiresIn = INVITE_EXPIRY.includes(b.expiresIn) ? b.expiresIn : INVITE_EXPIRY[3];
     const maxUses = Number.isInteger(b.maxUses) && b.maxUses >= 1 && b.maxUses <= 100 ? b.maxUses : null;
     const code = db.createInvite(srv.id, { id: `u${srv.owner_id}` }, { expiresIn, maxUses });
@@ -112,7 +112,7 @@ const internalActions = {
 };
 function serverForPanel(id) {
   const snap = db.snapshot(String(id ?? ''));
-  if (!snap || snap.kind === 'dm') throw new Error('Servidor não encontrado.');
+  if (!snap || snap.kind !== 'server') throw new Error('Servidor não encontrado.');
   return snap;
 }
 

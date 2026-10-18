@@ -4,6 +4,7 @@ import { db } from '../store.js';
 import { scheduleVoicePoll, voiceChannelOf, grantMove } from '../voice.js';
 import { sendToUser } from '../realtime.js';
 import { music, requireMusicChannel } from '../music-rooms.js';
+import { managesDjRoom } from './dj.js';
 import { createGifs } from '../../gifs.js';
 import { requirePerm, requireServer, requireChannelView } from '../guards.js';
 import { fail, underLimit } from '../util.js';
@@ -78,12 +79,12 @@ export default {
 
   'music:skip'(user, m) {
     const { channel, perms } = requireMusicChannel(user, m.channelId);
-    music.skip(channel.id, user.id, can(perms, PERMS.MUSIC_MANAGE));
+    music.skip(channel.id, user.id, can(perms, PERMS.MUSIC_MANAGE) || managesDjRoom(user, channel.id));
   },
 
   'music:kick'(user, m) {
     const ctx = requireMusicChannel(user, m.channelId);
-    requirePerm(ctx, PERMS.MUSIC_MANAGE, 'Você não tem permissão para tirar pessoas da cabine.');
+    if (!can(ctx.perms, PERMS.MUSIC_MANAGE) && !managesDjRoom(user, ctx.channel.id)) fail('Você não tem permissão para tirar pessoas da cabine.');
     music.kickFromBooth(ctx.channel.id, String(m.userId));
   },
 

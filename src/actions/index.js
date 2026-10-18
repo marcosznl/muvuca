@@ -11,11 +11,12 @@ import calls from './calls.js';
 import { emojiActions } from '../emojis.js';
 import { imageActions } from '../images.js';
 import client from './client.js';
+import dj from './dj.js';
 import { pushActions } from '../push.js';
 import { voiceStatsActions } from '../voice-stats.js';
 
 export const actions = {
-  ...messages, ...servers, ...channels, ...roles, ...media, ...profile, ...games, ...friends, ...calls, ...emojiActions, ...imageActions, ...pushActions, ...voiceStatsActions, ...client,
+  ...messages, ...servers, ...channels, ...roles, ...media, ...profile, ...games, ...friends, ...calls, ...emojiActions, ...imageActions, ...pushActions, ...voiceStatsActions, ...client, ...dj,
 };
 
 // Ações frequentes e baratas que não contam no limite de ações por minuto

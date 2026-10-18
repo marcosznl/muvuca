@@ -157,7 +157,11 @@ export class Person {
           this.servers = m.servers;
           resolve(this);
         }
-        if (m.t === 'server') this.servers = [...(this.servers ?? []).filter((s) => s.id !== m.server.id), m.server];
+        if (m.t === 'server') { // atualiza no mesmo lugar (servidor novo vai para o fim)
+          const list = this.servers ?? [];
+          const i = list.findIndex((s) => s.id === m.server.id);
+          this.servers = i >= 0 ? list.map((s, j) => (j === i ? m.server : s)) : [...list, m.server];
+        }
         if (m.t === 'me') this.me = { ...this.me, ...m.you };
         if (m.req && this.waiting.has(m.req)) {
           this.waiting.get(m.req)(m);

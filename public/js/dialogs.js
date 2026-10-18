@@ -49,14 +49,16 @@ export function button(label, { kind = 'primary', onClick } = {}) {
 }
 
 // Pergunta um texto (ex.: nome do canal). Resolve com o texto ou null se cancelar.
-export function promptText({ title, subtitle, label, value = '', placeholder = '', confirm = 'Salvar', maxLength = 40, prefix, allowEmpty = false }) {
+// type: 'password' para senha (não corta os espaços)
+export function promptText({ title, subtitle, label, value = '', placeholder = '', confirm = 'Salvar', maxLength = 40, prefix, allowEmpty = false, type = 'text' }) {
   return new Promise((resolve) => {
     const form = h('form', 'form');
     const field = h('label', 'field');
     field.append(h('span', 'field-label', label));
     const wrap = h('div', prefix ? 'input-prefix' : '');
     const input = h('input');
-    Object.assign(input, { value, placeholder, maxLength });
+    Object.assign(input, { value, placeholder, maxLength, type });
+    if (type === 'password') input.autocomplete = 'off';
     if (prefix) wrap.append(prefix);
     wrap.append(input);
     field.append(prefix ? wrap : input);
@@ -70,7 +72,7 @@ export function promptText({ title, subtitle, label, value = '', placeholder = '
       if (!input.value.trim() && !allowEmpty) return input.focus();
       done = true;
       modal.close();
-      resolve(input.value.trim());
+      resolve(type === 'password' ? input.value : input.value.trim());
     };
     form.onsubmit = submit;
     ok.onclick = submit;
