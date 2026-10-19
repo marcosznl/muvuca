@@ -1,4 +1,4 @@
-// Lateral (Todos os amigos, Todos os jogos e os servidores, cada um abre e fecha com um clique), painel "Voz conectada" e painel do usuário
+// Lateral (Amigos, Jogos, Assistir Junto e os servidores, cada um abre e fecha com um clique), painel "Voz conectada" e painel do usuário
 import { $, h, makeAvatar, paintServerIcon, toast, showBanner, store } from './util.js';
 import { openMePopout } from './profile.js';
 import { icon } from './icons.js';
@@ -730,7 +730,7 @@ function toggleServer(id) {
   renderChannels();
 }
 
-// "Todos os amigos" e "Todos os jogos": fechado, clicar abre e vai para a página; aberto e já na página, fecha
+// "Amigos", "Jogos" e "Assistir Junto": fechado, clicar abre e vai para a página; aberto e já na página, fecha
 // (o número vermelho aparece com ele fechado; aberto, cada conversa mostra o seu, e fica só `openBadge`)
 function topFolder(key, ico, title, { here, go = null, badge = 0, openBadge = 0, count = 0, action = null }, content) {
   const open = openServers.has(key);
@@ -855,12 +855,12 @@ export function renderChannels() {
   const addWrap = h('div', 'tree-server-wrap');
   addWrap.append(addServer);
   box.replaceChildren(
-    topFolder('amigos', 'friends', 'Todos os amigos', {
+    topFolder('amigos', 'friends', 'Amigos', {
       here: inDmHome(), go: selectDmHome, badge: totalDmUnread() + incomingCount(), openBadge: incomingCount(), action: plusButton('Nova conversa', openNewDm),
     }, dmTree()),
-    topFolder('jogos', 'gamepad', 'Todos os jogos', { here: inGamesHome(), go: openGamesHome, count: inGames() ? 0 : openRoomsCount() }, gamesTree()),
-    topFolder('dj', 'headphones', 'Salas de música', {
-      here: inDjHome(), go: selectDjHome, badge: djUnread(), count: djRooms().length, action: plusButton('Nova sala de música', openCreateDjRoom),
+    topFolder('jogos', 'gamepad', 'Jogos', { here: inGamesHome(), go: openGamesHome, count: inGames() ? 0 : openRoomsCount() }, gamesTree()),
+    topFolder('dj', 'headphones', 'Assistir Junto', {
+      here: inDjHome(), go: selectDjHome, badge: djUnread(), count: djRooms().length, action: plusButton('Nova sala', openCreateDjRoom),
     }, djTree()),
     h('div', 'tree-sep'),
     ...realServers().map(serverFolder),

@@ -68,7 +68,7 @@ export function selectGames() {
   openGames();
 }
 
-// Página das salas de música (como a dos jogos): a música e a voz continuam tocando
+// Página do Assistir Junto (salas de música, como a dos jogos): a música e a voz continuam tocando
 export function selectDjHome() {
   state.view = { serverId: null, channelId: null, djHome: true, dms: true };
   $('app').classList.remove('show-sidebar'); // no celular, fecha a lateral
@@ -286,7 +286,7 @@ function handle(m) {
       renderFriendsView();
       break;
     case 'friend:request':
-      toast(`${m.from.name} quer ser seu amigo! Veja em Amigos → Todos os amigos.`);
+      toast(`${m.from.name} quer ser seu amigo! Veja em Amigos → Pendentes.`);
       break;
     case 'presence':
       state.online = new Set(m.online);

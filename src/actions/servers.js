@@ -104,7 +104,7 @@ export default {
   async 'server:leave'(user, m) {
     const ctx = requireServer(user, m.serverId);
     if (ctx.snap.ownerId === user.id) fail('O dono não pode sair do próprio servidor (exclua-o ou transfira).');
-    if (ctx.snap.kind === 'dj') fail('As salas de música são de todo mundo: é só não entrar.');
+    if (ctx.snap.kind === 'dj') fail('As salas do Assistir Junto são de todo mundo: é só não entrar.');
     if (ctx.snap.kind === 'dm' && ctx.snap.members.length <= 2) fail('Conversa com uma pessoa não dá para sair; dá para esconder.');
     leaveMusicOf(ctx.snap.id, user.id);
     db.removeMember(ctx.snap.id, user.id);

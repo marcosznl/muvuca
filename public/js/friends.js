@@ -1,5 +1,5 @@
 // Amigos (como no Discord): página com abas Online / Todos / Pendentes / Adicionar amigo,
-// aberta pelo item "Todos os amigos" do bloco Amigos da lateral. A lista chega pronta do servidor (evento 'friends').
+// aberta pelo item "Amigos" da lateral. A lista chega pronta do servidor (evento 'friends').
 import { $, h, makeAvatar, showBanner, toast } from './util.js';
 import { icon } from './icons.js';
 import { state, STATUS_LABEL } from './state.js';

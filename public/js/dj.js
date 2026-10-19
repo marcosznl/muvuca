@@ -1,5 +1,5 @@
-// Salas de música (como no plug.dj): têm página própria (como a dos jogos) e ficam na lateral, abaixo de
-// "Todos os jogos", para todo mundo.
+// Assistir Junto (salas de música como no plug.dj): página própria (como a dos jogos) e item na lateral, abaixo de
+// "Jogos", para todo mundo.
 // Qualquer pessoa cria uma sala, com ou sem senha; quem criou (e o dono do Muvuca) muda e apaga.
 // Dentro da sala é tudo o que já existia nos canais de música: player, cabine de DJ, fila e chat.
 import { $, h, showBanner, makeAvatar } from './util.js';
@@ -48,7 +48,7 @@ export function openCreateDjRoom() {
   form.append(nameField, passField, enterKey);
   const ok = button('Criar sala');
   const cancel = button('Cancelar', { kind: 'link' });
-  const modal = openModal({ title: 'Nova sala de música', subtitle: 'Ouçam músicas do YouTube juntos, revezando na cabine de DJ.', content: form, actions: [cancel, ok] });
+  const modal = openModal({ title: 'Nova sala', subtitle: 'Ouçam músicas do YouTube juntos, revezando na cabine de DJ.', content: form, actions: [cancel, ok] });
   const submit = async (e) => {
     e?.preventDefault();
     if (!name.value.trim()) return name.focus();
@@ -173,11 +173,11 @@ export function renderDjHome() {
   const view = $('dj-view');
   if (!view || !inDjHome()) return;
   $('view-icon').replaceChildren(icon('headphones', 22));
-  $('view-title').textContent = 'Salas de música';
+  $('view-title').textContent = 'Assistir Junto';
   const wrap = h('div', 'games-lobby');
   const intro = h('div', 'game-card dj-intro');
   const introBody = h('div', 'game-card-body');
-  introBody.append(h('h2', '', 'Salas de música'), h('p', 'muted', 'Ouçam músicas do YouTube juntos: cada um entra na cabine de DJ e toca a sua vez. Crie uma sala aberta ou com senha.'));
+  introBody.append(h('h2', '', 'Assistir Junto'), h('p', 'muted', 'Ouçam músicas do YouTube juntos: cada um entra na cabine de DJ e toca a sua vez. Crie uma sala aberta ou com senha.'));
   const create = h('button', 'btn primary', 'Criar sala');
   create.onclick = openCreateDjRoom;
   introBody.append(create);

@@ -9,9 +9,10 @@ export const NOVIDADES = [
   {
     versao: '2026-10-18',
     data: '2026-10-18',
-    titulo: 'Salas de música para todo mundo',
+    titulo: 'Assistir Junto e lateral mais curta',
     itens: [
-      'As salas de música (com a cabine de DJ) agora têm página própria, como a dos jogos: na lateral, logo abaixo de "Todos os jogos", em "Salas de música". Elas não ficam mais dentro de um servidor: são de todo mundo do Muvuca.',
+      'Na lateral, os itens agora se chamam Amigos, Jogos e Assistir Junto.',
+      'Assistir Junto são as salas de música (com a cabine de DJ), agora com página própria, como a dos jogos, logo abaixo de "Jogos". Elas não ficam mais dentro de um servidor: são de todo mundo do Muvuca.',
       'Qualquer pessoa cria uma sala, com ou sem senha. Na sala com senha aparece um cadeado: quem não criou digita a senha uma vez e depois entra direto.',
       'Quem criou a sala pode mudar o nome, trocar ou tirar a senha, tirar gente da cabine, pular músicas e apagar a sala (botão "Opções" ou botão direito em cima da sala).',
       'As salas que já existiam (com o histórico de músicas e o chat) continuam lá.',

@@ -35,8 +35,8 @@ export default {
   'channel:create'(user, m) {
     const ctx = requireServer(user, m.serverId);
     requirePerm(ctx, PERMS.MANAGE_CHANNELS, 'Você não tem permissão para criar canais.');
-    if (m.type === 'music') fail('As salas de música agora ficam fora dos servidores: crie em "Salas de música", na lateral.');
-    if (ctx.snap.kind === 'dj') fail('Crie a sala pelo "+" de "Salas de música".');
+    if (m.type === 'music') fail('As salas de música agora ficam fora dos servidores: crie em "Assistir Junto", na lateral.');
+    if (ctx.snap.kind === 'dj') fail('Crie a sala pelo "+" de "Assistir Junto".');
     const type = m.type === 'voice' ? 'voice' : 'text';
     const name = channelName(type, m.name);
     if (!name) fail('Dê um nome ao canal.');

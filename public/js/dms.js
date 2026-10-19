@@ -41,7 +41,7 @@ export async function startDm(userIds) {
 // Está na página de amigos (e pedidos)?
 export const inDmHome = () => !!state.view.dms && !state.view.serverId && !state.view.games && !state.view.djHome;
 
-// O que aparece ao abrir "Todos os amigos" na lateral: as conversas privadas e "Nova conversa"
+// O que aparece ao abrir "Amigos" na lateral: as conversas privadas e "Nova conversa"
 export function dmTree() {
   const list = h('ul', 'channel-list dm-list');
   const hide = hidden();

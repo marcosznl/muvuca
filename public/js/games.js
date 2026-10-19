@@ -188,7 +188,7 @@ function closeDrawer() {
 
 export function renderGamesSidebar() { renderChannels(); } // as salas abertas ficam no bloco "Jogos" da lateral
 
-// Lateral: "Todos os jogos" abre a tela dos jogos; aberto, mostra cada jogo com as salas abertas dele
+// Lateral: "Jogos" abre a tela dos jogos; aberto, mostra cada jogo com as salas abertas dele
 export const openRoomsCount = () => games.rooms.length;
 export const inGamesHome = () => inGames() && !games.room;
 

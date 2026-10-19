@@ -188,11 +188,11 @@ test('cara de app do Mac: no site e no app do Mac (só o app tem a coluna transl
   await context.close();
 });
 
-test('lateral: Todos os amigos, Todos os jogos e os servidores abrem e fecham com um clique, e fica guardado depois do F5', async () => {
+test('lateral: Amigos, Jogos, Assistir Junto e os servidores abrem e fecham com um clique, e fica guardado depois do F5', async () => {
   const page = await openAs(browser, stack, 'ana', { token: ana.token });
   try { // falhou no meio: fecha o navegador do mesmo jeito (senão o teste fica preso até estourar o tempo)
     const titles = await page.$$eval('.tree-top .name', (t) => t.map((x) => x.textContent));
-    assert.deepEqual(titles, ['Todos os amigos', 'Todos os jogos', 'Salas de música']);
+    assert.deepEqual(titles, ['Amigos', 'Jogos', 'Assistir Junto']);
     assert.equal(await page.$('.tree-block'), null); // sem os títulos "Amigos", "Jogos" e "Servidores"
     assert.equal(await page.$('.tree-server:not(.tree-top) .tree-server-toggle .ico'), null); // servidores sem a seta
     const server = '.tree-server:not(.tree-top) .tree-server-toggle';
@@ -200,7 +200,7 @@ test('lateral: Todos os amigos, Todos os jogos e os servidores abrem e fecham co
     assert.ok(await page.$(`.server-tree li[data-channel="${ids.text}"]`));
     await page.click(server);
     assert.equal(await page.$(`.server-tree li[data-channel="${ids.text}"]`), null);
-    // "Todos os jogos": o clique abre a tela dos jogos e mostra cada jogo embaixo
+    // "Jogos": o clique abre a tela dos jogos e mostra cada jogo embaixo
     const [, jogos] = await page.$$('.tree-top .tree-server-toggle');
     await jogos.click();
     await page.waitForSelector('.tree-game');
@@ -209,7 +209,7 @@ test('lateral: Todos os amigos, Todos os jogos e os servidores abrem e fecham co
     await page.reload();
     await page.waitForSelector('#app:not([hidden])');
     assert.equal(await page.$eval('.tree-server:not(.tree-top)', (r) => r.classList.contains('open')), false);
-    assert.ok(await page.$('.tree-game'), 'Todos os jogos continua aberto depois do F5');
+    assert.ok(await page.$('.tree-game'), 'Jogos continua aberto depois do F5');
     // Abre o servidor de novo e entra num canal pela lateral
     await page.click(server);
     await page.click(`.server-tree li[data-channel="${ids.text2 ?? ids.text}"] .channel`);
