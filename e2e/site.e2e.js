@@ -204,7 +204,8 @@ test('lateral: Todos os amigos, Todos os jogos e os servidores abrem e fecham co
     const [, jogos] = await page.$$('.tree-top .tree-server-toggle');
     await jogos.click();
     await page.waitForSelector('.tree-game');
-    assert.equal(await page.evaluate(async () => !!(await import('/js/state.js')).state.view.games), true);
+    // a lista abre na hora; a troca para a página dos jogos termina um instante depois
+    await page.waitForFunction(async () => !!(await import('/js/state.js')).state.view.games);
     await page.reload();
     await page.waitForSelector('#app:not([hidden])');
     assert.equal(await page.$eval('.tree-server:not(.tree-top)', (r) => r.classList.contains('open')), false);
