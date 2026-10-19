@@ -1106,7 +1106,7 @@ const activityNow = () => ({
 // Convites: os que valem agora (de cada servidor) e quem entrou por qual convite (pela auditoria)
 function invitesOverview() {
   const now = Date.now();
-  const servers = all("SELECT id, name FROM servers WHERE kind != 'dm' ORDER BY created_at");
+  const servers = all("SELECT id, name FROM servers WHERE kind = 'server' ORDER BY created_at");
   const active = all(`SELECT i.code, i.server_id, i.created_at, i.expires_at, i.uses, i.max_uses, u.username, u.display_name
     FROM invites i LEFT JOIN users u ON u.id = i.created_by
     WHERE (i.expires_at IS NULL OR i.expires_at > ?) AND (i.max_uses IS NULL OR i.uses < i.max_uses) ORDER BY i.created_at DESC`, now);

@@ -13,7 +13,7 @@ export const NOVIDADES = [
     itens: [
       'Na lateral, os itens agora se chamam Amigos, Jogos e Assistir Junto. Jogos abre direto a página dos jogos, sem lista embaixo.',
       'Assistir Junto são as salas de música (com a cabine de DJ), agora com página própria, como a dos jogos, logo abaixo de "Jogos". Elas não ficam mais dentro de um servidor: são de todo mundo do Muvuca.',
-      'Qualquer pessoa cria uma sala, com ou sem senha. Na sala com senha aparece um cadeado: quem não criou digita a senha uma vez e depois entra direto.',
+      'Qualquer pessoa cria uma sala direto na página do Assistir Junto (ou no "+" da lateral), escolhendo Aberta ou Com senha. Na sala com senha aparece um cadeado: quem não criou digita a senha uma vez e depois entra direto.',
       'Quem criou a sala pode mudar o nome, trocar ou tirar a senha, tirar gente da cabine, pular músicas e apagar a sala (botão "Opções" ou botão direito em cima da sala).',
       'As salas que já existiam (com o histórico de músicas e o chat) continuam lá.',
     ],

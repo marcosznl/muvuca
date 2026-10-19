@@ -743,7 +743,7 @@ function topFolder(key, ico, title, { here, go = null, badge = 0, openBadge = 0,
   toggle.append(icon(ico, 18), h('span', 'name', title));
   toggle.onclick = () => {
     if (content === null) return go();
-    if (open && (here || !go)) openServers.delete(key); // sem página própria (Salas de DJ): o clique só abre e fecha
+    if (open && (here || !go)) openServers.delete(key); // sem página própria: o clique só abre e fecha
     else { openServers.add(key); go?.(); }
     saveTree();
     renderChannels();

@@ -32,36 +32,59 @@ async function enter(c) {
   selectChannel(c.id);
 }
 
-// Criar sala: nome e, se quiser, uma senha
-export function openCreateDjRoom() {
-  const form = h('form', 'form');
+// Formulário de criar sala: nome e o tipo, aberta (qualquer um entra) ou com senha.
+// Usado na própria página do Assistir Junto e na janela do "+" da lateral.
+function createRoomForm(onCreated) {
+  const form = h('form', 'form dj-create');
   const nameField = h('label', 'field');
   const name = h('input');
-  Object.assign(name, { maxLength: 40, placeholder: 'Pista' });
+  Object.assign(name, { maxLength: 40, placeholder: 'Nome da sala (ex.: Pista)' });
   nameField.append(h('span', 'field-label', 'Nome da sala'), name);
+  let locked = false;
+  const kinds = h('div', 'dj-kinds');
+  const kind = (value, ic, label, desc) => {
+    const b = h('button', 'dj-kind');
+    b.type = 'button';
+    b.append(icon(ic, 18), h('span', 'dj-kind-text'));
+    b.lastChild.append(h('strong', '', label), h('span', 'muted small', desc));
+    b.onclick = () => { locked = value; paint(); if (locked) pass.focus(); };
+    return b;
+  };
+  const open = kind(false, 'headphones', 'Aberta', 'Qualquer um entra');
+  const closed = kind(true, 'lock', 'Com senha', 'Só quem sabe a senha');
+  kinds.append(open, closed);
   const passField = h('label', 'field');
   const pass = h('input');
-  Object.assign(pass, { type: 'password', maxLength: 64, autocomplete: 'off', placeholder: 'Deixe vazio para qualquer um entrar' });
-  passField.append(h('span', 'field-label', 'Senha (opcional)'), pass);
-  const enterKey = h('button'); // com dois campos, o Enter só envia se o formulário tiver um botão de enviar
-  Object.assign(enterKey, { type: 'submit', hidden: true });
-  form.append(nameField, passField, enterKey);
-  const ok = button('Criar sala');
-  const cancel = button('Cancelar', { kind: 'link' });
-  const modal = openModal({ title: 'Nova sala', subtitle: 'Ouçam músicas do YouTube juntos, revezando na cabine de DJ.', content: form, actions: [cancel, ok] });
-  const submit = async (e) => {
-    e?.preventDefault();
+  Object.assign(pass, { type: 'password', maxLength: 64, autocomplete: 'off', placeholder: 'Senha da sala' });
+  passField.append(h('span', 'field-label', 'Senha'), pass);
+  const paint = () => {
+    open.classList.toggle('selected', !locked);
+    closed.classList.toggle('selected', locked);
+    passField.hidden = !locked;
+  };
+  const ok = h('button', 'btn primary', 'Criar sala');
+  ok.type = 'submit';
+  form.append(nameField, h('span', 'field-label', 'Tipo de sala'), kinds, passField, ok);
+  paint();
+  form.onsubmit = async (e) => {
+    e.preventDefault();
     if (!name.value.trim()) return name.focus();
+    if (locked && !pass.value) return pass.focus();
     ok.disabled = true;
     try {
-      const r = await request({ t: 'dj:create', name: name.value.trim(), password: pass.value });
-      modal.close();
+      const r = await request({ t: 'dj:create', name: name.value.trim(), password: locked ? pass.value : '' });
+      onCreated?.();
       setTimeout(() => selectChannel(r.channelId), 150); // espera a sala chegar na lista
     } catch (err) { ok.disabled = false; fail(err); }
   };
-  form.onsubmit = submit;
-  ok.onclick = submit;
-  cancel.onclick = () => modal.close();
+  return { form, name };
+}
+
+// "+" da lateral: o mesmo formulário numa janela
+export function openCreateDjRoom() {
+  let modal;
+  const { form, name } = createRoomForm(() => modal.close());
+  modal = openModal({ title: 'Nova sala', subtitle: 'Ouçam músicas do YouTube juntos, revezando na cabine de DJ.', content: form });
   setTimeout(() => name.focus(), 0);
 }
 
@@ -169,6 +192,7 @@ function roomCard(c) {
   return card;
 }
 
+let createBox = null; // formulário de criar sala da página (mantido entre atualizações)
 export function renderDjHome() {
   const view = $('dj-view');
   if (!view || !inDjHome()) return;
@@ -177,11 +201,11 @@ export function renderDjHome() {
   const wrap = h('div', 'games-lobby');
   const intro = h('div', 'game-card dj-intro');
   const introBody = h('div', 'game-card-body');
-  introBody.append(h('h2', '', 'Assistir Junto'), h('p', 'muted', 'Ouçam músicas do YouTube juntos: cada um entra na cabine de DJ e toca a sua vez. Crie uma sala aberta ou com senha.'));
-  const create = h('button', 'btn primary', 'Criar sala');
-  create.onclick = openCreateDjRoom;
-  introBody.append(create);
+  introBody.append(h('h2', '', 'Assistir Junto'), h('p', 'muted', 'Ouçam músicas do YouTube juntos: cada um entra na cabine de DJ e toca a sua vez.'));
   intro.append(h('div', 'game-art', '🎶'), introBody);
+  // Criar sala ali mesmo (o mesmo formulário entre atualizações da página: não perde o que foi digitado)
+  if (!createBox) createBox = createRoomForm(() => { createBox = null; }).form;
+  introBody.append(createBox);
   wrap.append(intro);
   const rooms = djRooms();
   wrap.append(h('h3', 'games-subtitle', rooms.length ? 'Salas' : 'Nenhuma sala ainda'));

@@ -1496,11 +1496,12 @@ class Store {
   seedDjLobby() {
     let id = this.meta('dj_server');
     if (!id || !this.server(id)) {
-      id = this.createServer({ name: 'Salas de DJ', owner: null, withDefaultChannels: false });
+      id = this.createServer({ name: 'Assistir Junto', owner: null, withDefaultChannels: false });
       this.q.setKind.run('dj', id);
       this.setMeta('dj_server', id);
     }
     this.q.setRolePerms.run(DJ_PERMS, id);
+    this.db.prepare("UPDATE servers SET name = 'Assistir Junto' WHERE id = ?").run(id); // não é um servidor: só o nome da área
     this.transaction(() => {
       this.db.prepare(`UPDATE channels SET owner_id = (SELECT owner_id FROM servers WHERE servers.id = channels.server_id),
         server_id = ?, category_id = NULL WHERE type = 'music' AND server_id != ?`).run(id, id);

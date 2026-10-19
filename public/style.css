@@ -1163,6 +1163,16 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .games-subtitle { margin: 12px 0 0; color: var(--text-strong); }
 /* Salas de música: cartões no molde dos jogos */
 .dj-card.current { outline: 2px solid var(--accent); }
+.dj-create { width: 100%; max-width: 460px; gap: 10px; }
+.dj-kinds { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.dj-kind { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; text-align: left;
+  background: var(--bg-main); border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent); color: var(--text); }
+.dj-kind .ico { flex: none; color: var(--muted); }
+.dj-kind-text { display: grid; gap: 1px; }
+.dj-kind-text strong { color: var(--text-strong); font-weight: 600; }
+.dj-kind.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--bg-main)); }
+.dj-kind.selected .ico { color: var(--accent); }
+.dj-create .btn { justify-self: start; }
 .dj-card .game-card-body h2 { display: flex; align-items: center; gap: 8px; }
 .dj-card-lock { color: var(--muted); }
 .dj-card-listeners { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }

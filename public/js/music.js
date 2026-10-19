@@ -611,7 +611,7 @@ export function renderMusicPanel() {
   const { server, channel } = findChannel(m.channelId);
   $('mp-title').textContent = m.room?.track?.title ?? 'Nenhuma música tocando';
   $('mp-title').title = $('mp-title').textContent;
-  $('mp-channel').textContent = `${channel?.name ?? '?'} / ${server?.name ?? '?'}`;
+  $('mp-channel').textContent = server?.kind === 'dj' ? `${channel?.name ?? '?'} · Assistir Junto` : `${channel?.name ?? '?'} / ${server?.name ?? '?'}`;
   $('mp-mute').replaceChildren(icon(m.muted ? 'volume-off' : 'speaker', 18));
   $('mp-mute').classList.toggle('off', m.muted);
   $('mp-mute').title = m.muted ? 'Ativar som da música' : 'Silenciar música';
