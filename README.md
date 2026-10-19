@@ -1,5 +1,7 @@
 # Muvuca
 
+![Muvuca: chat, calls, jogos e música para a sua turma, num computador seu](docs/img/previa-social.png)
+
 Um lugar para o seu grupo de amigos conversar, entrar em call, jogar e ouvir música junto, do jeito do Discord, mas **rodando num computador seu**. As conversas, as fotos e as contas ficam guardadas na sua máquina, sem anúncios e sem depender de nenhuma empresa.
 
 Tudo em português do Brasil.
