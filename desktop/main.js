@@ -28,7 +28,7 @@ let settings = { url: DEFAULT_URL };
 const origin = () => new URL(settings.url).origin;
 
 let win = null;
-let startHidden = false; // aberto junto com o computador: começa só na barra de menus/bandeja
+let startHidden = false; // aberto junto com o computador: começa escondido (no Dock, no Mac; na bandeja, no Windows)
 let tray = null;
 let quitting = false;
 
@@ -88,7 +88,7 @@ function createWindow() {
       saveSettings();
       new Notification({
         title: 'O Muvuca continua aberto',
-        body: IS_MAC ? 'Ele fica na barra de menus e no Dock: você recebe as mensagens e a call continua. Para fechar de vez: ⌘Q.'
+        body: IS_MAC ? 'Ele fica no Dock: você recebe as mensagens e a call continua. Para fechar de vez: ⌘Q.'
           : 'Ele fica na bandeja, perto do relógio: você recebe as mensagens e a call continua. Para fechar de vez: clique com o botão direito no ícone → Sair.',
         silent: true,
       }).show();
@@ -395,14 +395,21 @@ function toggleOpenAtLogin() {
   buildMenu();
 }
 
+// Mac: sem ícone na barra de menus (o Muvuca fica no Dock); o menu do Dock (botão direito) tem o microfone.
+// Windows: ícone na bandeja, perto do relógio, com o menu completo
 function buildTray() {
+  if (IS_MAC) {
+    app.dock?.setMenu(Menu.buildFromTemplate([
+      { label: voiceMuted ? 'Ativar microfone' : 'Silenciar microfone', click: () => win?.webContents.send('toggle-mute') },
+    ]));
+    return;
+  }
   if (!tray) {
-    // Mac: ícone "molde" (o sistema pinta claro/escuro); Windows: ícone colorido, e um clique abre o app
-    const icon = nativeImage.createFromPath(path.join(__dirname, 'build', IS_MAC ? 'trayTemplate.png' : 'tray-win.png'));
-    if (IS_MAC) icon.setTemplateImage(true);
+    // Ícone colorido; um clique abre o app
+    const icon = nativeImage.createFromPath(path.join(__dirname, 'build', 'tray-win.png'));
     tray = new Tray(icon);
     tray.setToolTip('Muvuca');
-    if (!IS_MAC) tray.on('click', showWindow);
+    tray.on('click', showWindow);
   }
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Abrir o Muvuca', click: showWindow },
@@ -477,7 +484,7 @@ app.setAboutPanelOptions({ applicationName: 'Muvuca', applicationVersion: app.ge
 app.on('before-quit', () => { quitting = true; updater.onQuit(); });
 app.on('muvuca-quit', () => { quitting = true; app.quit(); }); // "Reiniciar agora" da atualização
 app.on('activate', () => showWindow()); // clicar no ícone do Dock com a janela escondida
-// Sem janelas o app continua vivo (barra de menus e Dock), como o Discord; sair é pelo menu ou ⌘Q
+// Sem janelas o app continua vivo (no Dock), como o Discord; sair é pelo menu ou ⌘Q
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
 // ---------- Começo (a atualização automática fica no updater.js) ----------
