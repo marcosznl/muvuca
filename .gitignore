@@ -23,6 +23,7 @@ public_antes_da_musica/
 # App do Mac: dependências, arquivos gerados e instaladores publicados (dá para gerar de novo)
 desktop/node_modules/
 desktop/dist/
+desktop/servidor-padrao.json
 downloads/
 desktop/build/bin/
 

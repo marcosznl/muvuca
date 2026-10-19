@@ -357,7 +357,11 @@ O site funciona em qualquer navegador e pode ser instalado no celular. Para o co
 
 **Baixe pronto** na página de [Releases](https://github.com/marcosznl/muvuca/releases): `.dmg` para Mac (Apple Silicon ou Intel) e `.exe` para Windows. Ao abrir, use o menu **Muvuca → Endereço do servidor…** e digite o link do seu Muvuca, o mesmo que abre no navegador (por exemplo `https://seu-dominio:8443`). O app confere se existe um Muvuca nesse endereço antes de trocar, e se lembra dele nas próximas vezes. A mesma opção aparece na tela de "sem conexão".
 
-Se você mesmo for gerar o app para os seus amigos, troque o endereço padrão em `DEFAULT_URL`, no começo de `desktop/main.js`: assim ninguém precisa digitar nada.
+Se você mesmo for gerar o app para os seus amigos, crie o arquivo `desktop/servidor-padrao.json` com o seu endereço, para que ninguém precise digitar nada (ele fica fora do git):
+
+```json
+{ "url": "https://seu-dominio:8443" }
+```
 
 **Para gerar o app** (num Mac com as Ferramentas de Linha de Comando do Xcode: `xcode-select --install`):
 

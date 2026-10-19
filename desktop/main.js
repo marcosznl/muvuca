@@ -14,8 +14,11 @@ const IS_MAC = process.platform === 'darwin';
 const IS_WIN = process.platform === 'win32';
 if (IS_WIN) app.setAppUserModelId('br.malegna.muvuca'); // notificações do Windows com o nome e o ícone certos
 
-// Endereço do servidor: este por padrão; no menu "Endereço do servidor…" dá para usar qualquer Muvuca (o próprio, ou localhost)
-const DEFAULT_URL = 'https://seu-dominio.duckdns.org:8443';
+// Endereço do servidor: o padrão vem de servidor-padrao.json (fora do git: cada um põe o seu antes de gerar
+// o app); sem ele, localhost. No menu "Endereço do servidor…" dá para usar qualquer Muvuca
+const DEFAULT_URL = (() => {
+  try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'servidor-padrao.json'), 'utf8')).url; } catch { return 'http://localhost:3000'; }
+})();
 const settingsFile = () => path.join(app.getPath('userData'), 'configuracoes.json');
 function loadSettings() {
   let saved = {};
