@@ -33,6 +33,16 @@ export const DATA_DIR = path.dirname(DB_FILE);
 export const PUBLIC_DIR = path.resolve(process.env.PUBLIC_DIR || path.join(ROOT, 'public'));
 export const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || '';
 export const GIPHY_API_KEY = process.env.GIPHY_API_KEY || '';
+// Endereço do site para montar links (o start.sh preenche; sem ele, o do modo local)
+export const PUBLIC_URL = (process.env.PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/+$/, '');
+// Bot "Muvuca" do Discord (aplicação no portal do Discord): comandos e login com a conta do Discord
+export const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID || '';
+export const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET || '';
+export const DISCORD_PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY || '';
+export const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || '';
+export const DISCORD_API = (process.env.DISCORD_API || 'https://discord.com/api/v10').replace(/\/+$/, '');
+// Sala de tela vazia por esse tempo fecha sozinha
+export const TELA_VAZIA_MS = Number(process.env.TELA_VAZIA_MS || 5 * 60_000);
 
 export const LIMITS = {
   serversOwned: 10,

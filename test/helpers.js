@@ -20,7 +20,7 @@ export const freePort = () => new Promise((resolve, reject) => {
   srv.listen(0, '127.0.0.1', () => { const { port } = srv.address(); srv.close(() => resolve(port)); });
 });
 
-export async function startServer() {
+export async function startServer(extraEnv = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'muvuca-test-'));
   const port = await freePort();
   const proc = spawn(process.execPath, ['server.js'], {
@@ -33,6 +33,7 @@ export async function startServer() {
       LIVEKIT_API_KEY: 'chave-teste',
       LIVEKIT_API_SECRET: 'segredo-de-teste-com-tamanho-suficiente',
       LIVEKIT_HTTP_URL: 'http://127.0.0.1:1', // não há LiveKit nos testes: as consultas de voz só falham
+      ...extraEnv,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

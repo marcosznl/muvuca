@@ -22,6 +22,8 @@ import { ipBlocked, lockedOut, maintenance, disconnectUser, blockUser, blockIp, 
 import './src/call-minutes.js';
 import { auditAction, audit, purgeAudit } from './src/audit.js';
 import { internalStats, isInternal } from './src/internal.js';
+import { paginaTela, entrarNaSala } from './src/tela.js';
+import { interacao, registrarComandos } from './src/bot-discord.js';
 
 // ---------- HTTP ----------
 
@@ -37,6 +39,8 @@ const routes = {
     return { ok: true };
   },
   'POST /token': (req) => voiceToken(req),
+  'POST /api/tela/entrar': (req) => entrarNaSala(req),
+  'POST /discord/interacoes': (req) => interacao(req),
   'POST /api/emojis': (req, url) => uploadEmoji(req, url),
   'POST /api/image': (req, url) => uploadImage(req, url),
   'POST /api/attach': (req, url) => uploadAttachment(req, url),
@@ -136,6 +140,7 @@ const server = http.createServer(async (req, res) => {
     // Números para o painel administrativo (só de dentro do Mac, com a chave do painel)
     if (url.pathname === '/internal/stats' && isInternal(req)) return json(res, 200, internalStats(startedAt));
     if (url.pathname.startsWith('/api/invite/')) return json(res, 200, inviteInfo(url));
+    if (url.pathname.startsWith('/tela/')) return await paginaTela(req, res, url);
     const prefix = Object.keys(files).find((p) => url.pathname.startsWith(p));
     if (prefix) return await files[prefix](req, res, url.pathname.slice(prefix.length));
     return await serveStatic(req, res, url.pathname);
@@ -275,4 +280,5 @@ setInterval(cleanupFiles, 30 * 60_000); // anexos abandonados e de mensagens apa
 server.listen(PORT, HOST, () => {
   console.log(`Muvuca rodando em http://${HOST}:${PORT}`);
   pollVoice();
+  registrarComandos(); // bot "Muvuca" do Discord: /tela
 });

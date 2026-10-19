@@ -58,6 +58,9 @@ Tudo em português do Brasil.
 - Temas claro, escuro e 22 coloridos; aba de Novidades com o que mudou em cada versão.
 - Notificações no celular: o site pode ser instalado na Tela de Início do iPhone e do Android.
 
+**Bot do Discord: salas de tela**
+- O comando `/tela` no Discord cria uma sala para compartilhar a tela pelo navegador, com um link único. Quem abre entra com a conta do Discord (só membros do servidor onde a sala foi criada), sem precisar de conta no Muvuca. Veja [Bot do Discord](#bot-do-discord-salas-de-tela).
+
 **Para quem administra**
 - Um painel à parte, com quem está online, calls e lives, uso do computador e da internet, histórico de quedas, auditoria, erros do site, gerenciamento de contas e servidores, backup e atualização com um clique. Veja [Painel de administração](#painel-de-administração).
 
@@ -348,6 +351,29 @@ Copie de volta os arquivos de configuração do painel que estavam em `data-ante
 
 ---
 
+## Bot do Discord: salas de tela
+
+O Muvuca pode ser um bot do Discord com o comando `/tela`. Quem usa o comando recebe no canal um link para uma sala só de compartilhar a tela: dá para assistir e mostrar a própria tela pelo navegador, com o som da tela, sem microfone, câmera nem chat. Quem abre o link entra com a conta do Discord e aparece com o apelido e a foto do servidor; só membros do servidor onde a sala foi criada entram. A sala fecha sozinha depois de 5 minutos vazia. No celular dá só para assistir (o navegador do celular não compartilha a tela).
+
+O próprio servidor do Muvuca responde aos comandos (`src/bot-discord.js`): não há processo à parte nem conexão permanente com o Discord. As salas ficam na memória, então reiniciar o Muvuca encerra as salas abertas.
+
+**Para ligar:**
+
+1. Crie uma aplicação em [discord.com/developers/applications](https://discord.com/developers/applications) e copie para o `.env`:
+   - **General Information**: Application ID (`DISCORD_CLIENT_ID`) e Public Key (`DISCORD_PUBLIC_KEY`);
+   - **Bot**: o token (`DISCORD_BOT_TOKEN`);
+   - **OAuth2**: o Client Secret (`DISCORD_CLIENT_SECRET`).
+2. Em **OAuth2 → Redirects**, adicione `https://seu-dominio:8443/tela/callback` (o mesmo endereço de "Link para os amigos").
+3. Reinicie o Muvuca (`./server.sh reiniciar`). Ao subir, ele cadastra o `/tela` no Discord.
+4. Em **General Information → Interactions Endpoint URL**, preencha `https://seu-dominio:8443/discord/interacoes` e salve. O Discord testa o endereço na hora, por isso o Muvuca já precisa estar no ar com as chaves novas.
+5. Adicione o bot ao servidor do Discord (troque `ID` pelo Application ID). Ele não pede nenhuma permissão; precisa estar no servidor só para o Muvuca saber o nome do servidor:
+
+```
+https://discord.com/oauth2/authorize?client_id=ID&scope=bot+applications.commands&permissions=0
+```
+
+---
+
 ## App do computador (Mac e Windows)
 
 O site funciona em qualquer navegador e pode ser instalado no celular. Para o computador, existe um app (pasta `desktop/`, feito com Electron) que acrescenta:
@@ -384,6 +410,12 @@ O app do Mac requer **macOS 12 ou mais novo** (o som do programa na live precisa
 ---
 
 ## Solução de problemas
+
+**O link da sala de tela não abre no próprio computador do servidor (mas abre de fora)**
+- O macOS pode guardar uma falha de DNS do domínio depois de um reinício. Limpe o cache: `sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder`.
+
+**O portal do Discord não aceita o Interactions Endpoint URL**
+- Confira se o Muvuca foi reiniciado depois de preencher o `.env` e se `DISCORD_PUBLIC_KEY` é a Public Key da mesma aplicação. Depois tente salvar de novo.
 
 **Ninguém de fora consegue abrir o site**
 - Confira se o domínio aponta para o seu IP público: o IP de `ping seu-dominio` tem que ser o mesmo de `ifconfig.me`.

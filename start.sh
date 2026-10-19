@@ -80,6 +80,7 @@ else
   pids+=($!)
 fi
 
+export PUBLIC_URL # links das salas de tela do bot do Discord
 node server.js &
 pids+=($!)
 
