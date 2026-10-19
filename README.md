@@ -17,6 +17,7 @@ Tudo em português do Brasil.
 - [App do computador (Mac e Windows)](#app-do-computador-mac-e-windows)
 - [Solução de problemas](#solução-de-problemas)
 - [Para quem vai mexer no código](#para-quem-vai-mexer-no-código)
+- [Licença](#licença)
 
 ---
 
@@ -85,7 +86,7 @@ Tudo em português do Brasil.
   └───────────────────────────────────────────────────────────────────┘
 ```
 
-- **O Muvuca em si** (`server.js`, `src/`, `db.js`) é um servidor Node.js. Ele entrega o site (`public/`), mantém uma conexão WebSocket com cada aba aberta e guarda tudo num banco **SQLite** (`data/malegna.db`), usando o SQLite que já vem no Node, sem instalar nada à parte. Fotos, emojis e anexos ficam em `data/`.
+- **O Muvuca em si** (`server.js`, `src/`, `db.js`) é um servidor Node.js. Ele entrega o site (`public/`), mantém uma conexão WebSocket com cada aba aberta e guarda tudo num banco **SQLite** (`data/muvuca.db`), usando o SQLite que já vem no Node, sem instalar nada à parte. Fotos, emojis e anexos ficam em `data/`.
 - **A voz e o vídeo** passam pelo [LiveKit](https://livekit.io), um servidor de mídia que roda no mesmo computador. O site pede ao Muvuca um "passe" para entrar numa sala de voz e se conecta direto ao LiveKit.
 - **O [Caddy](https://caddyserver.com)** fica na frente de tudo: tira e renova sozinho o certificado HTTPS (Let's Encrypt) e repassa cada endereço para o programa certo.
 - **O painel** (`painel/`) é um processo separado, com login próprio. Por isso continua no ar, e mostra o que aconteceu, quando o Muvuca cai.
@@ -310,7 +311,7 @@ Se as dependências mudaram, rode também `npm ci`.
 ## Backup e restauração
 
 O `backup.sh` roda sozinho todo dia às 4h e guarda em `~/Backups/Muvuca`:
-- um arquivo `malegna-AAAA-MM-DD_HHMM.tar.gz` com o banco (contas, servidores, mensagens), os emojis, as fotos e a chave das notificações do celular;
+- um arquivo `muvuca-AAAA-MM-DD_HHMM.tar.gz` com o banco (contas, servidores, mensagens), os emojis, as fotos e a chave das notificações do celular;
 - a pasta `anexos/`, um espelho dos arquivos enviados no chat.
 
 Fica sempre **só o backup mais recente**: o anterior só é apagado depois que o novo é conferido. O painel também faz um backup antes de cada atualização e testa a restauração toda semana.
@@ -330,7 +331,7 @@ mv data data-antes
 ```
 
 ```bash
-mkdir data && tar -xzf ~/Backups/Muvuca/malegna-AAAA-MM-DD_HHMM.tar.gz -C data
+mkdir data && tar -xzf ~/Backups/Muvuca/muvuca-AAAA-MM-DD_HHMM.tar.gz -C data
 ```
 
 ```bash
@@ -428,3 +429,9 @@ Regras do projeto:
 - Mudou o comportamento: rode `npm test`, e funcionalidade nova ganha teste.
 - Permissões novas entram em `public/js/permissions.js` (o servidor importa desse arquivo).
 - Mudou algo que o pessoal vai notar: acrescente em `public/js/novidades-lista.js` (aba Novidades do site).
+
+---
+
+## Licença
+
+[MIT](LICENSE).

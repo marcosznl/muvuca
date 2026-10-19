@@ -511,7 +511,7 @@ function buildMenu() {
 
 // ---------- Começo ----------
 
-app.setAboutPanelOptions({ applicationName: 'Muvuca', applicationVersion: app.getVersion(), copyright: 'Feito pela galera da Malegna' });
+app.setAboutPanelOptions({ applicationName: 'Muvuca', applicationVersion: app.getVersion(), copyright: 'Feito pela galera do Muvuca' });
 app.on('before-quit', () => { quitting = true; updater.onQuit(); });
 app.on('muvuca-quit', () => { quitting = true; app.quit(); }); // "Reiniciar agora" da atualização
 app.on('activate', () => showWindow()); // clicar no ícone do Dock com a janela escondida

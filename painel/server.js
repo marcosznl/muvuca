@@ -27,7 +27,10 @@ const ROOT = path.resolve(HERE, '..');
 const PORT = Number(process.env.PAINEL_PORT || 3002);
 const HOST = process.env.PAINEL_HOST || '127.0.0.1';
 const DATA = path.join(ROOT, 'data');
-const DB_FILE = process.env.DB_FILE || path.join(DATA, 'malegna.db');
+const DB_FILE = process.env.DB_FILE || path.join(DATA, 'muvuca.db');
+// Até o servidor subir com o nome novo (ele renomeia o malegna.db antigo), o banco pode ter o nome de antes
+const dbPath = () => (!process.env.DB_FILE && !fs.existsSync(DB_FILE) && fs.existsSync(path.join(DATA, 'malegna.db'))
+  ? path.join(DATA, 'malegna.db') : DB_FILE);
 const AUTH_FILE = process.env.PAINEL_AUTH || path.join(DATA, 'painel-auth.json');
 const KEY_FILE = path.join(path.dirname(DB_FILE), 'painel-key');
 const HISTORY_FILE = path.join(path.dirname(DB_FILE), 'painel-historico.json');
@@ -56,7 +59,7 @@ function readEnvPublic() {
 let db = null;
 function database() {
   if (!db) {
-    db = new DatabaseSync(DB_FILE);
+    db = new DatabaseSync(dbPath());
     db.exec('PRAGMA busy_timeout = 3000');
   }
   return db;
@@ -329,8 +332,8 @@ async function measureSizes() {
   for (const [name, dir] of dirs) {
     try { out[name] = Number((await run('du', ['-sk', dir])).stdout.split('\t')[0]) * 1024; } catch { out[name] = 0; }
   }
-  for (const f of ['malegna.db', 'malegna.db-wal']) {
-    try { out[f] = (await fsp.stat(path.join(DATA, f))).size; } catch { out[f] = 0; }
+  for (const [key, file] of [['banco', dbPath()], ['banco-wal', `${dbPath()}-wal`]]) {
+    try { out[key] = (await fsp.stat(file)).size; } catch { out[key] = 0; }
   }
   sizes = out;
 }
@@ -876,7 +879,7 @@ async function backups() {
   const warnings = /AVISO|FALHOU/.test(log[lastIdx] ?? '') ? lastRun.filter((l) => /AVISO|FALHOU|error/i.test(l)).slice(-3) : [];
   return {
     dir: BACKUP_DIR,
-    local: await listDir(BACKUP_DIR, /^malegna-.*\.tar\.gz$/),
+    local: await listDir(BACKUP_DIR, /^(muvuca|malegna)-.*\.tar\.gz$/),
     anexos: await run('du', ['-sk', path.join(BACKUP_DIR, 'anexos')]).then((r) => Number(r.stdout.split('\t')[0]) * 1024).catch(() => 0),
     results,
     warnings,

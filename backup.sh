@@ -10,7 +10,10 @@ cd "$(dirname "$0")"
 export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 DEST="$HOME/Backups/Muvuca"
-name="malegna-$(date +%F_%H%M).tar.gz"
+name="muvuca-$(date +%F_%H%M).tar.gz"
+# O banco se chamava malegna.db (o servidor renomeia ao subir)
+dbfile=data/muvuca.db
+[[ ! -f $dbfile && -f data/malegna.db ]] && dbfile=data/malegna.db
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$DEST" || { echo "[backup $(date '+%F %T')] FALHOU: não deu para criar $DEST"; exit 1; }
@@ -18,10 +21,10 @@ mkdir -p "$DEST" || { echo "[backup $(date '+%F %T')] FALHOU: não deu para cria
 # Cópia do banco + conferência de integridade (VACUUM INTO não trava quem está usando o site)
 if ! node --input-type=module -e "
   import { DatabaseSync } from 'node:sqlite';
-  const live = new DatabaseSync('data/malegna.db');
-  live.exec(\"VACUUM INTO '$work/malegna.db'\");
+  const live = new DatabaseSync('$dbfile');
+  live.exec(\"VACUUM INTO '$work/muvuca.db'\");
   live.close();
-  const copy = new DatabaseSync('$work/malegna.db', { readOnly: true });
+  const copy = new DatabaseSync('$work/muvuca.db', { readOnly: true });
   const ok = copy.prepare('PRAGMA integrity_check').get().integrity_check;
   if (ok !== 'ok') { console.error('integridade:', ok); process.exit(1); }
 "; then
@@ -43,16 +46,15 @@ tar -czf "$DEST/$name.tmp" -C "$work" . && tar -tzf "$DEST/$name.tmp" >/dev/null
 }
 mv "$DEST/$name.tmp" "$DEST/$name"
 
-# Um backup só: apaga os outros malegna-AAAA-MM-DD_HHMM.tar.gz da pasta (lista explícita, nunca de "ls",
+# Um backup só: apaga os outros muvuca-AAAA-MM-DD_HHMM.tar.gz (e os malegna-… de antes do nome novo) da pasta (lista explícita, nunca de "ls",
 # conferindo o caminho de cada um), depois que o novo já foi conferido
 keep_only_latest() {
   local dir=$1 newest=$2 f
-  for f in "$dir"/malegna-<->-<->-<->_<->.tar.gz(N); do
-    [[ $f != "$newest" && $f == "$dir"/malegna-<->-<->-<->_<->.tar.gz && -f $f ]] && rm -f -- "$f"
+  for f in "$dir"/(muvuca|malegna)-<->-<->-<->_<->.tar.gz(N); do
+    [[ $f != "$newest" && $f == "$dir"/(muvuca|malegna)-<->-<->-<->_<->.tar.gz && -f $f ]] && rm -f -- "$f"
   done
 }
 keep_only_latest "$DEST" "$DEST/$name"
-rm -f data/malegna-antes-*.db(N) data/backup-antes-*.db(N) # cópias manuais antigas da pasta data/
 
 # Anexos do chat: espelho de data/files (o que foi apagado aqui sai de lá também). Se data/files estiver
 # vazia, não espelha: pode ser a pasta que sumiu, e aí o espelho apagaria a única cópia

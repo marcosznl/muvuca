@@ -26,7 +26,7 @@
     "appId": "br.malegna.muvuca",
     "afterSign": "build/after-sign.js",
     "productName": "Muvuca",
-    "copyright": "Feito pela galera da Malegna",
+    "copyright": "Feito pela galera do Muvuca",
     "directories": {
       "output": "dist",
       "buildResources": "build"

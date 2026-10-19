@@ -28,7 +28,7 @@ function save() {
 export async function rotateLogs() {
   let names = [];
   try { names = await fsp.readdir(ctx.logsDir); } catch { return; }
-  const targets = names.filter((n) => /^(server|malegna|painel|backup)\.log$/.test(n));
+  const targets = names.filter((n) => /^(server|painel|backup)\.log$/.test(n));
   for (const name of targets) {
     const file = path.join(ctx.logsDir, name);
     let size = 0;
@@ -83,14 +83,17 @@ async function certCheck() {
 export async function restoreTest() {
   const started = Date.now();
   let list = [];
-  try { list = (await fsp.readdir(ctx.backupDir)).filter((n) => /^malegna-.*\.tar\.gz$/.test(n)).sort(); } catch { /* sem pasta */ }
+  // Ordena pela data no nome (os backups de antes se chamavam malegna-…)
+  try { list = (await fsp.readdir(ctx.backupDir)).filter((n) => /^(muvuca|malegna)-.*\.tar\.gz$/.test(n))
+    .sort((a, b) => a.replace(/^\w+-/, '').localeCompare(b.replace(/^\w+-/, ''))); } catch { /* sem pasta */ }
   const last = list.at(-1);
   const result = { at: started, file: last ?? null, ok: false };
   if (!last) { result.error = 'nenhum backup encontrado'; return finish(result); }
   const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'muvuca-restauracao-'));
   try {
-    await run('tar', ['-xzf', path.join(ctx.backupDir, last), '-C', tmp, './malegna.db'], { timeout: 120_000 });
-    const db = new DatabaseSync(path.join(tmp, 'malegna.db'), { readOnly: true });
+    const name = last.startsWith('malegna-') ? 'malegna.db' : 'muvuca.db';
+    await run('tar', ['-xzf', path.join(ctx.backupDir, last), '-C', tmp, `./${name}`], { timeout: 120_000 });
+    const db = new DatabaseSync(path.join(tmp, name), { readOnly: true });
     try {
       const integrity = db.prepare('PRAGMA integrity_check').get();
       result.integrity = Object.values(integrity)[0];

@@ -18,7 +18,6 @@ UID_=$(id -u)
 AGENTS=~/Library/LaunchAgents
 APP=muvuca.server
 BACKUP=muvuca.server.backup
-OLD=(com.marcos.malegna com.marcos.malegna.backup) # nomes antigos dos serviços (removidos ao instalar)
 PATH_ENV="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 write_plists() {
@@ -72,12 +71,6 @@ loaded() { launchctl print "gui/$UID_/$1" >/dev/null 2>&1; }
 case "$1" in
   instalar)
     write_plists || exit 1
-    # Serviços com os nomes antigos: sai antes de ligar os novos (senão o Muvuca subiria duas vezes)
-    for label in $OLD; do
-      loaded $label && launchctl bootout "gui/$UID_/$label"
-      rm -f "$AGENTS/$label.plist"
-    done
-    [[ -f logs/malegna.log && ! -f logs/server.log ]] && mv logs/malegna.log logs/server.log
     for label in $APP $BACKUP; do
       loaded $label && launchctl bootout "gui/$UID_/$label"
       launchctl bootstrap "gui/$UID_" "$AGENTS/$label.plist"
@@ -111,7 +104,7 @@ case "$1" in
     else
       echo "Serviço não instalado ou parado."
     fi
-    ls -1t ~/Backups/Muvuca/malegna-*.tar.gz(N) 2>/dev/null | head -1 | sed 's/^/Último backup: /'
+    ls -1t ~/Backups/Muvuca/(muvuca|malegna)-*.tar.gz(N) 2>/dev/null | head -1 | sed 's/^/Último backup: /'
     ;;
   *) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
 esac

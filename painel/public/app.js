@@ -1123,7 +1123,7 @@ async function viewSistema() {
     ),
     h('div', { class: 'section grid two' },
       h('div', { class: 'card' }, h('h2', {}, 'Espaço usado pelos dados'), table([{ label: 'O quê', get: (r) => r[0] }, { label: 'Tamanho', num: true, get: (r) => bytes(r[1]) }], [
-        ['Banco de dados', (sz['malegna.db'] ?? 0) + (sz['malegna.db-wal'] ?? 0)],
+        ['Banco de dados', (sz.banco ?? 0) + (sz['banco-wal'] ?? 0)],
         ['Anexos do chat', sz.anexos ?? 0], ['Fotos (perfil, banner, ícones)', sz.fotos ?? 0], ['Emojis', sz.emojis ?? 0], ['Backups no Mac', sz.backups ?? 0],
       ]), h('p', { class: 'muted small' }, `Medido ${ago(sz.at)} (a cada 10 min).`)),
       h('div', { class: 'card' }, h('h2', {}, 'Certificados HTTPS'), table([
