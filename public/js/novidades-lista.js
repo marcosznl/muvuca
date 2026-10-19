@@ -9,12 +9,12 @@ export const NOVIDADES = [
   {
     versao: '2026-10-18',
     data: '2026-10-18',
-    titulo: 'Salas de DJ para todo mundo',
+    titulo: 'Salas de música para todo mundo',
     itens: [
-      'As salas de música viraram Salas de DJ, na lateral, logo abaixo de "Todos os jogos". Elas não ficam mais dentro de um servidor: são de todo mundo do Muvuca.',
-      'Qualquer pessoa cria uma sala no "+" de Salas de DJ, com ou sem senha. Na sala com senha aparece um cadeado: quem não criou digita a senha uma vez e depois entra direto.',
-      'Quem criou a sala pode mudar o nome, trocar ou tirar a senha, tirar gente da cabine, pular músicas e apagar a sala (botão direito em cima da sala).',
-      'As salas que já existiam (com o histórico de músicas e o chat) continuam lá, agora em Salas de DJ.',
+      'As salas de música (com a cabine de DJ) agora têm página própria, como a dos jogos: na lateral, logo abaixo de "Todos os jogos", em "Salas de música". Elas não ficam mais dentro de um servidor: são de todo mundo do Muvuca.',
+      'Qualquer pessoa cria uma sala, com ou sem senha. Na sala com senha aparece um cadeado: quem não criou digita a senha uma vez e depois entra direto.',
+      'Quem criou a sala pode mudar o nome, trocar ou tirar a senha, tirar gente da cabine, pular músicas e apagar a sala (botão "Opções" ou botão direito em cima da sala).',
+      'As salas que já existiam (com o histórico de músicas e o chat) continuam lá.',
     ],
   },
   {

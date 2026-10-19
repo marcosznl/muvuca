@@ -1,16 +1,18 @@
-// Salas de DJ (como no plug.dj): ficam na lateral, abaixo de "Todos os jogos", para todo mundo.
+// Salas de música (como no plug.dj): têm página própria (como a dos jogos) e ficam na lateral, abaixo de
+// "Todos os jogos", para todo mundo.
 // Qualquer pessoa cria uma sala, com ou sem senha; quem criou (e o dono do Muvuca) muda e apaga.
 // Dentro da sala é tudo o que já existia nos canais de música: player, cabine de DJ, fila e chat.
-import { h, showBanner } from './util.js';
+import { $, h, showBanner, makeAvatar } from './util.js';
 import { icon } from './icons.js';
 import { state } from './state.js';
 import { request } from './net.js';
 import { openModal, button, promptText, confirmDialog, contextMenu } from './dialogs.js';
-import { selectChannel } from './app.js';
+import { selectChannel, selectDjHome } from './app.js';
 import { musicChannelId } from './music.js';
 
 export const djLobby = () => state.servers.find((s) => s.kind === 'dj');
 export const djRooms = () => djLobby()?.channels.filter((c) => c.type === 'music') ?? [];
+export const inDjHome = () => !!state.view.djHome;
 export const inDjRoom = () => !!state.view.channelId && djRooms().some((c) => c.id === state.view.channelId);
 export const djUnread = () => djRooms().reduce((n, c) => n + (state.unread[c.id] ?? 0), 0);
 const fail = (err) => showBanner(err.message, { timeout: 4500 });
@@ -46,7 +48,7 @@ export function openCreateDjRoom() {
   form.append(nameField, passField, enterKey);
   const ok = button('Criar sala');
   const cancel = button('Cancelar', { kind: 'link' });
-  const modal = openModal({ title: 'Nova sala de DJ', subtitle: 'Ouçam músicas do YouTube juntos, revezando na cabine de DJ.', content: form, actions: [cancel, ok] });
+  const modal = openModal({ title: 'Nova sala de música', subtitle: 'Ouçam músicas do YouTube juntos, revezando na cabine de DJ.', content: form, actions: [cancel, ok] });
   const submit = async (e) => {
     e?.preventDefault();
     if (!name.value.trim()) return name.focus();
@@ -121,3 +123,75 @@ export function djTree() {
   add.onclick = openCreateDjRoom;
   return [list, add];
 }
+
+// ---------- Página das salas (mesmo molde da página dos jogos) ----------
+
+const ownerName = (c) => djLobby()?.members.find((x) => x.id === c.ownerId)?.name ?? null;
+
+function roomCard(c) {
+  const card = h('div', 'game-card dj-card');
+  card.classList.toggle('current', musicChannelId() === c.id);
+  const art = h('div', 'game-art', canEnter(c) ? '🎧' : '🔒');
+  const body = h('div', 'game-card-body');
+  const title = h('h2', '', c.name);
+  if (c.locked && canEnter(c)) { const lock = icon('lock', 16); lock.classList.add('dj-card-lock'); lock.title = 'Sala com senha'; title.append(lock); }
+  const playing = state.music[c.id]?.nowPlaying;
+  const listeners = state.music[c.id]?.listeners ?? [];
+  const owner = ownerName(c);
+  const lines = [
+    !canEnter(c) ? 'Sala com senha: peça a senha a quem criou.' : playing ? `Tocando: ${playing}` : 'Nenhuma música tocando agora.',
+    owner ? `Criada por ${owner}` : null,
+  ].filter(Boolean);
+  body.append(title, ...lines.map((t, i) => h('p', i ? 'muted small' : 'muted', t)));
+  if (listeners.length) {
+    const who = h('div', 'dj-card-listeners');
+    for (const id of listeners.slice(0, 8)) {
+      const name = djLobby()?.members.find((x) => x.id === id)?.name ?? '?';
+      const a = makeAvatar(name, 'sm', id);
+      a.title = name;
+      who.append(a);
+    }
+    who.append(h('span', 'muted small', `${listeners.length} ouvindo`));
+    body.append(who);
+  }
+  const actions = h('div', 'room-actions');
+  const enterBtn = h('button', 'btn primary', musicChannelId() === c.id ? 'Voltar para a sala' : canEnter(c) ? 'Entrar' : 'Entrar com senha');
+  enterBtn.onclick = () => enter(c);
+  actions.append(enterBtn);
+  if (manages(c)) {
+    const more = h('button', 'btn secondary', 'Opções');
+    more.onclick = (e) => { const r = e.currentTarget.getBoundingClientRect(); roomMenu(c, r.left, r.bottom + 4); };
+    actions.append(more);
+  }
+  body.append(actions);
+  card.append(art, body);
+  card.oncontextmenu = (e) => { e.preventDefault(); roomMenu(c, e.clientX, e.clientY); };
+  return card;
+}
+
+export function renderDjHome() {
+  const view = $('dj-view');
+  if (!view || !inDjHome()) return;
+  $('view-icon').replaceChildren(icon('headphones', 22));
+  $('view-title').textContent = 'Salas de música';
+  const wrap = h('div', 'games-lobby');
+  const intro = h('div', 'game-card dj-intro');
+  const introBody = h('div', 'game-card-body');
+  introBody.append(h('h2', '', 'Salas de música'), h('p', 'muted', 'Ouçam músicas do YouTube juntos: cada um entra na cabine de DJ e toca a sua vez. Crie uma sala aberta ou com senha.'));
+  const create = h('button', 'btn primary', 'Criar sala');
+  create.onclick = openCreateDjRoom;
+  introBody.append(create);
+  intro.append(h('div', 'game-art', '🎶'), introBody);
+  wrap.append(intro);
+  const rooms = djRooms();
+  wrap.append(h('h3', 'games-subtitle', rooms.length ? 'Salas' : 'Nenhuma sala ainda'));
+  if (!rooms.length) wrap.append(h('p', 'muted', 'Crie a primeira e chame a galera!'));
+  const cards = h('div', 'game-cards');
+  for (const c of rooms) cards.append(roomCard(c));
+  if (rooms.length) wrap.append(cards);
+  const scroll = view.scrollTop;
+  view.replaceChildren(wrap);
+  view.scrollTop = scroll;
+}
+
+export { selectDjHome };

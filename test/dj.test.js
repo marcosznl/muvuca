@@ -27,7 +27,7 @@ test('todo mundo está nas salas de DJ, e elas não são mais canais de servidor
   for (const p of [dono, ana, bia]) assert.ok(lobby(p), `${p.name} vê as salas de DJ`);
   const r = await dono.request({ t: 'channel:create', serverId: home, type: 'music', name: 'Pista' });
   assert.equal(r.t, 'error');
-  assert.match(r.message, /Salas de DJ/);
+  assert.match(r.message, /Salas de música/);
   assert.equal((await ana.request({ t: 'server:leave', serverId: lobby(ana).id })).t, 'error');
 });
 

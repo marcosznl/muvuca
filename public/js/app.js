@@ -28,6 +28,7 @@ import {
 } from './music.js';
 import { refreshSettings, closeServerSettings } from './settings.js';
 import { dmTitle, unhideDm, selectDmHome, renameGroup } from './dms.js';
+import { renderDjHome } from './dj.js';
 import { renderFriendsView } from './friends.js';
 import { onCallEvent, onVoiceChanged, renderCallBar } from './calls.js';
 import { renderMaintBar } from './maintenance.js';
@@ -67,9 +68,19 @@ export function selectGames() {
   openGames();
 }
 
+// Página das salas de música (como a dos jogos): a música e a voz continuam tocando
+export function selectDjHome() {
+  state.view = { serverId: null, channelId: null, djHome: true, dms: true };
+  $('app').classList.remove('show-sidebar'); // no celular, fecha a lateral
+  $('scrim').hidden = true;
+  showChannel();
+}
+
 export function selectChannel(channelId) {
   const { server, channel } = findChannel(channelId);
   if (!channel) {
+    // Sala de música apagada: volta para a página das salas
+    if (serverById(state.view.serverId)?.kind === 'dj') return selectDjHome();
     // Canal sumiu (ex.: excluído): fica só no servidor
     state.view = { serverId: state.view.serverId, channelId: null };
     return showChannel();
@@ -88,8 +99,17 @@ function showChannel() {
   closeOverlays();
   closeEmojiPanel();
   const games = inGames();
+  const djHome = !!state.view.djHome;
   $('games-view').hidden = !games;
-  $('app').classList.toggle('games-mode', games);
+  $('dj-view').hidden = !djHome;
+  $('app').classList.toggle('games-mode', games || djHome);
+  if (djHome) {
+    for (const id of ['text-view', 'voice-view', 'empty-view', 'friends-view']) $(id).hidden = true;
+    $('app').classList.remove('music-mode', 'friends-home');
+    placeMusicView();
+    renderAll();
+    return;
+  }
   if (games) {
     for (const id of ['text-view', 'voice-view', 'empty-view', 'friends-view']) $(id).hidden = true;
     $('app').classList.remove('music-mode');
@@ -162,6 +182,7 @@ export function renderAll() {
   renderComposer();
   updateMediaButtons();
   renderAllMusic();
+  renderDjHome();
   updateTitle();
 }
 
@@ -213,6 +234,7 @@ function handle(m) {
       const fromLink = findChannel(new URLSearchParams(location.search).get('canal')).channel; // tocou numa notificação
       if (fromLink) { history.replaceState(null, '', location.pathname); selectChannel(fromLink.id); }
       else if (state.view.games) selectGames();
+      else if (state.view.djHome) selectDjHome();
       else if (state.view.dms && !keep) selectDmHome();
       else if (keep) selectServer(keep.id);
       else selectServer(serverById(store.get('lastServer'))?.id ?? state.servers[0]?.id);

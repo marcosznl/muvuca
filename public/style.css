@@ -1161,6 +1161,12 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .game-help { font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .kbd { background: var(--bg-dark); border: 1px solid rgba(255,255,255,.1); border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; font-size: 12px; color: var(--text); }
 .games-subtitle { margin: 12px 0 0; color: var(--text-strong); }
+/* Salas de música: cartões no molde dos jogos */
+.dj-card.current { outline: 2px solid var(--accent); }
+.dj-card .game-card-body h2 { display: flex; align-items: center; gap: 8px; }
+.dj-card-lock { color: var(--muted); }
+.dj-card-listeners { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.dj-card-listeners .avatar { width: 24px; height: 24px; font-size: 11px; }
 .room-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--bg-side); border-radius: 8px; padding: 12px 16px; }
 .room-info { display: grid; gap: 2px; min-width: 0; }
 .room-info strong { color: var(--text-strong); }

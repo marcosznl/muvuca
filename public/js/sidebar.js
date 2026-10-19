@@ -13,7 +13,7 @@ import { musicChannelId } from './music.js';
 import { openServerSettings, openInviteDialog } from './settings.js';
 import { dmTree, dmTitle, openNewDm, totalDmUnread, realServers, inDmHome, selectDmHome } from './dms.js';
 import { gamesTree, openRoomsCount, inGames, inGamesHome, openGamesHome } from './games.js';
-import { djTree, djRooms, djUnread, inDjRoom, openCreateDjRoom } from './dj.js';
+import { djTree, djRooms, djUnread, inDjHome, openCreateDjRoom, selectDjHome } from './dj.js';
 import { incomingCount } from './friends.js';
 import { openUserSettings } from './user-settings.js';
 import { openNovidades, temNovidade } from './novidades.js';
@@ -859,8 +859,8 @@ export function renderChannels() {
       here: inDmHome(), go: selectDmHome, badge: totalDmUnread() + incomingCount(), openBadge: incomingCount(), action: plusButton('Nova conversa', openNewDm),
     }, dmTree()),
     topFolder('jogos', 'gamepad', 'Todos os jogos', { here: inGamesHome(), go: openGamesHome, count: inGames() ? 0 : openRoomsCount() }, gamesTree()),
-    topFolder('dj', 'headphones', 'Salas de DJ', {
-      here: inDjRoom(), badge: djUnread(), count: djRooms().length, action: plusButton('Nova sala de DJ', openCreateDjRoom),
+    topFolder('dj', 'headphones', 'Salas de música', {
+      here: inDjHome(), go: selectDjHome, badge: djUnread(), count: djRooms().length, action: plusButton('Nova sala de música', openCreateDjRoom),
     }, djTree()),
     h('div', 'tree-sep'),
     ...realServers().map(serverFolder),
