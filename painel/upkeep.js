@@ -28,7 +28,7 @@ function save() {
 export async function rotateLogs() {
   let names = [];
   try { names = await fsp.readdir(ctx.logsDir); } catch { return; }
-  const targets = names.filter((n) => /^(malegna|painel|backup)\.log$/.test(n));
+  const targets = names.filter((n) => /^(server|malegna|painel|backup)\.log$/.test(n));
   for (const name of targets) {
     const file = path.join(ctx.logsDir, name);
     let size = 0;
@@ -72,7 +72,7 @@ async function certCheck() {
   emptyChecks = 0;
   ctx.markPlanned();
   ctx.audit('painel:restart', { detail: { motivo: 'certificado HTTPS renovado (o TURN da voz passa a usar o novo)', automatico: true } });
-  const child = spawn('/bin/zsh', ['./malegna-service.sh', 'reiniciar'], { cwd: ctx.root, detached: true, stdio: 'ignore' });
+  const child = spawn('/bin/zsh', ['./server.sh', 'reiniciar'], { cwd: ctx.root, detached: true, stdio: 'ignore' });
   child.unref();
   state.certRestart = { at: Date.now(), renewedAt };
   state.certPending = null;

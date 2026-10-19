@@ -21,7 +21,7 @@ const ENV = { ...process.env, PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/
 const KEEP = 10; // versões guardadas (as mais antigas são apagadas a cada publicação)
 // O que faz parte de uma versão do Muvuca (o painel fica de fora)
 const APP_FILES = ['server.js', 'db.js', 'music.js', 'gifs.js', 'channels.json', 'package.json', 'package-lock.json',
-  'start.sh', 'Caddyfile', 'livekit.yaml', 'backup.sh', 'malegna-service.sh', 'ddns-update.sh'];
+  'start.sh', 'Caddyfile', 'livekit.yaml', 'backup.sh', 'server.sh', 'ddns-update.sh'];
 const APP_DIRS = ['src', 'public'];
 
 let ROOT;
@@ -178,7 +178,7 @@ async function health() {
 async function restartAndCheck(log) {
   const before = Date.now();
   log('Reiniciando o Muvuca…');
-  await run('/bin/zsh', ['./malegna-service.sh', 'reiniciar'], { cwd: ROOT, env: ENV, timeout: 30_000 });
+  await run('/bin/zsh', ['./server.sh', 'reiniciar'], { cwd: ROOT, env: ENV, timeout: 30_000 });
   for (let i = 0; i < 30; i++) {
     await new Promise((r) => setTimeout(r, 2000));
     const h = await health();

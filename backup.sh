@@ -4,7 +4,7 @@
 # Os anexos do chat (fotos, vídeos, documentos) vão para ~/Backups/Muvuca/anexos, um espelho de data/files.
 # Guarda só um backup: o anterior é apagado depois que o novo é conferido (se o novo sair com defeito,
 # o anterior fica).
-# Roda sozinho todo dia às 4h (serviço com.marcos.malegna.backup) ou à mão: ./backup.sh
+# Roda sozinho todo dia às 4h (serviço muvuca.server.backup) ou à mão: ./backup.sh
 umask 077 # backups (banco, chaves) só legíveis pelo seu usuário
 cd "$(dirname "$0")"
 export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"

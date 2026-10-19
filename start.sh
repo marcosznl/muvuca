@@ -9,7 +9,7 @@ if lsof -nP -iTCP:3000 -iTCP:7881 -iTCP:443 -sTCP:LISTEN >/dev/null 2>&1; then
   exit 1
 fi
 # Com DuckDNS configurado, o endereço público passa a ser o domínio fixo.
-# Aceita vários separados por vírgula (ex.: "muvuca,malegna"): o primeiro é o principal,
+# Aceita vários separados por vírgula (ex.: "minha-turma,turma-antiga"): o primeiro é o principal,
 # os outros continuam funcionando (links antigos)
 domains=()
 if [[ -n "$DUCKDNS_SUBDOMAIN" ]]; then
@@ -58,7 +58,7 @@ start_livekit() {
   pids+=($lk_pid)
 }
 
-# Modo local (./malegna-service.sh local): só neste Mac, em http://localhost:3000 — para testar
+# Modo local (./server.sh local): só neste Mac, em http://localhost:3000 — para testar
 # fora de casa. Sem HTTPS nem DNS, e a voz anuncia os IPs da rede local em vez do IP público.
 if [[ -f .modo-local ]]; then
   sed 's/use_external_ip: true/use_external_ip: false/' logs/livekit.yaml > logs/livekit-local.yaml
@@ -85,7 +85,7 @@ pids+=($!)
 
 echo "Link para os amigos: $PUBLIC_URL/"
 # Se qualquer parte cair (voz, HTTPS, DNS ou o app), encerra tudo: rodando como serviço,
-# o macOS sobe tudo de novo em seguida (ver malegna-service.sh)
+# o macOS sobe tudo de novo em seguida (ver server.sh)
 while sleep 5; do
   # Painel pediu "reiniciar só a voz": relança só o LiveKit. As calls caem por uns segundos e voltam
   # sozinhas; o chat, os jogos e a música continuam (o resto não reinicia)

@@ -89,7 +89,7 @@ Tudo em português do Brasil.
 - **A voz e o vídeo** passam pelo [LiveKit](https://livekit.io), um servidor de mídia que roda no mesmo computador. O site pede ao Muvuca um "passe" para entrar numa sala de voz e se conecta direto ao LiveKit.
 - **O [Caddy](https://caddyserver.com)** fica na frente de tudo: tira e renova sozinho o certificado HTTPS (Let's Encrypt) e repassa cada endereço para o programa certo.
 - **O painel** (`painel/`) é um processo separado, com login próprio. Por isso continua no ar, e mostra o que aconteceu, quando o Muvuca cai.
-- **O `start.sh`** sobe o LiveKit, o Caddy, o atualizador do DuckDNS e o Muvuca juntos, e encerra tudo se uma das partes cair, para o sistema subir de novo. **O `malegna-service.sh`** transforma isso num serviço do macOS, que liga sozinho e se reinicia.
+- **O `start.sh`** sobe o LiveKit, o Caddy, o atualizador do DuckDNS e o Muvuca juntos, e encerra tudo se uma das partes cair, para o sistema subir de novo. **O `server.sh`** transforma isso num serviço do macOS, que liga sozinho e se reinicia.
 - **O site** é JavaScript puro, sem etapa de build: os arquivos de `public/` são entregues como estão.
 
 ### Estrutura do repositório
@@ -101,7 +101,7 @@ Tudo em português do Brasil.
 | `painel/` | Painel de administração |
 | `desktop/` | App do Mac e do Windows (Electron) |
 | `start.sh` | Sobe tudo junto (LiveKit, Caddy, DuckDNS e o Muvuca) |
-| `malegna-service.sh` | Instala e controla o Muvuca como serviço do macOS |
+| `server.sh` | Instala e controla o Muvuca como serviço do macOS |
 | `painel.sh` | Instala e controla o painel, e define a senha dele |
 | `backup.sh` | Backup do banco e dos arquivos |
 | `ddns-update.sh` | Atualiza o DuckDNS com o IP de casa |
@@ -228,27 +228,27 @@ Se algo não subir, as mensagens aparecem ali mesmo no Terminal. Veja também [S
 Testou e funcionou? Feche o `./start.sh` (Ctrl+C) e instale o Muvuca como serviço do macOS. Assim ele liga sozinho quando você entra no Mac, se reinicia quando alguma parte cai e impede o Mac de dormir enquanto está na tomada:
 
 ```bash
-./malegna-service.sh instalar
+./server.sh instalar
 ```
 
 Outros comandos:
 
 ```bash
-./malegna-service.sh status
+./server.sh status
 ```
 
 | Comando | O que faz |
 |---|---|
-| `./malegna-service.sh status` | Mostra se está rodando |
-| `./malegna-service.sh reiniciar` | Reinicia, por exemplo depois de mudar o `.env` |
-| `./malegna-service.sh parar` / `ligar` | Desliga e liga |
-| `./malegna-service.sh log` | Acompanha o log ao vivo (Ctrl+C sai) |
-| `./malegna-service.sh backup` | Faz um backup agora |
-| `./malegna-service.sh local` | Modo local: só neste computador, em `http://localhost:3000`, sem HTTPS (para testar fora de casa) |
-| `./malegna-service.sh publico` | Volta ao normal |
-| `./malegna-service.sh desinstalar` | Remove os serviços |
+| `./server.sh status` | Mostra se está rodando |
+| `./server.sh reiniciar` | Reinicia, por exemplo depois de mudar o `.env` |
+| `./server.sh parar` / `ligar` | Desliga e liga |
+| `./server.sh log` | Acompanha o log ao vivo (Ctrl+C sai) |
+| `./server.sh backup` | Faz um backup agora |
+| `./server.sh local` | Modo local: só neste computador, em `http://localhost:3000`, sem HTTPS (para testar fora de casa) |
+| `./server.sh publico` | Volta ao normal |
+| `./server.sh desinstalar` | Remove os serviços |
 
-O serviço também instala o **backup diário às 4h** (veja [Backup](#backup-e-restauração)). Os registros ficam em `logs/`.
+O serviço também instala o **backup diário às 4h** (veja [Backup](#backup-e-restauração)). Os registros ficam em `logs/` (o do Muvuca é `logs/server.log`).
 
 No Mac, ative **Ajustes do Sistema → Bateria (ou Economia de Energia) → Iniciar automaticamente após falha de energia** e o login automático. Assim, se faltar luz, o Muvuca volta sozinho.
 
@@ -300,7 +300,7 @@ Depois, no painel: **Manutenção → Atualizar o Muvuca**. Ele roda os testes a
 Sem o painel, também dá para reiniciar à mão:
 
 ```bash
-./malegna-service.sh reiniciar
+./server.sh reiniciar
 ```
 
 Se as dependências mudaram, rode também `npm ci`.
@@ -320,7 +320,7 @@ O backup fica no mesmo computador. Para se proteger de defeito no disco ou de ro
 **Para restaurar:**
 
 ```bash
-./malegna-service.sh parar
+./server.sh parar
 ```
 
 Com o Muvuca parado, guarde a pasta `data/` atual com outro nome e extraia o backup no lugar dela:
@@ -340,7 +340,7 @@ rsync -a ~/Backups/Muvuca/anexos/ data/files/
 Copie de volta os arquivos de configuração do painel que estavam em `data-antes/` (`painel-auth.json` e `painel-key`), ou crie a senha do painel de novo com `./painel.sh senha`. Depois, ligue:
 
 ```bash
-./malegna-service.sh ligar
+./server.sh ligar
 ```
 
 ---
@@ -388,7 +388,7 @@ O app do Mac requer **macOS 12 ou mais novo** (o som do programa na live precisa
 **O site abre, mas a call não conecta**
 - Faltam as portas da voz: **50000–50200 UDP** e **7881 TCP**.
 - Quem está numa rede de trabalho ou faculdade precisa da **5349 TCP** e da **3478 UDP**.
-- Mudou a rede ou o IP público? Reinicie (`./malegna-service.sh reiniciar`): o LiveKit só descobre o IP público ao ligar.
+- Mudou a rede ou o IP público? Reinicie (`./server.sh reiniciar`): o LiveKit só descobre o IP público ao ligar.
 
 **O Muvuca não sobe depois de um `brew upgrade`**
 - Teste com `node -v`. Se aparecer um erro de biblioteca (`Library not loaded`), atualize o Node junto (`brew upgrade node`) e reinicie.

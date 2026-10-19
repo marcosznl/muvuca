@@ -807,7 +807,7 @@ const scrub = (s) => String(s)
   .replace(/(access_token|token|key|senha|password|secret)=([^&\s"]+)/gi, '$1=•••')
   .replace(/Bearer\s+[A-Za-z0-9._-]+/g, 'Bearer •••');
 
-const LOG_FILES = { muvuca: 'malegna.log', backup: 'backup.log', painel: 'painel.log' };
+const LOG_FILES = { muvuca: 'server.log', backup: 'backup.log', painel: 'painel.log' };
 async function logs(which, lines = 400) {
   if (which === 'caddy') return accessLog(lines);
   const file = LOG_FILES[which];
@@ -997,7 +997,7 @@ async function doRestart(req, body) {
   markPlanned(); // a queda de agora é esperada (não vira alerta)
   audit('painel:restart', { ip: clientIp(req), detail: { pessoasEmCall: inVoice } });
   // Fora deste processo (o painel continua no ar enquanto o Muvuca reinicia)
-  const child = spawn('/bin/zsh', ['./malegna-service.sh', 'reiniciar'], { cwd: ROOT, detached: true, stdio: 'ignore' });
+  const child = spawn('/bin/zsh', ['./server.sh', 'reiniciar'], { cwd: ROOT, detached: true, stdio: 'ignore' });
   child.unref();
   setTimeout(() => { busy = null; }, 20_000);
   return { ok: true, output: 'Reiniciando… o Muvuca volta em uns 10 segundos.' };
@@ -1031,13 +1031,13 @@ async function serviceAction(req, body) {
     if (busy) throw new Error(`Aguarde: ${busy} em andamento.`);
     setPlannedUntil(Date.now() + 365 * DAY); // não é queda: não manda alerta enquanto estiver desligado
     fs.writeFileSync(STOPPED_FILE, JSON.stringify({ at: Date.now(), ip }), { mode: 0o600 });
-    const r = await runScript(['./malegna-service.sh', 'parar'], 30_000);
+    const r = await runScript(['./server.sh', 'parar'], 30_000);
     audit('painel:service', { ip, ok: r.ok, detail: { acao: 'desligar o Muvuca', resultado: r.output.slice(0, 200) } });
     if (!r.ok) { fs.rmSync(STOPPED_FILE, { force: true }); setPlannedUntil(0); throw new Error(`Não deu para desligar: ${r.output || 'erro desconhecido'}`); }
     return { ok: true, message: 'Muvuca desligado. O painel continua no ar: ligue de novo por aqui quando quiser.' };
   }
   if (what === 'start') {
-    const r = await runScript(['./malegna-service.sh', 'ligar'], 30_000);
+    const r = await runScript(['./server.sh', 'ligar'], 30_000);
     audit('painel:service', { ip, ok: r.ok, detail: { acao: 'ligar o Muvuca', resultado: r.output.slice(0, 200) } });
     if (!r.ok) throw new Error(`Não deu para ligar: ${r.output || 'erro desconhecido'}`);
     fs.rmSync(STOPPED_FILE, { force: true });
@@ -1371,7 +1371,7 @@ startAlerts({
   certificates,
   weekly: () => weeklySummary(new URL('http://x/?week=0')),
   // Últimas linhas do log do Muvuca quando ele cai (o motivo costuma estar ali)
-  lastLog: async () => (await tail(path.join(LOGS, 'malegna.log'), 20_000)).filter(Boolean).slice(-15).map(scrub),
+  lastLog: async () => (await tail(path.join(LOGS, 'server.log'), 20_000)).filter(Boolean).slice(-15).map(scrub),
   lastBackup: async () => {
     const line = (await tail(path.join(LOGS, 'backup.log'), 20_000)).filter((l) => l.startsWith('[backup')).pop();
     const m = line && /^\[backup (\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\]/.exec(line);

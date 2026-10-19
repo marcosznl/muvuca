@@ -15,7 +15,8 @@ cd "$(dirname "$0")"
 DIR=$PWD
 UID_=$(id -u)
 AGENTS=~/Library/LaunchAgents
-LABEL=com.marcos.muvuca.painel
+LABEL=muvuca.painel
+OLD_LABEL=com.marcos.muvuca.painel # nome antigo (removido ao instalar)
 PLIST="$AGENTS/$LABEL.plist"
 NODE=$(command -v node || echo /opt/homebrew/bin/node)
 loaded() { launchctl print "gui/$UID_/$LABEL" >/dev/null 2>&1; }
@@ -70,6 +71,9 @@ case "$1" in
 </plist>
 EOF
     plutil -lint -s "$PLIST" || exit 1
+    # Serviço com o nome antigo: sai antes (senão o painel subiria duas vezes)
+    launchctl print "gui/$UID_/$OLD_LABEL" >/dev/null 2>&1 && launchctl bootout "gui/$UID_/$OLD_LABEL"
+    rm -f "$AGENTS/$OLD_LABEL.plist"
     loaded && launchctl bootout "gui/$UID_/$LABEL"
     launchctl bootstrap "gui/$UID_" "$PLIST"
     echo "Painel instalado (http://127.0.0.1:3002 neste Mac; pela internet em https://painel.<seu domínio>)."
