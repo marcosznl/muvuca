@@ -115,7 +115,7 @@ async function remove(c) {
   if (ok) request({ t: 'dj:delete', channelId: c.id }).catch(fail);
 }
 
-// O que aparece ao abrir "Salas de DJ" na lateral: as salas (com cadeado, quem está ouvindo e a música) e "Nova sala"
+// O que aparece ao abrir "Assistir Junto" na lateral: as salas (só o nome, quem está ouvindo e a música) e "Nova sala"
 export function djTree() {
   const list = h('ul', 'channel-list dj-rooms');
   for (const c of djRooms()) {
@@ -125,13 +125,7 @@ export function djTree() {
     b.classList.toggle('active', state.view.channelId === c.id);
     b.classList.toggle('connected', musicChannelId() === c.id);
     b.classList.toggle('unread', (state.unread[c.id] ?? 0) > 0);
-    b.append(icon(canEnter(c) ? 'headphones' : 'lock', 16), h('span', 'name', c.name));
-    if (c.locked && canEnter(c)) {
-      const lock = h('span', 'channel-lock');
-      lock.title = 'Sala com senha';
-      lock.append(icon('lock', 12));
-      b.append(lock);
-    }
+    b.append(h('span', 'name', c.name)); // só o nome: são salas, sem ícone
     const listeners = state.music[c.id]?.listeners?.length ?? 0;
     if (listeners) b.append(h('span', 'count', String(listeners)));
     const playing = state.music[c.id]?.nowPlaying;
@@ -154,16 +148,14 @@ const ownerName = (c) => djLobby()?.members.find((x) => x.id === c.ownerId)?.nam
 function roomCard(c) {
   const card = h('div', 'game-card dj-card');
   card.classList.toggle('current', musicChannelId() === c.id);
-  const art = h('div', 'game-art', canEnter(c) ? '🎧' : '🔒');
   const body = h('div', 'game-card-body');
   const title = h('h2', '', c.name);
-  if (c.locked && canEnter(c)) { const lock = icon('lock', 16); lock.classList.add('dj-card-lock'); lock.title = 'Sala com senha'; title.append(lock); }
   const playing = state.music[c.id]?.nowPlaying;
   const listeners = state.music[c.id]?.listeners ?? [];
   const owner = ownerName(c);
   const lines = [
     !canEnter(c) ? 'Sala com senha: peça a senha a quem criou.' : playing ? `Tocando: ${playing}` : 'Nenhuma música tocando agora.',
-    owner ? `Criada por ${owner}` : null,
+    [c.locked && canEnter(c) ? 'Sala com senha' : null, owner ? `Criada por ${owner}` : null].filter(Boolean).join(' · ') || null,
   ].filter(Boolean);
   body.append(title, ...lines.map((t, i) => h('p', i ? 'muted small' : 'muted', t)));
   if (listeners.length) {
@@ -187,7 +179,7 @@ function roomCard(c) {
     actions.append(more);
   }
   body.append(actions);
-  card.append(art, body);
+  card.append(body);
   card.oncontextmenu = (e) => { e.preventDefault(); roomMenu(c, e.clientX, e.clientY); };
   return card;
 }
