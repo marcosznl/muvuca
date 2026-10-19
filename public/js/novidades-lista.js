@@ -7,6 +7,14 @@
 //   itens:  o que mudou, um por linha
 export const NOVIDADES = [
   {
+    versao: '2026-10-19',
+    data: '2026-10-19',
+    titulo: 'Live a 60 FPS',
+    itens: [
+      'Na janela "Transmitir tela" agora tem a opção 60 FPS, em 720p e em 1080p: a imagem fica mais fluida, bom para jogos. Ela usa mais da sua internet (até 4 Mbps em 720p e até 7,2 Mbps em 1080p); se a live travar, volte para 30 FPS.',
+    ],
+  },
+  {
     versao: '2026-10-18',
     data: '2026-10-18',
     titulo: 'Assistir Junto e lateral mais curta',

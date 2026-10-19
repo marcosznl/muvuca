@@ -29,14 +29,20 @@ async function serverVersion() {
   } catch { return null; }
 }
 
-// Abrindo o Muvuca: confere a versão; se mudou, esvazia o cache antes de carregar
-async function onNavigate(request) {
-  const cache = await caches.open(CACHE);
+// Versão nova no servidor: esvazia o cache antes de carregar. Devolve [versão guardada, versão do servidor]
+async function checkVersion(cache) {
   const [have, now] = await Promise.all([cachedVersion(cache), serverVersion()]);
   if (now && now !== have) {
     for (const k of await cache.keys()) await cache.delete(k);
     await cache.put(VERSION_KEY, new Response(now));
   }
+  return [have, now];
+}
+
+// Abrindo o Muvuca: confere a versão; se mudou, esvazia o cache antes de carregar
+async function onNavigate(request) {
+  const cache = await caches.open(CACHE);
+  const [have, now] = await checkVersion(cache);
   if (now && now === have) {
     const hit = await cache.match('/');
     if (hit) return hit;
@@ -48,6 +54,14 @@ async function onNavigate(request) {
   } catch {
     return (await cache.match('/')) ?? Response.error(); // sem internet: a última versão guardada
   }
+}
+
+// Sala de tela do bot do Discord (/tela/...): usa os mesmos scripts do site, então confere a versão como ao abrir
+// o Muvuca (sem isso, a página nova rodava com os scripts velhos guardados e travava em "Carregando…").
+// A página em si não fica guardada: cada sala tem o seu endereço.
+async function onScreenRoom(request) {
+  await checkVersion(await caches.open(CACHE));
+  return fetch(request);
 }
 
 // Arquivos do site: do aparelho quando já tem (a versão foi conferida ao abrir); senão busca e guarda
@@ -66,6 +80,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
   if (req.mode === 'navigate' && (url.pathname === '/' || url.pathname === '/index.html')) { e.respondWith(onNavigate(req)); return; }
+  if (req.mode === 'navigate' && url.pathname.startsWith('/tela/')) { e.respondWith(onScreenRoom(req)); return; }
   if (STATIC.test(url.pathname)) e.respondWith(onStatic(req));
 });
 

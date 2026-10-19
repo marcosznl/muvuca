@@ -59,7 +59,7 @@ Tudo em português do Brasil.
 - Notificações no celular: o site pode ser instalado na Tela de Início do iPhone e do Android.
 
 **Bot do Discord: salas de tela**
-- O comando `/tela` no Discord cria uma sala para compartilhar a tela pelo navegador, com um link único. Quem abre entra com a conta do Discord (só membros do servidor onde a sala foi criada), sem precisar de conta no Muvuca. Veja [Bot do Discord](#bot-do-discord-salas-de-tela).
+- O comando `/tela` no Discord cria uma sala para compartilhar a tela e a câmera pelo navegador, com um link único. Quem abre entra com a conta do Discord (só membros do servidor onde a sala foi criada), sem precisar de conta no Muvuca. Veja [Bot do Discord](#bot-do-discord-salas-de-tela).
 
 **Para quem administra**
 - Um painel à parte, com quem está online, calls e lives, uso do computador e da internet, histórico de quedas, auditoria, erros do site, gerenciamento de contas e servidores, backup e atualização com um clique. Veja [Painel de administração](#painel-de-administração).
@@ -353,7 +353,7 @@ Copie de volta os arquivos de configuração do painel que estavam em `data-ante
 
 ## Bot do Discord: salas de tela
 
-O Muvuca pode ser um bot do Discord com o comando `/tela`. Quem usa o comando recebe no canal um link para uma sala só de compartilhar a tela: dá para assistir e mostrar a própria tela pelo navegador, com o som da tela, sem microfone, câmera nem chat. Quem abre o link entra com a conta do Discord e aparece com o apelido e a foto do servidor; só membros do servidor onde a sala foi criada entram. A sala fecha sozinha depois de 5 minutos vazia. No celular dá só para assistir (o navegador do celular não compartilha a tela).
+O Muvuca pode ser um app do Discord com o comando `/tela` (só o comando, sem um bot na lista de membros). Quem usa o comando recebe no canal um link para uma sala de compartilhar a tela pelo navegador, com os mesmos quadros e controles da call do Muvuca: transmitir a tela escolhendo a qualidade (720p ou 1080p, 15, 30 ou 60 FPS, com ou sem som), ligar e virar a câmera, volume do som de cada tela, tela cheia, janela flutuante, destaque, faixa de participantes e o painel de qualidade. Não tem microfone nem chat. Quem abre o link entra com a conta do Discord e aparece com o apelido e a foto do servidor; só membros do servidor onde a sala foi criada entram. A sala fecha sozinha depois de 5 minutos vazia. No celular dá para assistir e ligar a câmera, mas não compartilhar a tela (o navegador do celular não deixa).
 
 O próprio servidor do Muvuca responde aos comandos (`src/bot-discord.js`): não há processo à parte nem conexão permanente com o Discord. As salas ficam na memória, então reiniciar o Muvuca encerra as salas abertas.
 
@@ -366,10 +366,10 @@ O próprio servidor do Muvuca responde aos comandos (`src/bot-discord.js`): não
 2. Em **OAuth2 → Redirects**, adicione `https://seu-dominio:8443/tela/callback` (o mesmo endereço de "Link para os amigos").
 3. Reinicie o Muvuca (`./server.sh reiniciar`). Ao subir, ele cadastra o `/tela` no Discord.
 4. Em **General Information → Interactions Endpoint URL**, preencha `https://seu-dominio:8443/discord/interacoes` e salve. O Discord testa o endereço na hora, por isso o Muvuca já precisa estar no ar com as chaves novas.
-5. Adicione o bot ao servidor do Discord (troque `ID` pelo Application ID). Ele não pede nenhuma permissão; precisa estar no servidor só para o Muvuca saber o nome do servidor:
+5. Adicione o app ao servidor do Discord (troque `ID` pelo Application ID). Ele entra só com os comandos, sem virar membro (não aparece na lista de membros nem fica "offline"); o nome do servidor vem do login de quem abre a sala:
 
 ```
-https://discord.com/oauth2/authorize?client_id=ID&scope=bot+applications.commands&permissions=0
+https://discord.com/oauth2/authorize?client_id=ID&scope=applications.commands
 ```
 
 ---

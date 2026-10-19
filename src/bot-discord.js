@@ -1,6 +1,7 @@
-// Bot "Muvuca" do Discord: o próprio servidor responde aos comandos. No portal do Discord, o
+// App "Muvuca" do Discord: o próprio servidor responde aos comandos. No portal do Discord, o
 // "Interactions Endpoint URL" da aplicação aponta para /discord/interacoes; sem conexão permanente
-// com o Discord nem processo à parte.
+// com o Discord nem processo à parte. É um app (só comandos), não um bot: não entra como membro no servidor.
+// O token do bot da aplicação só serve para cadastrar os comandos ao subir.
 // Comando: /tela, que cria uma sala de tela (src/tela.js) e publica o link no canal.
 import crypto from 'node:crypto';
 import { DISCORD_API, DISCORD_CLIENT_ID, DISCORD_PUBLIC_KEY, DISCORD_BOT_TOKEN } from './config.js';
@@ -46,23 +47,6 @@ function assinaturaValida(req, corpo) {
   return crypto.verify(null, Buffer.concat([Buffer.from(quando), corpo]), chave, Buffer.from(assinatura, 'hex'));
 }
 
-// O Discord não manda o nome do servidor na interação: busca uma vez e guarda
-const nomesServidor = new Map();
-async function nomeDoServidor(id) {
-  if (nomesServidor.has(id)) return nomesServidor.get(id);
-  if (!DISCORD_BOT_TOKEN) return 'Discord';
-  try {
-    // O Discord só espera 3 s pela resposta do comando: desiste rápido
-    const r = await fetch(`${DISCORD_API}/guilds/${id}`, { headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` }, signal: AbortSignal.timeout(1500) });
-    const servidor = r.ok ? await r.json() : null;
-    if (servidor?.name) {
-      nomesServidor.set(id, servidor.name);
-      return servidor.name;
-    }
-  } catch { /* fica com o nome genérico */ }
-  return 'Discord';
-}
-
 const aviso = (texto) => ({ type: 4, data: { content: texto, flags: EFEMERA } });
 
 async function comandoTela(i) {
@@ -70,7 +54,7 @@ async function comandoTela(i) {
   if (!i.guild_id || !user) return aviso('Use o /tela dentro de um servidor.');
   let sala;
   try {
-    sala = criarSala({ guildId: i.guild_id, guildName: await nomeDoServidor(i.guild_id), userId: user.id });
+    sala = criarSala({ guildId: i.guild_id, userId: user.id });
   } catch (err) {
     return aviso(err.message); // limite de salas
   }
@@ -86,7 +70,7 @@ async function comandoTela(i) {
           {
             type: 10, // texto
             content: `## Sala de tela\n<@${user.id}> abriu uma sala para compartilhar a tela.\n`
-              + 'Entre pelo navegador com a sua conta do Discord: dá para assistir e mostrar a sua tela. Só membros deste servidor entram.\n'
+              + 'Entre pelo navegador com a sua conta do Discord: dá para assistir, mostrar a sua tela e ligar a câmera. Só membros deste servidor entram.\n'
               + '-# A sala fecha sozinha depois de 5 minutos vazia.',
           },
           { type: 1, components: [{ type: 2, style: 5, label: 'Entrar na sala', url: sala.link }] },

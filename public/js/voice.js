@@ -1,15 +1,17 @@
 // Canais de voz: conexão LiveKit, quadros de vídeo, volumes, indicador de fala, ping e painel de qualidade
 import { $, h, store, makeAvatar, showBanner, toast } from './util.js';
 import { icon } from './icons.js';
-import { openModal, button, contextMenu, confirmDialog } from './dialogs.js';
+import { openModal, contextMenu, confirmDialog } from './dialogs.js';
 import { avatarOf } from './state.js';
 import { state, findChannel, canIn, PERMS, rememberedTextChannel } from './state.js';
 import { api, send, request } from './net.js';
 import { selectChannel } from './app.js';
 import { renderChannels, renderUserPanel, renderVoicePanel } from './sidebar.js';
 import { applyVolume as applyMusicVolume } from './music.js';
+// Qualidades da câmera e da tela e a janela "Transmitir tela": as mesmas da sala de tela do bot do Discord
+import { CAN_BOOST, MAX_PERSON_VOLUME, CAMERA_VIDEO, STREAM_AUDIO, screenShareOptions, lockScreenQuality, openScreenDialog } from './transmissao.js';
 
-const { Room, RoomEvent, Track, VideoPresets, VideoQuality, ConnectionQuality, AudioPresets, DisconnectReason } = LivekitClient;
+const { Room, RoomEvent, Track, VideoPresets, VideoQuality, ConnectionQuality, DisconnectReason } = LivekitClient;
 
 // Áudio em alta fidelidade (Opus). O padrão do LiveKit é 48 kbps com DTX, que corta o início das falas.
 // A taxa de bits da voz vem da configuração do canal (padrão 128 kbps)
@@ -71,37 +73,6 @@ export function setNoiseAi(on) {
   applyNoiseFilter();
 }
 
-// Câmera: 720p30 com até 2,5 Mbps; quem vê em quadro pequeno recebe as camadas menores (180p/360p)
-const CAMERA_VIDEO = {
-  videoEncoding: { maxBitrate: 2_500_000, maxFramerate: 30 },
-  videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360],
-};
-const STREAM_AUDIO = {
-  audioPreset: AudioPresets.musicHighQualityStereo, // som da live em estéreo a 128 kbps (jogos, música, vídeos)
-  forceStereo: true,
-  dtx: false,
-};
-
-// Qualidades de transmissão de tela (resolução + bitrate máximo)
-// Opções da janela "Transmitir tela": resolução (bitrate base a 30 FPS) e quadros por segundo.
-// Teto: 1080p a 30 FPS (decisão do dono: cada pessoa assistindo usa o upload do servidor; acima disso pesa demais)
-// Cada resolução leva cópias menores ("degraus"): quando a internet de alguém aperta, ele cai um degrau só
-// (1080p → 720p → 360p) em vez de despencar direto para uma imagem ruim
-// Qualidade fixa: quem transmite escolhe e é essa que todo mundo recebe (uma versão só, sem degraus menores)
-const SCREEN_RES = {
-  '720': { label: '720p', width: 1280, height: 720, bitrate: 2_500_000 },
-  '1080': { label: '1080p', width: 1920, height: 1080, bitrate: 4_500_000 },
-};
-// Multiplicador do bitrate por FPS: o dobro de quadros não precisa do dobro de dados (quadros seguidos se parecem)
-const SCREEN_FPS = { 15: 0.6, 30: 1 };
-const screenBitrate = (res, fps) => Math.round(SCREEN_RES[res].bitrate * SCREEN_FPS[fps]);
-
-const IS_SAFARI = /^((?!chrome|chromium|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent);
-
-// Volume acima de 100% (até 200%, como no Discord): o som de cada pessoa passa por um amplificador (Web Audio).
-// Só onde o navegador também deixa escolher o fone nesse modo (Chrome, Edge, Opera); no Safari/Firefox fica até 100%.
-export const CAN_BOOST = !IS_SAFARI && typeof AudioContext !== 'undefined' && 'setSinkId' in AudioContext.prototype;
-export const MAX_PERSON_VOLUME = CAN_BOOST ? 2 : 1;
 let callCtx = null; // um só para a página; "ensurdecer" pausa ele
 function callAudioContext() {
   if (!CAN_BOOST) return null;
@@ -833,73 +804,19 @@ $('btn-screen').onclick = async () => {
     await lp.setScreenShareEnabled(false);
     updateMediaButtons();
     renderStage();
-  } else openScreenDialog();
+  } else openScreenDialog({ onStart: startScreenShare, audioNote: windowsAudioNote });
 };
 
-// Janela antes de transmitir (como o "Ao vivo" do Discord): resolução, FPS e som
-function openScreenDialog() {
-  const saved = (() => { try { return JSON.parse(store.get('screenOptions')) ?? {}; } catch { return {}; } })();
-  const opts = {
-    res: SCREEN_RES[saved.res] ? saved.res : '1080',
-    fps: SCREEN_FPS[saved.fps] ? Number(saved.fps) : 30,
-    audio: saved.audio ?? true,
-  };
-  const body = h('div', 'screen-dialog');
-  const group = (title, entries, key) => {
-    const box = h('div', 'seg-group');
-    const row = h('div', 'seg');
-    for (const [value, label, sub] of entries) {
-      const b = h('button', 'seg-btn');
-      b.type = 'button';
-      b.append(h('strong', '', label));
-      if (sub) b.append(h('span', '', sub));
-      b.onclick = () => { opts[key] = key === 'fps' ? Number(value) : value; refresh(); };
-      b.dataset.value = value;
-      row.append(b);
-    }
-    box.append(h('span', 'field-label', title), row);
-    body.append(box);
-    return row;
-  };
-  const resRow = group('Resolução', Object.entries(SCREEN_RES).map(([k, r]) => [k, r.label, r.hint ?? `${r.width}×${r.height}`]), 'res');
-  const fpsRow = group('Quadros por segundo', Object.keys(SCREEN_FPS).map((f) => [f, `${f} FPS`, { 15: 'mais leve', 30: 'padrão' }[f]]), 'fps');
-  const audioLabel = h('label', 'check-row');
-  const audioBox = h('input');
-  audioBox.type = 'checkbox';
-  audioLabel.append(audioBox, h('span', '', IS_SAFARI ? 'Transmitir o som (o Safari não envia som de tela; use Chrome ou Edge)' : 'Transmitir o som também'));
-  // App do Windows: Windows 10 (2020+) e 11 mandam só o som do programa da janela; os mais antigos, o do computador todo
-  if (desktop?.platform === 'win32') {
-    const note = h('span', 'muted small', '');
-    audioLabel.append(note);
-    desktop.appAudioSupported?.().then((ok) => {
-      note.textContent = ok ? ' — só o som do programa da janela (a call não vai junto). Na tela inteira: tudo menos a call.'
-        : ' — este Windows manda todo o som do computador. Se a galera ouvir a call de volta, desmarque.';
-    }).catch(() => {});
-  }
-  audioBox.onchange = () => { opts.audio = audioBox.checked; };
-  const summary = h('p', 'muted small screen-summary');
-  body.append(audioLabel, summary);
-
-  const refresh = () => {
-    for (const b of resRow.children) b.classList.toggle('selected', b.dataset.value === opts.res);
-    for (const b of fpsRow.children) b.classList.toggle('selected', Number(b.dataset.value) === opts.fps);
-    audioBox.checked = opts.audio && !IS_SAFARI;
-    audioBox.disabled = IS_SAFARI;
-    const mbps = (screenBitrate(opts.res, opts.fps) / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
-    summary.textContent = `Usa até ${mbps} Mbps do seu upload. Qualidade máxima do servidor: 1080p a 30 FPS.`;
-  };
-  refresh();
-
-  const go = button('Transmitir');
-  const cancel = button('Cancelar', { kind: 'link' });
-  const modal = openModal({ title: 'Transmitir tela', subtitle: 'Escolha a qualidade; depois o navegador pergunta qual tela ou janela mostrar.', content: body, actions: [cancel, go] });
-  cancel.onclick = () => modal.close();
-  go.onclick = () => {
-    store.set('screenOptions', JSON.stringify(opts));
-    modal.close();
-    startScreenShare(opts);
-  };
-  setTimeout(() => go.focus(), 0);
+// Janela antes de transmitir (transmissao.js). App do Windows: Windows 10 (2020+) e 11 mandam só o som do
+// programa da janela; os mais antigos, o do computador todo
+function windowsAudioNote(audioLabel) {
+  if (desktop?.platform !== 'win32') return;
+  const note = h('span', 'muted small', '');
+  audioLabel.append(note);
+  desktop.appAudioSupported?.().then((ok) => {
+    note.textContent = ok ? ' — só o som do programa da janela (a call não vai junto). Na tela inteira: tudo menos a call.'
+      : ' — este Windows manda todo o som do computador. Se a galera ouvir a call de volta, desmarque.';
+  }).catch(() => {});
 }
 
 // ---------- App do Mac: som da live (só o app da janela transmitida, via ScreenCaptureKit) ----------
@@ -949,45 +866,9 @@ async function startScreenShare({ res, fps, audio }) {
   // App do Mac: o som vem pelo ScreenCaptureKit (o app começa ao escolher a janela)
   // App do Mac: o som vem pelo ScreenCaptureKit; app do Windows: pelo som do sistema (loopback)
   if (desktop?.wantAppAudio) desktop.wantAppAudio(!!audio && (desktop.platform !== 'darwin' || await desktop.appAudioSupported()));
-  const r = SCREEN_RES[res];
-  const bitrate = screenBitrate(res, fps);
   try {
-    await room.localParticipant.setScreenShareEnabled(
-      true,
-      {
-        // Som do sistema/aba (Chrome/Edge) sem os filtros de voz, que estragam música e som de jogo
-        audio: audio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } : false,
-        // O Safari reduz a captura (ex.: 640x416) quando recebe limites de resolução,
-        // então nele capturamos na resolução nativa e o bitrate/FPS controlam a qualidade.
-        resolution: IS_SAFARI ? undefined : { width: r.width, height: r.height, frameRate: fps },
-        contentHint: 'motion', // prioriza fluidez (jogos, vídeos)
-        selfBrowserSurface: 'exclude',
-      },
-      {
-        screenShareEncoding: { maxBitrate: bitrate, maxFramerate: fps, priority: 'high' },
-        // Uma versão só, na qualidade escolhida: ninguém recebe uma versão menor sem pedir
-        simulcast: false,
-        // H.264 costuma ser codificado pela placa de vídeo (VP8 usa o processador): muito mais leve durante jogos
-        videoCodec: 'h264',
-        // Resolução fixa: se o PC ou a internet apertarem, o navegador segura a nitidez (e não a troca sozinho)
-        degradationPreference: 'maintain-resolution',
-        ...STREAM_AUDIO,
-      },
-    );
-    // Onde o navegador aceita, trava também o FPS (nem resolução nem fluidez mudam sozinhas)
-    const sender = room.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track?.sender;
-    if (sender) {
-      try {
-        const params = sender.getParameters();
-        params.degradationPreference = 'maintain-framerate-and-resolution';
-        await sender.setParameters(params);
-      } catch { /* navegador antigo: fica com a resolução fixa */ }
-    }
-    // Safari captura na resolução nativa (ver acima): segura o teto de 1080p/30 depois de começar
-    if (IS_SAFARI) {
-      const track = room.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track?.mediaStreamTrack;
-      await track?.applyConstraints({ width: { max: 1920 }, height: { max: 1080 }, frameRate: { max: 30 } }).catch(() => {});
-    }
+    await room.localParticipant.setScreenShareEnabled(true, ...screenShareOptions({ res, fps, audio }));
+    await lockScreenQuality(room.localParticipant, fps);
   } catch (err) {
     if (err.name !== 'NotAllowedError') warnDevice('tela')(err); // NotAllowed = usuário cancelou
   }

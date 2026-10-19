@@ -5,83 +5,58 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <title>Sala de tela · Muvuca</title>
-  <!-- Sala avulsa só para compartilhar a tela, criada pelo bot do Discord (/tela). Ver src/tela.js -->
+  <!-- Sala avulsa para compartilhar a tela e a câmera, criada pelo bot Muvuca do Discord (/tela). Ver src/tela.js.
+       Usa os mesmos quadros e controles da call do site (style.css). -->
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/icons/icon-192.png" type="image/png">
+  <link rel="stylesheet" href="/style.css">
   <style>
-    :root {
-      color-scheme: dark;
-      --font: "Noto Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-      --bg-main: #313338;
-      --bg-side: #2b2d31;
-      --bg-dark: #1e1f22;
-      --tile: #232428;
-      --text: #dbdee1;
-      --text-strong: #f2f3f5;
-      --muted: #949ba4;
-      --accent: #5865f2;
-      --red: #f23f43;
-      --live: #ed4245;
+    body { display: flex; flex-direction: column; }
+    .tela-topo { flex: none; display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--bg-side); border-bottom: 1px solid var(--bg-dark); }
+    .tela-topo h1 { font-size: 16px; margin: 0; color: var(--text-strong); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tela-topo h1 span { color: var(--muted); font-weight: 400; }
+    .tela-pessoas { color: var(--muted); font-size: 13px; white-space: nowrap; }
+    .tela-aviso { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 24px 16px; text-align: center; }
+    .tela-aviso p { margin: 0; max-width: 420px; }
+    .tela-aviso a.btn { text-decoration: none; }
+    /* Foto do Discord no lugar da inicial colorida */
+    .tile img.avatar { object-fit: cover; background: var(--tile); }
+    /* Janela do sistema (por cima de outros programas), embaixo do botão de tela cheia */
+    .tile .pip {
+      position: absolute; right: 8px; top: 44px; padding: 6px; line-height: 0;
+      background: rgba(0,0,0,.6); border-radius: 6px; color: #fff;
     }
-    * { box-sizing: border-box; }
-    html, body { margin: 0; height: 100%; }
-    body { background: var(--bg-main); color: var(--text); font: 15px/1.4 var(--font); display: flex; flex-direction: column; }
-    [hidden] { display: none !important; }
-    button, a.botao { font: inherit; border: 0; border-radius: 6px; padding: 9px 16px; cursor: pointer; color: #fff; background: var(--accent); text-decoration: none; display: inline-block; }
-    button:disabled { opacity: .6; cursor: default; }
-    button.secundario { background: #4e5058; }
-    button.perigo { background: var(--red); }
-
-    header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--bg-side); border-bottom: 1px solid var(--bg-dark); flex-wrap: wrap; }
-    header h1 { font-size: 16px; margin: 0; color: var(--text-strong); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    header h1 span { color: var(--muted); font-weight: 400; }
-    .acoes { display: flex; gap: 8px; }
-
-    #aviso { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 24px 16px; text-align: center; }
-    #aviso p { margin: 0; max-width: 420px; }
-    #aviso .erro { color: var(--red); }
-
-    #sala { flex: 1; display: flex; min-height: 0; }
-    #palco { flex: 1; min-width: 0; padding: 16px; display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); align-content: start; overflow: auto; }
-    #palco.foco { grid-template-columns: 1fr; }
-    #palco .vazio { grid-column: 1 / -1; color: var(--muted); text-align: center; padding: 48px 0; }
-    .tela { position: relative; background: #000; border-radius: 8px; overflow: hidden; aspect-ratio: 16 / 9; cursor: pointer; }
-    .tela video { width: 100%; height: 100%; object-fit: contain; display: block; }
-    .tela .rotulo { position: absolute; left: 8px; bottom: 8px; background: rgb(0 0 0 / .65); color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 13px; }
-
-    #pessoas { width: 240px; background: var(--bg-side); padding: 16px 12px; overflow: auto; flex-shrink: 0; }
-    #pessoas h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .02em; color: var(--muted); margin: 0 0 8px; }
-    #pessoas ul { list-style: none; margin: 0; padding: 0; }
-    #pessoas li { display: flex; align-items: center; gap: 8px; padding: 6px 4px; }
-    #pessoas img { width: 32px; height: 32px; border-radius: 50%; background: var(--tile); flex-shrink: 0; }
-    #pessoas .nome { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-strong); }
-    .ao-vivo { background: var(--live); color: #fff; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; }
-
-    @media (max-width: 700px) {
-      #sala { flex-direction: column; overflow: auto; }
-      #palco { overflow: visible; }
-      #pessoas { width: auto; }
-    }
+    .tile .pip:hover { background: rgba(0,0,0,.8); }
   </style>
 </head>
 <body>
-  <header>
+  <header class="tela-topo">
     <h1>Sala de tela <span id="nome-sala"></span></h1>
-    <div class="acoes" id="acoes" hidden>
-      <button id="btn-tela">Compartilhar tela</button>
-      <button id="btn-sair" class="secundario">Sair</button>
-    </div>
+    <span id="pessoas" class="tela-pessoas"></span>
   </header>
 
-  <section id="aviso">
+  <!-- Avisos (som bloqueado, câmera sem permissão), os mesmos do site -->
+  <div id="banner" class="banner" hidden></div>
+
+  <section id="aviso" class="tela-aviso">
     <p>Carregando…</p>
   </section>
 
-  <main id="sala" hidden>
-    <section id="palco"></section>
-    <aside id="pessoas">
-      <h2>Na sala</h2>
-      <ul id="lista"></ul>
-    </aside>
-  </main>
+  <section id="sala" class="voice-view" hidden>
+    <div class="call-pane">
+      <div id="stage" class="stage"></div>
+      <footer class="controls">
+        <button id="btn-cam" class="ctrl round" title="Ligar câmera" data-icon="video-off"></button>
+        <button id="btn-flip" class="ctrl round" title="Virar câmera" data-icon="flip-camera" hidden></button>
+        <button id="btn-screen" class="ctrl round" title="Transmitir tela" data-icon="monitor-up"></button>
+        <button id="btn-stats" class="ctrl round" title="Mostrar qualidade" data-icon="bar-chart"></button>
+        <button id="btn-leave" class="ctrl round danger" title="Sair da sala" data-icon="phone-off"></button>
+      </footer>
+    </div>
+  </section>
+
+  <!-- Janelas e menus abrem aqui por cima de tudo -->
+  <div id="overlay-layer"></div>
 
   <script src="/livekit-client.js"></script>
   <script type="module" src="/js/tela.js"></script>

@@ -27,7 +27,7 @@ function discordFalso(port) {
     req.on('end', () => {
       pedidosDiscord.push({ metodo: req.method, url: req.url, auth: req.headers.authorization, corpo });
       if (req.method === 'PUT' && req.url === '/applications/cliente-teste/commands') return responder(200, JSON.parse(corpo));
-      if (req.url === `/guilds/${GUILD}`) return responder(200, { id: GUILD, name: 'Meu Servidor' });
+      if (req.url === `/guilds/${GUILD}`) return responder(500, { message: 'o app não usa o token do bot para isso' });
       if (req.url === '/oauth2/token') {
         const p = new URLSearchParams(corpo);
         if (p.get('client_secret') !== 'segredo-discord' || !['ok', 'fora'].includes(p.get('code'))) return responder(400, { error: 'invalid_grant' });
@@ -35,6 +35,7 @@ function discordFalso(port) {
       }
       const quem = String(req.headers.authorization ?? '').replace('Bearer acesso-', '');
       if (req.url === '/users/@me') return responder(200, { id: PESSOA, username: 'ana', global_name: 'Ana', avatar: 'abc' });
+      if (req.url === '/users/@me/guilds') return responder(200, [{ id: '999', name: 'Outro' }, { id: GUILD, name: 'Meu Servidor' }]);
       if (req.url === `/users/@me/guilds/${GUILD}/member`) {
         return quem === 'ok' ? responder(200, { nick: 'Ana do Servidor', avatar: null }) : responder(404, { message: 'Unknown Guild' });
       }
@@ -154,12 +155,12 @@ test('página da sala e ida para o login do Discord', async () => {
   const destino = new URL(ida.headers.get('location'));
   assert.equal(destino.origin, 'https://discord.com');
   assert.equal(destino.searchParams.get('client_id'), 'cliente-teste');
-  assert.equal(destino.searchParams.get('scope'), 'identify guilds.members.read');
+  assert.equal(destino.searchParams.get('scope'), 'identify guilds guilds.members.read');
   assert.ok(destino.searchParams.get('redirect_uri').endsWith('/tela/callback'));
   assert.ok(destino.searchParams.get('state'));
 });
 
-test('membro do servidor entra e recebe token só para compartilhar a tela', async () => {
+test('membro do servidor entra e recebe token só para a tela e a câmera (sem microfone)', async () => {
   const codigo = await criar('777777777777777777');
   assert.equal((await entrar(codigo)).status, 401, 'sem login não entra');
 
@@ -171,7 +172,8 @@ test('membro do servidor entra e recebe token só para compartilhar a tela', asy
 
   const res = await entrar(codigo, cookie);
   assert.equal(res.status, 200);
-  assert.equal(res.body.sala.nome, 'Meu Servidor', 'nome do servidor do Discord');
+  assert.equal(res.body.sala.nome, 'Meu Servidor', 'nome do servidor, da lista de servidores de quem entrou');
+  assert.ok(!pedidosDiscord.some((p) => p.url.startsWith('/guilds/')), 'o app não consulta o servidor com o token do bot');
   assert.equal(res.body.voce.nome, 'Ana do Servidor', 'usa o apelido do servidor');
   assert.equal(res.body.voce.avatar, `https://cdn.discordapp.com/avatars/${PESSOA}/abc.png?size=128`);
   const t = payload(res.body.token);
@@ -181,8 +183,9 @@ test('membro do servidor entra e recebe token só para compartilhar a tela', asy
   assert.equal(t.video.room, `tela-${codigo}`);
   assert.equal(t.video.canPublishData, false);
   const fontes = t.video.canPublishSources.map((x) => String(x).toLowerCase());
-  assert.equal(fontes.length, 2);
-  assert.ok(fontes.every((x) => x.includes('screen_share') || x === '3' || x === '4'), `fontes: ${fontes}`);
+  assert.equal(fontes.length, 3);
+  assert.ok(fontes.every((x) => x.includes('screen_share') || x.includes('camera') || ['1', '3', '4'].includes(x)), `fontes: ${fontes}`);
+  assert.ok(!fontes.some((x) => x.includes('microphone') || x === '2'), 'sem microfone');
 
   // O login vale só para esta sala
   const outra = await criar('777777777777777777');

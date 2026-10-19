@@ -1,4 +1,4 @@
-// Salas de tela: salas avulsas só para compartilhar a tela, criadas pelo bot Muvuca do Discord
+// Salas de tela: salas avulsas para compartilhar a tela e a câmera, criadas pelo bot Muvuca do Discord
 // (/tela, ver src/bot-discord.js).
 // Um link único por sala. Quem abre entra com a conta do Discord (só membros do servidor do Discord
 // onde a sala foi criada) e aparece com o nome e a foto de lá; ninguém precisa de conta no Muvuca.
@@ -21,14 +21,14 @@ const REDIRECT_URI = `${PUBLIC_URL}/tela/callback`;
 const ID_DISCORD = /^\d{5,25}$/;
 const CODIGO = /^[A-Za-z0-9_-]{12}$/;
 
-const salas = new Map();   // código -> { codigo, guildId, guildName, criador, ocupadaEm }
+const salas = new Map();   // código -> { codigo, guildId, guildName, criador, ocupadaEm } (guildName vem do 1º login)
 const logins = new Map();  // state do OAuth -> { sala, ate }
 const sessoes = new Map(); // cookie -> { sala, id, nome, avatar, ate }
 
 const nomeDaSala = (codigo) => `tela-${codigo}`;
 const aleatorio = (bytes) => crypto.randomBytes(bytes).toString('base64url');
 
-// Pedida pelo /tela do bot Muvuca
+// Pedida pelo /tela do app Muvuca. O Discord não manda o nome do servidor no comando: ele vem do primeiro login
 export function criarSala(b) {
   const guildId = String(b.guildId ?? ''), criador = String(b.userId ?? '');
   if (!ID_DISCORD.test(guildId) || !ID_DISCORD.test(criador)) throw new Error('Servidor ou pessoa do Discord inválidos.');
@@ -38,7 +38,7 @@ export function criarSala(b) {
   }
   if (abertas.length >= TOTAL) throw new Error('Muitas salas de tela abertas agora. Tente de novo daqui a pouco.');
   const codigo = aleatorio(9);
-  salas.set(codigo, { codigo, guildId, guildName: clean(b.guildName, 100) || 'Discord', criador, ocupadaEm: Date.now() });
+  salas.set(codigo, { codigo, guildId, guildName: '', criador, ocupadaEm: Date.now() });
   return { ok: true, codigo, link: `${PUBLIC_URL}/tela/${codigo}` };
 }
 
@@ -89,7 +89,8 @@ function entrarComDiscord(res, url) {
   logins.set(state, { sala, ate: Date.now() + LOGIN_MS });
   const params = new URLSearchParams({
     client_id: DISCORD_CLIENT_ID, response_type: 'code', redirect_uri: REDIRECT_URI,
-    scope: 'identify guilds.members.read', state, prompt: 'none', // quem já autorizou não vê a tela de novo
+    // guilds: a lista de servidores da pessoa traz o nome do servidor da sala (o app não fica dentro do servidor)
+    scope: 'identify guilds guilds.members.read', state, prompt: 'none', // quem já autorizou não vê a tela de novo
   });
   redirecionar(res, `https://discord.com/oauth2/authorize?${params}`);
 }
@@ -136,6 +137,11 @@ async function voltaDoDiscord(res, url) {
     if (m.status === 404) return voltar('membro');
     if (m.status !== 200) return voltar('discord');
     membro = m.corpo;
+    if (!sala.guildName) {
+      const servidores = await discord('/users/@me/guilds', auth);
+      const servidor = Array.isArray(servidores.corpo) ? servidores.corpo.find((g) => g.id === sala.guildId) : null;
+      if (servidor?.name) sala.guildName = clean(servidor.name, 100);
+    }
   } catch {
     return voltar('discord');
   }
@@ -161,7 +167,7 @@ export async function paginaTela(req, res, url) {
   return serveStatic(req, res, '/tela.html');
 }
 
-// POST /api/tela/entrar { sala }: token do LiveKit só para assistir e compartilhar a tela
+// POST /api/tela/entrar { sala }: token do LiveKit para assistir e compartilhar a tela e a câmera (sem microfone)
 export async function entrarNaSala(req) {
   const body = await readBody(req);
   const sala = salas.get(String(body.sala ?? ''));
@@ -178,7 +184,7 @@ export async function entrarNaSala(req) {
     roomJoin: true,
     canSubscribe: true,
     canPublish: true,
-    canPublishSources: [TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO],
+    canPublishSources: [TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO, TrackSource.CAMERA],
     canPublishData: false,
     canUpdateOwnMetadata: false,
   });
