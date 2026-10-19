@@ -43,8 +43,13 @@ fi
 pids=()
 trap 'kill $pids 2>/dev/null' EXIT INT TERM
 
+# Configuração do LiveKit com o domínio e a pasta dos certificados do Caddy preenchidos (livekit.yaml é o modelo)
+mkdir -p logs
+CADDY_CERTS="${CADDY_CERTS:-$HOME/Library/Application Support/Caddy/certificates/acme-v02.api.letsencrypt.org-directory}"
+sed -e "s|__DOMAIN__|$DOMAIN|g" -e "s|__CADDY_CERTS__|$CADDY_CERTS|g" livekit.yaml > logs/livekit.yaml
+
 # Voz (LiveKit) numa função: o painel pode pedir para reiniciar só ela (ver o laço lá embaixo)
-lk_config=livekit.yaml
+lk_config=logs/livekit.yaml
 lk_pid=
 start_livekit() {
   LIVEKIT_KEYS="$LIVEKIT_API_KEY: $LIVEKIT_API_SECRET" \
@@ -56,8 +61,7 @@ start_livekit() {
 # Modo local (./malegna-service.sh local): só neste Mac, em http://localhost:3000 — para testar
 # fora de casa. Sem HTTPS nem DNS, e a voz anuncia os IPs da rede local em vez do IP público.
 if [[ -f .modo-local ]]; then
-  mkdir -p logs
-  sed 's/use_external_ip: true/use_external_ip: false/' livekit.yaml > logs/livekit-local.yaml
+  sed 's/use_external_ip: true/use_external_ip: false/' logs/livekit.yaml > logs/livekit-local.yaml
   lk_config=logs/livekit-local.yaml
   start_livekit
   unset LIVEKIT_URL # o app entrega ws://localhost:7880 para quem abre pelo localhost
