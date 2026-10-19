@@ -10,6 +10,7 @@ const listen = (channel) => (cb) => {
 
 contextBridge.exposeInMainWorld('muvucaDesktop', {
   isDesktop: true,
+  chooseServer: () => ipcRenderer.send('server:choose'), // desde a 1.4.9: janela "Endereço do servidor"
   opensFiles: true, // desde a 1.4.5: "nova aba" com arquivo do Muvuca abre no navegador
   platform: process.platform,
   macLook: process.platform === 'darwin', // desde a 1.4.7: janela translúcida com cara de app do Mac

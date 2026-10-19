@@ -11,6 +11,7 @@ export const NOVIDADES = [
     data: '2026-10-18',
     titulo: 'Assistir Junto e lateral mais curta',
     itens: [
+      'App do computador 1.4.9: no menu Muvuca → Endereço do servidor dá para digitar o endereço de qualquer Muvuca (para quem montou o próprio servidor). Quem usa o nosso não precisa mexer em nada.',
       'App do Mac 1.4.8: o ícone do M saiu da barra de menus (lá em cima, perto do relógio). O Muvuca continua no Dock; com o botão direito no ícone do Dock dá para silenciar o microfone. O app se atualiza sozinho.',
       'Na lateral, os itens agora se chamam Amigos, Jogos e Assistir Junto. Jogos abre direto a página dos jogos, sem lista embaixo.',
       'Assistir Junto são as salas de música (com a cabine de DJ), agora com página própria, como a dos jogos, logo abaixo de "Jogos". Elas não ficam mais dentro de um servidor: são de todo mundo do Muvuca.',

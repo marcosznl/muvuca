@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Endereço do servidor</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 22px; font: 14px -apple-system, "Noto Sans", sans-serif; background: #2b2d31; color: #dbdee1; }
+  h1 { margin: 0 0 6px; font-size: 18px; color: #f2f3f5; }
+  p { margin: 0 0 16px; color: #949ba4; font-size: 13px; line-height: 1.45; }
+  label { display: block; font-size: 12px; font-weight: 700; color: #b5bac1; margin-bottom: 6px; }
+  input { width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid #1e1f22; background: #1e1f22; color: #f2f3f5; font: inherit; }
+  input:focus { outline: 2px solid #5865f2; }
+  .err { color: #f23f43; font-size: 13px; min-height: 18px; margin: 8px 0 0; }
+  .links { display: flex; gap: 14px; margin-top: 10px; }
+  .links button { background: none; border: 0; padding: 0; color: #00a8fc; font: inherit; font-size: 13px; cursor: pointer; }
+  .links button:hover { text-decoration: underline; }
+  footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+  footer button { border: 0; border-radius: 6px; padding: 9px 16px; font: inherit; font-weight: 600; cursor: pointer; }
+  #cancel { background: none; color: #dbdee1; }
+  #save { background: #5865f2; color: #fff; }
+  #save:disabled { opacity: .6; cursor: default; }
+</style>
+</head>
+<body>
+  <h1>Endereço do servidor</h1>
+  <p>O app abre o Muvuca deste endereço. Quem montou o próprio servidor coloca aqui o link dele (o mesmo que abre no navegador).</p>
+  <form id="form">
+    <label for="url">Endereço</label>
+    <input id="url" placeholder="https://seu-dominio:8443" autocomplete="off" spellcheck="false">
+    <div class="err" id="err"></div>
+    <div class="links">
+      <button type="button" id="default">Usar o padrão do app</button>
+      <button type="button" id="local">Neste computador (localhost)</button>
+    </div>
+    <footer>
+      <button type="button" id="cancel">Cancelar</button>
+      <button type="submit" id="save">Usar este endereço</button>
+    </footer>
+  </form>
+<script>
+  const $ = (id) => document.getElementById(id);
+  let info = {};
+  window.servidor.info().then((i) => { info = i; $('url').value = i.current; $('url').select(); });
+  $('default').onclick = () => { $('url').value = info.default; $('url').focus(); };
+  $('local').onclick = () => { $('url').value = 'http://localhost:3000'; $('url').focus(); };
+  $('cancel').onclick = () => window.servidor.close();
+  $('form').onsubmit = async (e) => {
+    e.preventDefault();
+    $('err').textContent = '';
+    $('save').disabled = true;
+    $('save').textContent = 'Procurando o Muvuca…';
+    const r = await window.servidor.save($('url').value);
+    if (r?.error) {
+      $('err').textContent = r.error;
+      $('save').disabled = false;
+      $('save').textContent = 'Usar este endereço';
+    }
+  };
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.servidor.close(); });
+</script>
+</body>
+</html>

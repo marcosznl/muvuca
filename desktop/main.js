@@ -2,7 +2,7 @@
 // apertar para falar com o app em segundo plano, ícone na barra de menus, contador no Dock,
 // notificações nativas, abrir junto com o Mac e escolher tela/janela para a live.
 const {
-  app, BrowserWindow, Menu, Tray, Notification, desktopCapturer, ipcMain, nativeImage, nativeTheme, powerSaveBlocker, session, shell, systemPreferences,
+  app, BrowserWindow, Menu, Tray, Notification, desktopCapturer, ipcMain, nativeImage, nativeTheme, net, powerSaveBlocker, session, shell, systemPreferences,
 } = require('electron');
 const path = require('node:path');
 const os = require('node:os');
@@ -14,7 +14,7 @@ const IS_MAC = process.platform === 'darwin';
 const IS_WIN = process.platform === 'win32';
 if (IS_WIN) app.setAppUserModelId('br.malegna.muvuca'); // notificações do Windows com o nome e o ícone certos
 
-// Endereço do servidor: o link público por padrão; dá para trocar no menu (ex.: http://localhost:3000 em casa)
+// Endereço do servidor: este por padrão; no menu "Endereço do servidor…" dá para usar qualquer Muvuca (o próprio, ou localhost)
 const DEFAULT_URL = 'https://seu-dominio.duckdns.org:8443';
 const settingsFile = () => path.join(app.getPath('userData'), 'configuracoes.json');
 function loadSettings() {
@@ -421,24 +421,55 @@ function buildTray() {
   ]));
 }
 
-async function chooseServer() {
-  const { dialog } = require('electron');
-  const choices = [DEFAULT_URL, 'http://localhost:3000'];
-  const current = choices.indexOf(settings.url);
-  const r = await dialog.showMessageBox(win, {
-    type: 'question',
-    message: 'Qual endereço do Muvuca abrir?',
-    detail: 'O link público funciona de qualquer lugar. O "localhost" só neste Mac, com o servidor rodando nele (útil fora de casa, no modo local).',
-    buttons: ['Link público', 'Neste Mac (localhost)', 'Cancelar'],
-    defaultId: current >= 0 ? current : 0,
-    cancelId: 2,
+// Janela "Endereço do servidor": qualquer Muvuca (quem montou o próprio servidor coloca o link dele).
+// Antes de trocar, confere se responde como um Muvuca (/health), para não deixar o app numa página de erro.
+let serverWin = null;
+function normalizeServer(raw) {
+  let text = String(raw ?? '').trim();
+  if (!text) throw new Error('Digite o endereço.');
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text) && !/^https?:\/\//i.test(text)) throw new Error('O endereço precisa começar com https://');
+  if (!/^https?:\/\//i.test(text)) text = (/^(localhost|127\.|\[::1\]|192\.168\.|10\.)/.test(text) ? 'http://' : 'https://') + text;
+  let url;
+  try { url = new URL(text); } catch { throw new Error('Esse endereço não parece um link. Exemplo: https://seu-dominio:8443'); }
+  if (!/^https?:$/.test(url.protocol)) throw new Error('O endereço precisa começar com https://');
+  return url.origin;
+}
+function chooseServer() {
+  if (serverWin && !serverWin.isDestroyed()) return serverWin.focus();
+  serverWin = new BrowserWindow({
+    parent: win ?? undefined,
+    modal: !!win,
+    width: 500,
+    height: 330,
+    resizable: false,
+    minimizable: false,
+    title: 'Endereço do servidor',
+    backgroundColor: '#2b2d31',
+    webPreferences: { preload: path.join(__dirname, 'server-preload.js'), contextIsolation: true, sandbox: true },
   });
-  if (r.response > 1) return;
-  settings.url = choices[r.response];
+  serverWin.setMenu(null);
+  serverWin.on('closed', () => { serverWin = null; });
+  serverWin.loadFile(path.join(__dirname, 'server.html'));
+}
+ipcMain.handle('server:info', () => ({ current: settings.url, default: DEFAULT_URL }));
+ipcMain.on('server:close', () => serverWin?.close());
+ipcMain.on('server:choose', () => chooseServer());
+ipcMain.handle('server:save', async (_e, raw) => {
+  let next;
+  try { next = normalizeServer(raw); } catch (err) { return { error: err.message }; }
+  try {
+    const res = await net.fetch(`${next}/health`, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error(String(res.status));
+  } catch {
+    return { error: `Não encontrei um Muvuca em ${next}. Confira o endereço e se o servidor está ligado.` };
+  }
+  settings.url = next;
   saveSettings();
   setupPermissions();
   win?.loadURL(settings.url);
-}
+  serverWin?.close();
+  return { ok: true };
+});
 
 function buildMenu() {
   const macOnly = (items) => (IS_MAC ? items : []);

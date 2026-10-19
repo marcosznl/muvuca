@@ -354,7 +354,9 @@ O site funciona em qualquer navegador e pode ser instalado no celular. Para o co
 - abrir junto com o computador;
 - atualização automática.
 
-O app abre o endereço definido em `DEFAULT_URL`, no começo de `desktop/main.js`. Para usar com o seu servidor, troque esse endereço antes de gerar o app. Pelo menu **Muvuca → Endereço do servidor…** também dá para trocar para `localhost`, no modo local.
+**Baixe pronto** na página de [Releases](https://github.com/marcosznl/muvuca/releases): `.dmg` para Mac (Apple Silicon ou Intel) e `.exe` para Windows. Ao abrir, use o menu **Muvuca → Endereço do servidor…** e digite o link do seu Muvuca, o mesmo que abre no navegador (por exemplo `https://seu-dominio:8443`). O app confere se existe um Muvuca nesse endereço antes de trocar, e se lembra dele nas próximas vezes. A mesma opção aparece na tela de "sem conexão".
+
+Se você mesmo for gerar o app para os seus amigos, troque o endereço padrão em `DEFAULT_URL`, no começo de `desktop/main.js`: assim ninguém precisa digitar nada.
 
 **Para gerar o app** (num Mac com as Ferramentas de Linha de Comando do Xcode: `xcode-select --install`):
 
@@ -370,7 +372,7 @@ Os instaladores do Mac (`.dmg`, para Apple Silicon e Intel) e do Windows (`.exe`
 brew install mingw-w64
 ```
 
-O app do Mac não é assinado pela Apple. Na primeira vez que abrir, o macOS avisa que não pode verificar o desenvolvedor. Para liberar: **Ajustes do Sistema → Privacidade e Segurança → Abrir Mesmo Assim** (no macOS 15 ou mais novo). Em versões anteriores, clique com o botão direito no app e escolha **Abrir**.
+O app do Mac requer **macOS 12 ou mais novo** (o som do programa na live precisa do 13) e não é assinado pela Apple. Na primeira vez que abrir, o macOS avisa que não pode verificar o desenvolvedor. Para liberar: tente abrir uma vez, depois vá em **Ajustes do Sistema → Privacidade e Segurança** e clique em **Abrir Mesmo Assim** (macOS 15 ou mais novo). Em versões anteriores, clique com o botão direito no app e escolha **Abrir**. No Windows, se aparecer o aviso do SmartScreen, clique em **Mais informações → Executar assim mesmo**.
 
 ---
 
