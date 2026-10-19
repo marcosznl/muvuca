@@ -221,3 +221,37 @@ test('sala vazia fecha sozinha', async () => {
   // A ida para o login de uma sala encerrada volta para a página (que mostra "encerrada")
   assert.equal((await semSeguir(`/tela/entrar?sala=${codigo}`)).headers.get('location'), `/tela/${codigo}`);
 });
+
+test('passe leva o login do navegador para o app do Muvuca (uma vez, só nesta sala)', async () => {
+  const codigo = await criar('121212121212121212');
+  const pedirPasse = (sala, cookie = '') => fetch(`${server.base}/api/tela/passe`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ sala }),
+  }).then(async (r) => ({ status: r.status, body: await r.json() }));
+  assert.equal((await pedirPasse(codigo)).status, 401, 'sem login não ganha passe');
+
+  const cookie = (await login(codigo, 'ok')).headers.get('set-cookie').split(';')[0];
+  const { status, body } = await pedirPasse(codigo, cookie);
+  assert.equal(status, 200);
+  assert.ok(body.passe);
+
+  // O app abre a sala com o passe: ganha um login próprio e volta para a página sem o passe no endereço
+  const app = await semSeguir(`/tela/${codigo}?passe=${body.passe}`);
+  assert.equal(app.status, 302);
+  assert.equal(app.headers.get('location'), `/tela/${codigo}`);
+  const cookieDoApp = app.headers.get('set-cookie').split(';')[0];
+  assert.notEqual(cookieDoApp, cookie);
+  const res = await entrar(codigo, cookieDoApp);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.voce.nome, 'Ana do Servidor');
+
+  // Usado uma vez: de novo não dá login
+  const deNovo = await semSeguir(`/tela/${codigo}?passe=${body.passe}`);
+  assert.equal(deNovo.headers.get('location'), `/tela/${codigo}`);
+  assert.equal(deNovo.headers.get('set-cookie'), null);
+
+  // Passe de uma sala não abre outra
+  const outra = await criar('121212121212121212');
+  const passe2 = (await pedirPasse(codigo, cookie)).body.passe;
+  assert.equal((await semSeguir(`/tela/${outra}?passe=${passe2}`)).headers.get('set-cookie'), null);
+  assert.equal((await semSeguir(`/tela/${codigo}?passe=inventado`)).headers.get('set-cookie'), null);
+});

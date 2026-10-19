@@ -15,6 +15,7 @@ const POR_PESSOA = 2;          // salas abertas ao mesmo tempo por pessoa do Dis
 const TOTAL = 20;              // salas abertas ao mesmo tempo no total
 const LOGIN_MS = 10 * 60_000;  // tempo para concluir o login no Discord
 const SESSAO_MS = 12 * 3_600_000;
+const PASSE_MS = 2 * 60_000;   // tempo para o app do Muvuca abrir a sala com o passe
 const COOKIE = 'tela';
 const SEGURO = PUBLIC_URL.startsWith('https:');
 const REDIRECT_URI = `${PUBLIC_URL}/tela/callback`;
@@ -24,6 +25,7 @@ const CODIGO = /^[A-Za-z0-9_-]{12}$/;
 const salas = new Map();   // código -> { codigo, guildId, guildName, criador, ocupadaEm } (guildName vem do 1º login)
 const logins = new Map();  // state do OAuth -> { sala, ate }
 const sessoes = new Map(); // cookie -> { sala, id, nome, avatar, ate }
+const passes = new Map();  // passe -> { sessao, ate }: leva o login do navegador para o app do Muvuca (vale uma vez)
 
 const nomeDaSala = (codigo) => `tela-${codigo}`;
 const aleatorio = (bytes) => crypto.randomBytes(bytes).toString('base64url');
@@ -58,6 +60,7 @@ async function verificarSalas() {
   }
   for (const [state, l] of logins) if (l.ate < agora) logins.delete(state);
   for (const [token, s] of sessoes) if (s.ate < agora) sessoes.delete(token);
+  for (const [passe, p] of passes) if (p.ate < agora) passes.delete(passe);
 }
 let verificando = false;
 setInterval(() => {
@@ -146,16 +149,35 @@ async function voltaDoDiscord(res, url) {
     return voltar('discord');
   }
 
-  const token = aleatorio(32);
-  sessoes.set(token, {
-    sala: sala.codigo,
-    id: user.id,
-    nome: clean(membro.nick || user.global_name || user.username, 64) || 'Alguém',
-    avatar: fotoDe(sala.guildId, user, membro),
-    ate: Date.now() + SESSAO_MS,
+  redirecionar(res, `/tela/${sala.codigo}`, {
+    'Set-Cookie': novaSessao({
+      sala: sala.codigo,
+      id: user.id,
+      nome: clean(membro.nick || user.global_name || user.username, 64) || 'Alguém',
+      avatar: fotoDe(sala.guildId, user, membro),
+    }),
   });
-  const cookie = `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSAO_MS / 1000}${SEGURO ? '; Secure' : ''}`;
-  redirecionar(res, `/tela/${sala.codigo}`, { 'Set-Cookie': cookie });
+}
+
+// Guarda a sessão e devolve o cookie dela
+function novaSessao({ sala, id, nome, avatar }) {
+  const token = aleatorio(32);
+  sessoes.set(token, { sala, id, nome, avatar, ate: Date.now() + SESSAO_MS });
+  return `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSAO_MS / 1000}${SEGURO ? '; Secure' : ''}`;
+}
+
+function sessaoDaSala(req, sala) {
+  const sessao = sessoes.get(cookieDe(req));
+  if (!sessao || sessao.sala !== sala.codigo || sessao.ate < Date.now()) throw new HttpError(401, 'Entre com o Discord para continuar.');
+  return sessao;
+}
+
+// GET /tela/<código>?passe=...: o app do Muvuca abre a sala já com o login feito no navegador
+function entrarComPasse(res, codigo, passe) {
+  const p = passes.get(passe);
+  passes.delete(passe); // cada passe vale uma vez
+  if (!p || p.ate < Date.now() || p.sessao.sala !== codigo || !salas.has(codigo)) return redirecionar(res, `/tela/${codigo}`);
+  redirecionar(res, `/tela/${codigo}`, { 'Set-Cookie': novaSessao(p.sessao) });
 }
 
 // GET /tela/...: login, volta do Discord e a página da sala
@@ -164,6 +186,8 @@ export async function paginaTela(req, res, url) {
   if (resto === 'entrar') return entrarComDiscord(res, url);
   if (resto === 'callback') return voltaDoDiscord(res, url);
   if (!CODIGO.test(resto)) throw new HttpError(404, 'Não encontrado');
+  const passe = url.searchParams.get('passe');
+  if (passe) return entrarComPasse(res, resto, passe);
   return serveStatic(req, res, '/tela.html');
 }
 
@@ -172,8 +196,7 @@ export async function entrarNaSala(req) {
   const body = await readBody(req);
   const sala = salas.get(String(body.sala ?? ''));
   if (!sala) throw new HttpError(404, 'Esta sala foi encerrada.');
-  const sessao = sessoes.get(cookieDe(req));
-  if (!sessao || sessao.sala !== sala.codigo || sessao.ate < Date.now()) throw new HttpError(401, 'Entre com o Discord para continuar.');
+  const sessao = sessaoDaSala(req, sala);
   sala.ocupadaEm = Date.now();
   const at = new AccessToken(API_KEY, API_SECRET, {
     identity: `discord-${sessao.id}`, name: sessao.nome, ttl: '6h',
@@ -195,4 +218,17 @@ export async function entrarNaSala(req) {
     sala: { nome: sala.guildName },
     voce: { id: sessao.id, nome: sessao.nome, avatar: sessao.avatar },
   };
+}
+
+// POST /api/tela/passe { sala }: passe de uso único para abrir a sala no app do Muvuca sem entrar de novo
+// com o Discord (o app tem cookies próprios, separados dos do navegador)
+export async function passeParaApp(req) {
+  const body = await readBody(req);
+  const sala = salas.get(String(body.sala ?? ''));
+  if (!sala) throw new HttpError(404, 'Esta sala foi encerrada.');
+  const sessao = sessaoDaSala(req, sala);
+  if (passes.size >= 1000) passes.delete(passes.keys().next().value);
+  const passe = aleatorio(24);
+  passes.set(passe, { sessao: { sala: sala.codigo, id: sessao.id, nome: sessao.nome, avatar: sessao.avatar }, ate: Date.now() + PASSE_MS });
+  return { passe };
 }

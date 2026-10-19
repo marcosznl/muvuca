@@ -9,8 +9,10 @@ export const NOVIDADES = [
   {
     versao: '2026-10-19',
     data: '2026-10-19',
-    titulo: 'Live a 60 FPS',
+    titulo: 'Live a 60 FPS e sala de tela sem o som do Discord',
     itens: [
+      'Sala de tela do Discord (/tela): o botão "Abrir no app do Muvuca" leva a sala para o app do computador (versão 1.5.0 ou mais nova), já com o seu login do Discord. Pelo app, a live manda só o som do jogo ou programa da janela que você escolher, e a conversa do Discord não vai junto. Na tela inteira, vai o som do computador sem o Discord.',
+      'Pelo navegador continua indo o som do computador todo quando você transmite a tela inteira, inclusive o Discord. A janela "Transmitir tela" da sala agora avisa isso.',
       'Na janela "Transmitir tela" agora tem a opção 60 FPS, em 720p e em 1080p: a imagem fica mais fluida, bom para jogos. Ela usa mais da sua internet (até 4 Mbps em 720p e até 7,2 Mbps em 1080p); se a live travar, volte para 30 FPS.',
     ],
   },

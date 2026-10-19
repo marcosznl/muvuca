@@ -9,7 +9,8 @@ import { selectChannel } from './app.js';
 import { renderChannels, renderUserPanel, renderVoicePanel } from './sidebar.js';
 import { applyVolume as applyMusicVolume } from './music.js';
 // Qualidades da câmera e da tela e a janela "Transmitir tela": as mesmas da sala de tela do bot do Discord
-import { CAN_BOOST, MAX_PERSON_VOLUME, CAMERA_VIDEO, STREAM_AUDIO, screenShareOptions, lockScreenQuality, openScreenDialog } from './transmissao.js';
+import { CAN_BOOST, MAX_PERSON_VOLUME, CAMERA_VIDEO, screenShareOptions, lockScreenQuality, openScreenDialog } from './transmissao.js';
+import { somDoApp } from './desktop-audio.js';
 
 const { Room, RoomEvent, Track, VideoPresets, VideoQuality, ConnectionQuality, DisconnectReason } = LivekitClient;
 
@@ -819,47 +820,10 @@ function windowsAudioNote(audioLabel) {
   }).catch(() => {});
 }
 
-// ---------- App do Mac: som da live (só o app da janela transmitida, via ScreenCaptureKit) ----------
-// O Electron não captura som no Mac; o app captura à parte e o site publica como o "som da live".
-let macAudio = null;       // { track, stop } da faixa publicada
-let macAudioRunning = false;
-let macAudioStarting = false;
-async function publishMacAppAudio() {
-  if (!room || macAudio || macAudioStarting || !macAudioRunning || !room.localParticipant.isScreenShareEnabled) return;
-  macAudioStarting = true;
-  try {
-    const { createAppAudioTrack } = await import('./desktop-audio.js');
-    macAudio = await createAppAudioTrack(desktop);
-    await room.localParticipant.publishTrack(macAudio.track, { source: Track.Source.ScreenShareAudio, ...STREAM_AUDIO });
-  } catch (err) {
-    console.warn('som da live (app do Mac)', err);
-    showBanner(`Não deu para transmitir o som: ${err.message}`, { timeout: 5000 });
-  } finally {
-    macAudioStarting = false;
-  }
-}
-function stopMacAppAudio() {
-  macAudioRunning = false;
-  desktop?.stopAppAudio?.();
-  if (!macAudio) return;
-  const a = macAudio;
-  macAudio = null;
-  room?.localParticipant.unpublishTrack(a.track).catch(() => {});
-  a.stop();
-}
-desktop?.onAppAudioState?.((s) => {
-  if (s.error) {
-    macAudioRunning = false;
-    const hint = desktop?.platform === 'win32' ? ' Se continuar, transmita a tela inteira (vai o som de tudo menos a call).'
-      : /permiss|not authorized|declined|TCC/i.test(s.error) ? ' Libere o Muvuca em Ajustes do Sistema → Privacidade e Segurança → Gravação de Tela e Áudio do Sistema.' : '';
-    showBanner(`A live está sem som: ${s.error}.${hint}`, { timeout: 9000 });
-    return;
-  }
-  if (s.info) toast(`Transmitindo ${s.info}`);
-  macAudioRunning = !!s.running;
-  if (s.running) publishMacAppAudio();
-  else if (macAudio) stopMacAppAudio();
-});
+// ---------- App do computador: som da live (só o programa da janela transmitida) ----------
+// O Electron não captura esse som; o app captura à parte e o site publica como o "som da live" (desktop-audio.js)
+const appAudio = somDoApp(desktop, { sala: () => room });
+const stopMacAppAudio = () => appAudio.parar();
 
 async function startScreenShare({ res, fps, audio }) {
   if (!room) return;
@@ -872,7 +836,7 @@ async function startScreenShare({ res, fps, audio }) {
   } catch (err) {
     if (err.name !== 'NotAllowedError') warnDevice('tela')(err); // NotAllowed = usuário cancelou
   }
-  publishMacAppAudio(); // o som do app pode ter ficado pronto antes da imagem
+  appAudio.publicar(); // o som do app pode ter ficado pronto antes da imagem
   updateMediaButtons();
   renderStage();
 }

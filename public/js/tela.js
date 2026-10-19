@@ -1,10 +1,14 @@
 // Página da sala de tela (tela.html): entra com o Discord, compartilha a tela e a câmera e assiste.
 // Mesmos quadros, controles e qualidades da call do site (voice.js e transmissao.js), sem microfone nem chat:
 // o token do servidor só permite tela e câmera (src/tela.js).
+// A galera conversa no Discord: no navegador, a tela inteira levaria o som do computador todo (o Discord junto).
+// Por isso a página oferece abrir a sala no app do Muvuca, que manda só o som do programa transmitido
+// (ou, na tela inteira, tudo menos o Discord).
 import { $, h, store, showBanner, hideBanner } from './util.js';
 import { icon, applyStaticIcons } from './icons.js';
 import { contextMenu } from './dialogs.js';
-import { CAN_BOOST, MAX_PERSON_VOLUME, CAMERA_VIDEO, screenShareOptions, lockScreenQuality, openScreenDialog } from './transmissao.js';
+import { CAN_BOOST, MAX_PERSON_VOLUME, CAMERA_VIDEO, IS_SAFARI, screenShareOptions, lockScreenQuality, openScreenDialog } from './transmissao.js';
+import { somDoApp } from './desktop-audio.js';
 
 const { Room, RoomEvent, Track, VideoPresets, VideoQuality, ConnectionQuality, DisconnectReason } = LivekitClient;
 
@@ -19,6 +23,8 @@ const ERROS = {
 
 const PODE_TELA = !!navigator.mediaDevices?.getDisplayMedia;   // celular: só assiste
 const PODE_CAMERA = !!navigator.mediaDevices?.getUserMedia;
+const desktop = window.muvucaDesktop;                            // aberta no app do Muvuca
+const isTouch = matchMedia('(pointer: coarse)').matches;
 
 let room = null;
 let pinnedKey = null;          // quadro em destaque (clique)
@@ -96,7 +102,11 @@ async function entrar() {
     .on(RoomEvent.TrackUnmuted, desenhar)
     .on(RoomEvent.LocalTrackPublished, desenhar)
     // Também quando a pessoa clica em "parar compartilhamento" na barra do navegador
-    .on(RoomEvent.LocalTrackUnpublished, () => { atualizarBotoes(); desenhar(); })
+    .on(RoomEvent.LocalTrackUnpublished, (pub) => {
+      if (pub.source === Track.Source.ScreenShare) { appAudio.parar(); silenciarOutros(false); }
+      atualizarBotoes();
+      desenhar();
+    })
     .on(RoomEvent.AudioPlaybackStatusChanged, () => {
       if (r === room && !r.canPlaybackAudio) {
         showBanner('O navegador bloqueou o som. Clique aqui para ativar.', { kind: 'info', onClick: () => { audioCtx?.resume(); r.startAudio(); } });
@@ -113,11 +123,15 @@ async function entrar() {
   $('sala').hidden = false;
   $('btn-screen').hidden = !PODE_TELA;
   $('btn-cam').hidden = !PODE_CAMERA;
+  $('btn-app').hidden = !!desktop || !PODE_TELA || isTouch;
   atualizarBotoes();
   desenhar();
 }
 
 function aoSair(motivo) {
+  appAudio.parar();
+  silenciarOutros(false);
+  $('btn-app').hidden = true;
   room = null;
   pinnedKey = null;
   for (const el of tiles.values()) el.remove();
@@ -126,19 +140,84 @@ function aoSair(motivo) {
   hideBanner();
   $('pessoas').textContent = '';
   if (motivo === DisconnectReason.ROOM_DELETED) return aviso('Esta sala foi encerrada. Peça um link novo no Discord com /tela.');
-  if (motivo === DisconnectReason.DUPLICATE_IDENTITY) return aviso('Você abriu esta sala em outra aba ou aparelho.', { botao: botaoEntrarDeNovo() });
+  if (motivo === DisconnectReason.DUPLICATE_IDENTITY) return aviso('Você abriu esta sala em outra aba, em outro aparelho ou no app do Muvuca.', { botao: botaoEntrarDeNovo() });
   if (motivo === DisconnectReason.CLIENT_INITIATED) return aviso('Você saiu da sala.', { botao: botaoEntrarDeNovo() });
   aviso('A conexão com a sala caiu.', { erro: true, botao: botaoEntrarDeNovo() });
 }
 
 $('btn-leave').onclick = () => room?.disconnect();
 
+// ---------- Abrir no app do Muvuca ----------
+// O app tem login próprio: o servidor dá um passe de uso único e o app abre a sala já com o Discord conectado.
+// Quando o app entra, esta aba sai da sala (a mesma pessoa não fica duas vezes).
+
+$('btn-app').onclick = async () => {
+  let res;
+  try {
+    res = await fetch('/api/tela/passe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sala: codigo }) });
+  } catch {
+    return showBanner('Não consegui falar com o servidor. Confira a internet.', { timeout: 5000 });
+  }
+  const dados = await res.json().catch(() => ({}));
+  if (!res.ok) return showBanner(dados.error || 'Não consegui abrir no app. Tente de novo.', { timeout: 5000 });
+  location.href = `muvuca://tela?${new URLSearchParams({ servidor: location.origin, sala: codigo, passe: dados.passe })}`;
+  showBanner('Abrindo no app do Muvuca… Não abriu? Clique aqui para baixar o app.', {
+    kind: 'info', timeout: 15000, onClick: () => window.open('/baixar', '_blank', 'noopener'),
+  });
+};
+
+// ---------- Som da live pelo app do Muvuca ----------
+// Só o programa da janela transmitida; na tela inteira, tudo menos o Discord (desktop-audio.js e o app).
+// No Windows o sistema só tira um programa do som: tirando o Discord, o que o Muvuca toca iria junto na live.
+// Então, enquanto isso, o som das telas dos outros fica mudo para quem transmite.
+const appAudio = somDoApp(desktop, {
+  sala: () => room,
+  aoMudar: (s) => {
+    if (s.somDoMuvuca) silenciarOutros(true);
+    else if (s.error || !s.running) silenciarOutros(false);
+  },
+});
+
+// Texto embaixo de "Transmitir o som também", na janela "Transmitir tela"
+function ajudaDoSom() {
+  if (IS_SAFARI) return null; // o Safari não manda som de tela (a própria janela já avisa)
+  const p = h('p', 'muted small nota-som');
+  if (!desktop) {
+    p.textContent = 'Pelo navegador, numa aba vai só o som da aba; na tela inteira vai o som do computador todo, inclusive o Discord. '
+      + 'Para mandar só o som do jogo, use "Abrir no app do Muvuca", lá em cima.';
+    return p;
+  }
+  p.textContent = 'Numa janela, vai só o som daquele programa. Na tela inteira, vai o som do computador sem o Discord.';
+  desktop.appAudioSupported?.().then((ok) => {
+    if (ok) return;
+    p.textContent = desktop.platform === 'win32'
+      ? 'Este Windows manda o som do computador todo, inclusive o Discord. Para não ir junto, desmarque o som ou atualize o Windows.'
+      : 'Este Mac não transmite o som (precisa do macOS 13 ou mais novo).';
+  }).catch(() => {});
+  return p;
+}
+
 // ---------- Som da tela de cada pessoa (volume só para você, como no Discord) ----------
+
+let outrosMudos = false; // ver silenciarOutros
+
+function aplicarVolume(p) {
+  p.setVolume(outrosMudos ? 0 : volumeSalvo(p), Track.Source.ScreenShareAudio);
+}
+
+function silenciarOutros(sim) {
+  if (sim === outrosMudos) return;
+  outrosMudos = sim;
+  for (const p of room?.remoteParticipants.values() ?? []) aplicarVolume(p);
+  if (sim) {
+    showBanner('Enquanto você transmite a tela inteira, o som das telas dos outros fica mudo para você (senão ele voltaria na sua live). Para ouvir, transmita só a janela do jogo.', { kind: 'info', timeout: 10000 });
+  }
+}
 
 function aoReceber(track, pub, participante) {
   if (track.kind === Track.Kind.Audio) {
     audioSink.append(track.attach());
-    participante.setVolume(volumeSalvo(participante), Track.Source.ScreenShareAudio);
+    aplicarVolume(participante);
   }
   desenhar();
 }
@@ -156,7 +235,7 @@ function volumeSalvo(p) {
 
 function salvarVolume(p, v) {
   store.set(`telaVolume:${p.identity}`, v === 1 ? null : String(v));
-  p.setVolume(v, Track.Source.ScreenShareAudio);
+  aplicarVolume(p);
 }
 
 const volumeIcon = (v) => icon(v === 0 ? 'volume-off' : v < 0.5 ? 'volume-low' : 'speaker', 18);
@@ -198,7 +277,6 @@ function syncVolumeControl(el) {
 
 // ---------- Câmera ----------
 
-const isTouch = matchMedia('(pointer: coarse)').matches;
 let cameraFacing = store.get('cameraFacing') === 'environment' ? 'environment' : 'user';
 let cameraCount = 0;
 async function countCameras() {
@@ -260,17 +338,20 @@ $('btn-screen').onclick = async () => {
     await lp.setScreenShareEnabled(false);
     atualizarBotoes();
     desenhar();
-  } else openScreenDialog({ onStart: startScreenShare });
+  } else openScreenDialog({ onStart: startScreenShare, audioHelp: ajudaDoSom });
 };
 
 async function startScreenShare(opts) {
   if (!room) return;
+  // App do Muvuca: o som vem à parte, do programa escolhido (no Mac só a partir do macOS 13)
+  if (desktop?.wantAppAudio) desktop.wantAppAudio(!!opts.audio && (desktop.platform !== 'darwin' || await desktop.appAudioSupported()));
   try {
     await room.localParticipant.setScreenShareEnabled(true, ...screenShareOptions(opts));
     await lockScreenQuality(room.localParticipant, opts.fps);
   } catch (err) {
     if (err.name !== 'NotAllowedError') warnDevice('tela')(err); // NotAllowed = cancelou
   }
+  appAudio.publicar(); // o som do app pode ter ficado pronto antes da imagem
   atualizarBotoes();
   desenhar();
 }

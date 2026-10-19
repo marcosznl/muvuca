@@ -355,6 +355,8 @@ Copie de volta os arquivos de configuração do painel que estavam em `data-ante
 
 O Muvuca pode ser um app do Discord com o comando `/tela` (só o comando, sem um bot na lista de membros). Quem usa o comando recebe no canal um link para uma sala de compartilhar a tela pelo navegador, com os mesmos quadros e controles da call do Muvuca: transmitir a tela escolhendo a qualidade (720p ou 1080p, 15, 30 ou 60 FPS, com ou sem som), ligar e virar a câmera, volume do som de cada tela, tela cheia, janela flutuante, destaque, faixa de participantes e o painel de qualidade. Não tem microfone nem chat. Quem abre o link entra com a conta do Discord e aparece com o apelido e a foto do servidor; só membros do servidor onde a sala foi criada entram. A sala fecha sozinha depois de 5 minutos vazia. No celular dá para assistir e ligar a câmera, mas não compartilhar a tela (o navegador do celular não deixa).
 
+**Som da live sem o Discord:** pelo navegador, transmitir a tela inteira com som leva o som do computador todo, inclusive a conversa do Discord (o navegador não deixa tirar um programa do som). Por isso a sala tem o botão **Abrir no app do Muvuca** (app 1.5.0 ou mais novo): o app abre a sala numa janela própria, já com o login do Discord, e a live manda só o som do programa da janela escolhida; na tela inteira, vai tudo menos o Muvuca e o Discord. No Windows o sistema só tira um programa do som: na tela inteira, o app tira o Discord, e o som das telas dos outros fica mudo para quem transmite (senão voltaria na live).
+
 O próprio servidor do Muvuca responde aos comandos (`src/bot-discord.js`): não há processo à parte nem conexão permanente com o Discord. As salas ficam na memória, então reiniciar o Muvuca encerra as salas abertas.
 
 **Para ligar:**

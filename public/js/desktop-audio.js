@@ -1,5 +1,10 @@
-// App do Mac: o som da live chega do muvuca-audio (ScreenCaptureKit) em pedaços de float32 estéreo a 48 kHz.
-// Aqui ele vira uma faixa de áudio normal (AudioWorklet → MediaStream) para publicar na call como "som da live".
+// App do computador: o som da live chega do muvuca-audio (Mac: ScreenCaptureKit; Windows: captura por programa)
+// em pedaços de float32 estéreo a 48 kHz. Aqui ele vira uma faixa de áudio normal (AudioWorklet → MediaStream)
+// para publicar como "som da live", na call (voice.js) e na sala de tela (tela.js).
+import { showBanner, toast } from './util.js';
+import { STREAM_AUDIO } from './transmissao.js';
+
+const { Track } = LivekitClient;
 
 const WORKLET = `
 // Toca o som que chega do app com ~60 ms de folga. Os relógios do Mac (captura) e do navegador (reprodução)
@@ -74,4 +79,55 @@ export async function createAppAudioTrack(desktop) {
       ctx.close().catch(() => {});
     },
   };
+}
+
+// Liga o som do app a uma sala: quando o app começa a mandar o som (depois de escolher a janela), publica a faixa;
+// quando para, tira. sala() devolve a sala atual (ou null). aoMudar(estado) recebe os avisos do app.
+// Devolve { publicar, parar }: publicar() de novo depois de começar a imagem (o som pode chegar antes dela).
+export function somDoApp(desktop, { sala, aoMudar }) {
+  let som = null;       // { track, stop } da faixa publicada
+  let rodando = false;
+  let comecando = false;
+
+  async function publicar() {
+    const room = sala();
+    if (!room || som || comecando || !rodando || !room.localParticipant.isScreenShareEnabled) return;
+    comecando = true;
+    try {
+      som = await createAppAudioTrack(desktop);
+      await room.localParticipant.publishTrack(som.track, { source: Track.Source.ScreenShareAudio, ...STREAM_AUDIO });
+    } catch (err) {
+      console.warn('som da live (app)', err);
+      showBanner(`Não deu para transmitir o som: ${err.message}`, { timeout: 5000 });
+    } finally {
+      comecando = false;
+    }
+  }
+
+  function parar() {
+    rodando = false;
+    desktop?.stopAppAudio?.();
+    if (!som) return;
+    const a = som;
+    som = null;
+    sala()?.localParticipant.unpublishTrack(a.track).catch(() => {});
+    a.stop();
+  }
+
+  desktop?.onAppAudioState?.((s) => {
+    aoMudar?.(s);
+    if (s.error) {
+      rodando = false;
+      const dica = desktop.platform === 'win32' ? ' Se continuar, transmita a tela inteira (vai o som de tudo menos a call).'
+        : /permiss|not authorized|declined|TCC/i.test(s.error) ? ' Libere o Muvuca em Ajustes do Sistema → Privacidade e Segurança → Gravação de Tela e Áudio do Sistema.' : '';
+      showBanner(`A live está sem som: ${s.error}.${dica}`, { timeout: 9000 });
+      return;
+    }
+    if (s.info) toast(`Transmitindo ${s.info}`);
+    rodando = !!s.running;
+    if (s.running) publicar();
+    else if (som) parar();
+  });
+
+  return { publicar, parar };
 }

@@ -3,6 +3,10 @@
 //
 //   muvuca-audio.exe --window <HWND>          só o som do programa dono da janela (e dos processos filhos dele)
 //   muvuca-audio.exe --display <id> --exclude-pid <PID>   o som de tudo, menos o do Muvuca (a call não volta)
+//   muvuca-audio.exe --display <id> --exclude-app Discord.exe --exclude-pid <PID>
+//                                             tudo menos o Discord (se estiver aberto; senão, menos o Muvuca).
+//                                             O Windows só tira um programa por vez: tirando o Discord, avisa
+//                                             "excluido: app" (o som do próprio Muvuca vai junto)
 //   muvuca-audio.exe --probe                  só confere se este Windows tem o recurso (sai com 0 se tiver)
 //
 // Saída: áudio float32, 48 kHz, estéreo, intercalado, no stdout. Avisos no stderr: "ok", "info: ...", "erro: ...".
@@ -103,6 +107,24 @@ static BOOL CALLBACK findInnerApp(HWND child, LPARAM lp) {
   if (pid && pid != s->frame) { s->found = pid; return FALSE; }
   return TRUE;
 }
+// Processo principal de um programa aberto (o primeiro com esse nome cujo pai não tem o mesmo nome):
+// tirando ele, o Windows tira também os filhos (no Discord, a voz roda num processo filho)
+static DWORD appRoot(const char *exe) {
+  DWORD found = 0;
+  HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  if (snap == INVALID_HANDLE_VALUE) return 0;
+  PROCESSENTRY32W e;
+  e.dwSize = sizeof(e);
+  for (BOOL ok = Process32FirstW(snap, &e); ok && !found; ok = Process32NextW(snap, &e)) {
+    char buf[MAX_PATH];
+    WideCharToMultiByte(CP_UTF8, 0, e.szExeFile, -1, buf, sizeof(buf), nullptr, nullptr);
+    if (_stricmp(buf, exe) != 0) continue;
+    if (_stricmp(processName(e.th32ParentProcessID).c_str(), exe) != 0) found = e.th32ProcessID;
+  }
+  CloseHandle(snap);
+  return found;
+}
+
 static DWORD windowProcess(HWND hwnd) {
   DWORD pid = 0;
   GetWindowThreadProcessId(hwnd, &pid);
@@ -153,6 +175,7 @@ int main(int argc, char **argv) {
   DWORD pid = 0;
   bool probe = false;
   bool window = false;
+  DWORD appPid = 0; // --exclude-app: o primeiro programa da lista que estiver aberto
   PROCESS_LOOPBACK_MODE mode = PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE;
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "--probe")) probe = true;
@@ -164,10 +187,15 @@ int main(int argc, char **argv) {
     } else if (!strcmp(argv[i], "--exclude-pid") && i + 1 < argc) {
       DWORD p = static_cast<DWORD>(strtoul(argv[++i], nullptr, 10));
       if (!window && !pid) { pid = p; mode = PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE; }
+    } else if (!strcmp(argv[i], "--exclude-app") && i + 1 < argc) {
+      const char *exe = argv[++i];
+      if (!appPid) appPid = appRoot(exe);
     } else if (!strcmp(argv[i], "--display") && i + 1 < argc) {
       ++i; // a tela em si não importa para o som: é tudo menos o Muvuca (--exclude-pid)
     }
   }
+  bool excludedApp = !window && appPid;
+  if (excludedApp) { pid = appPid; mode = PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE; }
   if (probe) { pid = GetCurrentProcessId(); mode = PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE; }
   if (!pid) { say("erro: %s", window ? "nao achei o programa dessa janela" : "faltou dizer o que capturar"); return 2; }
 
@@ -199,6 +227,11 @@ int main(int argc, char **argv) {
   if (mode == PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE) {
     std::string name = processName(pid);
     if (!name.empty()) say("info: o som de %s", name.c_str());
+  } else if (excludedApp) {
+    std::string name = processName(pid);
+    if (name.size() > 4) name.resize(name.size() - 4); // sem o ".exe"
+    say("info: o som do computador (sem o %s)", name.c_str());
+    say("excluido: app");
   } else {
     say("info: %s", "o som do computador (sem a call)");
   }

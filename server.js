@@ -22,7 +22,7 @@ import { ipBlocked, lockedOut, maintenance, disconnectUser, blockUser, blockIp, 
 import './src/call-minutes.js';
 import { auditAction, audit, purgeAudit } from './src/audit.js';
 import { internalStats, isInternal } from './src/internal.js';
-import { paginaTela, entrarNaSala } from './src/tela.js';
+import { paginaTela, entrarNaSala, passeParaApp } from './src/tela.js';
 import { interacao, registrarComandos } from './src/bot-discord.js';
 
 // ---------- HTTP ----------
@@ -40,6 +40,7 @@ const routes = {
   },
   'POST /token': (req) => voiceToken(req),
   'POST /api/tela/entrar': (req) => entrarNaSala(req),
+  'POST /api/tela/passe': (req) => passeParaApp(req),
   'POST /discord/interacoes': (req) => interacao(req),
   'POST /api/emojis': (req, url) => uploadEmoji(req, url),
   'POST /api/image': (req, url) => uploadImage(req, url),

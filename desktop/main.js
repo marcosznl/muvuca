@@ -2,7 +2,7 @@
 // apertar para falar com o app em segundo plano, ícone na barra de menus, contador no Dock,
 // notificações nativas, abrir junto com o Mac e escolher tela/janela para a live.
 const {
-  app, BrowserWindow, Menu, Tray, Notification, desktopCapturer, ipcMain, nativeImage, nativeTheme, net, powerSaveBlocker, session, shell, systemPreferences,
+  app, BrowserWindow, Menu, Tray, Notification, desktopCapturer, dialog, ipcMain, nativeImage, nativeTheme, net, powerSaveBlocker, session, shell, systemPreferences,
 } = require('electron');
 const path = require('node:path');
 const os = require('node:os');
@@ -41,9 +41,91 @@ let quitting = false;
 // continua a toda, senão o Windows podia cortar a voz ao achar que ninguém está vendo.
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 
-// Um app só aberto: abrir de novo traz a janela para frente
+// Um app só aberto: abrir de novo traz a janela para frente (ou abre o link muvuca:// que chegou, no Windows)
 if (!app.requestSingleInstanceLock()) app.quit();
-app.on('second-instance', () => showWindow());
+app.on('second-instance', (_e, argv) => {
+  const link = linkNosArgs(argv);
+  if (link) abrirLink(link);
+  else showWindow();
+});
+
+// ---------- Links muvuca:// (sala de tela do Discord) ----------
+// A página da sala no navegador oferece "Abrir no app do Muvuca": muvuca://tela?servidor=<origem>&sala=<código>&passe=<passe>.
+// No app, a live manda só o som do programa transmitido (no navegador, iria o som do computador todo, Discord junto).
+const PROTOCOLO = 'muvuca';
+if (process.defaultApp) app.setAsDefaultProtocolClient(PROTOCOLO, process.execPath, [path.resolve(process.argv[1])]); // rodando com "npm start"
+else app.setAsDefaultProtocolClient(PROTOCOLO);
+let linkPendente = null; // chegou antes do app ficar pronto (o link abriu o app)
+const linkNosArgs = (argv) => argv.find((a) => a.startsWith(`${PROTOCOLO}://`)) ?? null;
+app.on('open-url', (e, url) => { e.preventDefault(); abrirLink(url); }); // Mac
+
+function abrirLink(url) {
+  if (!app.isReady()) { linkPendente = url; return; }
+  let link;
+  try { link = new URL(url); } catch { return showWindow(); }
+  const sala = link.searchParams.get('sala') ?? '';
+  if (link.hostname !== 'tela' || !/^[A-Za-z0-9_-]{12}$/.test(sala)) return showWindow();
+  let servidor = '';
+  try { servidor = new URL(link.searchParams.get('servidor')).origin; } catch {}
+  // Só abre salas do Muvuca em que o app está ligado (é nele que o app confia para tela, câmera e som)
+  if (servidor !== origin()) {
+    dialog.showMessageBox({
+      type: 'info',
+      message: 'Esta sala é de outro Muvuca',
+      detail: `A sala está em ${servidor || 'outro endereço'} e o app está ligado em ${origin()}. Para abrir aqui, troque em Muvuca → Endereço do servidor.`,
+    });
+    return;
+  }
+  const passe = link.searchParams.get('passe');
+  abrirTela(`${origin()}/tela/${sala}${passe ? `?passe=${encodeURIComponent(passe)}` : ''}`);
+}
+
+// Janela da sala de tela: separada da do Muvuca (a call e o chat de lá continuam abertos)
+let telaWin = null;
+let telaNap = null;
+function abrirTela(url) {
+  if (telaWin && !telaWin.isDestroyed()) {
+    telaWin.loadURL(url);
+    telaWin.show();
+    telaWin.focus();
+    return;
+  }
+  telaWin = new BrowserWindow({
+    width: 1280,
+    height: 760,
+    minWidth: 640,
+    minHeight: 420,
+    title: 'Sala de tela · Muvuca',
+    icon: IS_WIN ? path.join(__dirname, 'build', 'tray-win@2x.png') : undefined,
+    autoHideMenuBar: true,
+    backgroundColor: '#1e1f22',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      backgroundThrottling: false, // a live não pode engasgar com a janela escondida atrás do jogo
+    },
+  });
+  // Transmitindo com a janela escondida: o Mac não deixa o app cochilar (App Nap)
+  telaNap = powerSaveBlocker.start('prevent-app-suspension');
+  const wc = telaWin.webContents;
+  telaWin.on('closed', () => {
+    if (audioTarget === wc) stopAppAudio();
+    if (telaNap !== null) { powerSaveBlocker.stop(telaNap); telaNap = null; }
+    telaWin = null;
+  });
+  // Aqui só o Muvuca e o login do Discord; o resto abre no navegador
+  const podeAbrir = (u) => u.startsWith(`${origin()}/`) || u.startsWith('https://discord.com/');
+  wc.setWindowOpenHandler(({ url: u }) => {
+    if (/^https?:\/\//.test(u)) shell.openExternal(u);
+    return { action: 'deny' };
+  });
+  wc.on('will-navigate', (e, u) => {
+    if (!podeAbrir(u)) { e.preventDefault(); if (/^https?:\/\//.test(u)) shell.openExternal(u); }
+  });
+  telaWin.loadURL(url);
+}
 
 function showWindow() {
   if (!win) return createWindow();
@@ -158,7 +240,7 @@ function setupPermissions() {
   ses.setDisplayMediaRequestHandler(async (request, callback) => {
     try {
       const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 320, height: 200 }, fetchWindowIcons: true });
-      const chosen = await pickSource(sources);
+      const chosen = await pickSource(sources, BrowserWindow.getFocusedWindow() ?? win);
       if (!chosen) return callback({});
       // Som só do programa da janela (Mac sempre; Windows 10 2004+): o muvuca-audio captura à parte.
       // Windows sem esse recurso: o próprio Electron manda o som do computador inteiro (loopback), como antes.
@@ -173,11 +255,11 @@ function setupPermissions() {
 }
 
 // Janelinha para escolher tela ou janela (quando o seletor do sistema não aparece)
-function pickSource(sources) {
+function pickSource(sources, parent) {
   return new Promise((resolve) => {
     const picker = new BrowserWindow({
-      parent: win ?? undefined,
-      modal: !!win,
+      parent: parent ?? undefined,
+      modal: !!parent,
       width: 760,
       height: 560,
       resizable: false,
@@ -211,8 +293,13 @@ function pickSource(sources) {
 // o muvuca-audio começa e o áudio (float32, 48 kHz, estéreo) vai em pedaços para o site publicar na call.
 // Mac: ScreenCaptureKit (muvuca-audio). Windows: captura por processo (muvuca-audio.exe, Windows 10 2004+);
 // sem ela, o Windows volta ao som do computador inteiro (loopback do próprio Electron).
+// Na sala de tela (Discord para a voz, Muvuca para a tela), a tela inteira vai também sem o som do Discord.
 
 let wantAppAudio = false;
+let audioTarget = null; // a janela que pediu a live com som (a do Muvuca ou a da sala de tela): o som vai para ela
+const sendAudio = (channel, data) => { if (audioTarget && !audioTarget.isDestroyed()) audioTarget.send(channel, data); };
+const DISCORD_MAC = 'com.hnc.Discord'; // também o PTB, o Canary e os processos auxiliares (prefixo)
+const DISCORD_WIN = ['Discord.exe', 'DiscordPTB.exe', 'DiscordCanary.exe'];
 let audioProc = null;
 let winAppAudio = false; // o muvuca-audio.exe conseguiu usar a captura por processo neste Windows (confere ao abrir)
 const canCaptureAppAudio = () => (process.platform === 'darwin' && Number(os.release().split('.')[0]) >= 22) || (IS_WIN && winAppAudio); // macOS 13+
@@ -241,12 +328,18 @@ function startAppAudio(sourceId) {
   stopAppAudio();
   const [kind, id] = sourceId.split(':');
   const args = kind === 'window' ? ['--window', id] : ['--display', id];
+  const salaDeTela = !!telaWin && !telaWin.isDestroyed() && audioTarget === telaWin.webContents;
   if (kind !== 'window') {
     // Tela inteira: tira o som do próprio Muvuca (senão a galera ouve a call de volta)
-    if (IS_WIN) args.push('--exclude-pid', String(process.pid)); // o Windows tira o processo e todos os filhos dele
-    else {
+    // e, na sala de tela, o do Discord (onde a galera está conversando)
+    if (IS_WIN) {
+      // O Windows só tira um programa (com os filhos dele): na sala de tela, o Discord quando estiver aberto
+      if (salaDeTela) for (const exe of DISCORD_WIN) args.push('--exclude-app', exe);
+      args.push('--exclude-pid', String(process.pid));
+    } else {
       for (const m of app.getAppMetrics()) args.push('--exclude-pid', String(m.pid));
       args.push('--exclude-bundle', app.isPackaged ? 'br.malegna.muvuca' : 'com.github.Electron');
+      if (salaDeTela) args.push('--exclude-bundle', DISCORD_MAC);
     }
   }
   const p = spawn(helperPath(), args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
@@ -263,26 +356,32 @@ function startAppAudio(sourceId) {
     pending.push(all.subarray(0, usable));
     pendingBytes += usable;
     if (pendingBytes >= 7680) { // 960 quadros = 20 ms
-      win?.webContents.send('app-audio:data', Buffer.concat(pending));
+      sendAudio('app-audio:data', Buffer.concat(pending));
       pending = [];
       pendingBytes = 0;
     }
   });
   p.stderr.on('data', (d) => {
     for (const line of String(d).split('\n').filter(Boolean)) {
-      if (line === 'ok') win?.webContents.send('app-audio:state', { running: true });
-      else if (line.startsWith('info:')) win?.webContents.send('app-audio:state', { running: true, info: line.slice(5).trim() });
-      else if (line.startsWith('erro:')) win?.webContents.send('app-audio:state', { running: false, error: line.slice(5).trim() });
+      if (line === 'ok') sendAudio('app-audio:state', { running: true });
+      else if (line.startsWith('info:')) {
+        let info = line.slice(5).trim();
+        if (salaDeTela && !IS_WIN && info === 'som do computador') info += ' (sem o Discord)';
+        sendAudio('app-audio:state', { running: true, info });
+      }
+      else if (line.startsWith('erro:')) sendAudio('app-audio:state', { running: false, error: line.slice(5).trim() });
+      // Windows: tirou o Discord no lugar do Muvuca; o som que o Muvuca toca vai junto na live
+      else if (line === 'excluido: app') sendAudio('app-audio:state', { running: true, somDoMuvuca: true });
     }
   });
   p.on('exit', () => {
-    if (audioProc === p) { audioProc = null; win?.webContents.send('app-audio:state', { running: false }); }
+    if (audioProc === p) { audioProc = null; sendAudio('app-audio:state', { running: false }); }
   });
-  p.on('error', (err) => win?.webContents.send('app-audio:state', { running: false, error: err.message }));
+  p.on('error', (err) => sendAudio('app-audio:state', { running: false, error: err.message }));
 }
 
 ipcMain.handle('app-audio:supported', () => canCaptureAppAudio());
-ipcMain.on('app-audio:want', (_e, on) => { wantAppAudio = !!on; });
+ipcMain.on('app-audio:want', (e, on) => { wantAppAudio = !!on; audioTarget = e.sender; });
 ipcMain.on('app-audio:stop', () => stopAppAudio());
 
 // ---------- Apertar para falar com o app em segundo plano (teclado global) ----------
@@ -526,12 +625,15 @@ app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(
 app.whenReady().then(() => {
   probeWinAppAudio();
   settings = loadSettings();
-  startHidden = process.argv.includes('--escondido') || (IS_MAC && app.getLoginItemSettings().wasOpenedAsHidden);
+  linkPendente ??= linkNosArgs(process.argv); // Windows: o link que abriu o app vem nos argumentos
+  // Aberto por um link da sala de tela: só a sala aparece; o Muvuca fica no Dock/bandeja
+  startHidden = process.argv.includes('--escondido') || (IS_MAC && app.getLoginItemSettings().wasOpenedAsHidden) || !!linkPendente;
   setupPermissions();
   buildMenu();
   buildTray();
   defaultOpenAtLogin();
   createWindow();
+  if (linkPendente) abrirLink(linkPendente);
   updater.init({ window: () => win, origin });
   setTimeout(() => updater.check(), 15_000);
   setInterval(() => updater.check(), 6 * 3600_000);

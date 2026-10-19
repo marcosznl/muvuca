@@ -80,8 +80,9 @@ export async function lockScreenQuality(localParticipant, fps = 30) {
 }
 
 // Janela antes de transmitir (como o "Ao vivo" do Discord): resolução, FPS e som.
-// audioNote(label): acrescenta um aviso sobre o som (o app do Windows usa). onStart(opções) começa a transmissão.
-export function openScreenDialog({ onStart, audioNote }) {
+// audioNote(label): acrescenta um aviso sobre o som (o app do Windows usa). audioHelp(): parágrafo embaixo da opção
+// do som (a sala de tela explica o que vai junto). onStart(opções) começa a transmissão.
+export function openScreenDialog({ onStart, audioNote, audioHelp }) {
   const saved = (() => { try { return JSON.parse(store.get('screenOptions')) ?? {}; } catch { return {}; } })();
   const opts = {
     res: SCREEN_RES[saved.res] ? saved.res : '1080',
@@ -114,7 +115,8 @@ export function openScreenDialog({ onStart, audioNote }) {
   audioNote?.(audioLabel);
   audioBox.onchange = () => { opts.audio = audioBox.checked; };
   const summary = h('p', 'muted small screen-summary');
-  body.append(audioLabel, summary);
+  const help = audioHelp?.();
+  body.append(audioLabel, ...(help ? [help] : []), summary);
 
   const refresh = () => {
     for (const b of resRow.children) b.classList.toggle('selected', b.dataset.value === opts.res);
