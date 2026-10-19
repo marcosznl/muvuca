@@ -2118,11 +2118,6 @@ input.switch:disabled { opacity: .4; cursor: not-allowed; }
 .tree-top-body > .tree-item { width: calc(100% - 8px); margin: 1px 4px; }
 .tree-top-body .dm-list { padding: 0 4px; }
 .tree-sep { height: 1px; margin: 6px 16px; background: color-mix(in srgb, var(--muted) 22%, transparent); }
-.tree-game { position: relative; display: flex; align-items: center; margin: 1px 4px; border-radius: 6px; }
-.tree-game > .tree-item { flex: 1; min-width: 0; margin: 0; }
-.tree-game:hover .tree-more { opacity: 1; }
-.tree-game .tree-more { position: absolute; right: 4px; }
-.tree-top-body .game-rooms-nav { margin: 0 0 4px 22px; }
 .tree-server-wrap > .tree-add { width: 100%; margin: 1px 0; }
 .tree-server { position: relative; display: flex; align-items: center; gap: 4px; padding: 0 4px 0 0; border-radius: 6px; margin: 1px 0; }
 .tree-server:hover { background: var(--bg-hover); }

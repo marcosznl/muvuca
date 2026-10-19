@@ -188,7 +188,7 @@ test('cara de app do Mac: no site e no app do Mac (só o app tem a coluna transl
   await context.close();
 });
 
-test('lateral: Amigos, Jogos, Assistir Junto e os servidores abrem e fecham com um clique, e fica guardado depois do F5', async () => {
+test('lateral: Amigos, Jogos e Assistir Junto; os servidores abrem e fecham com um clique, e fica guardado depois do F5', async () => {
   const page = await openAs(browser, stack, 'ana', { token: ana.token });
   try { // falhou no meio: fecha o navegador do mesmo jeito (senão o teste fica preso até estourar o tempo)
     const titles = await page.$$eval('.tree-top .name', (t) => t.map((x) => x.textContent));
@@ -200,16 +200,14 @@ test('lateral: Amigos, Jogos, Assistir Junto e os servidores abrem e fecham com 
     assert.ok(await page.$(`.server-tree li[data-channel="${ids.text}"]`));
     await page.click(server);
     assert.equal(await page.$(`.server-tree li[data-channel="${ids.text}"]`), null);
-    // "Jogos": o clique abre a tela dos jogos e mostra cada jogo embaixo
+    // "Jogos": o clique só abre a página dos jogos, sem lista embaixo
     const [, jogos] = await page.$$('.tree-top .tree-server-toggle');
     await jogos.click();
-    await page.waitForSelector('.tree-game');
-    // a lista abre na hora; a troca para a página dos jogos termina um instante depois
     await page.waitForFunction(async () => !!(await import('/js/state.js')).state.view.games);
+    assert.equal(await page.$('.tree-game'), null);
     await page.reload();
     await page.waitForSelector('#app:not([hidden])');
-    assert.equal(await page.$eval('.tree-server:not(.tree-top)', (r) => r.classList.contains('open')), false);
-    assert.ok(await page.$('.tree-game'), 'Jogos continua aberto depois do F5');
+    assert.equal(await page.$eval('.tree-server:not(.tree-top)', (r) => r.classList.contains('open')), false, 'servidor fechado continua fechado depois do F5');
     // Abre o servidor de novo e entra num canal pela lateral
     await page.click(server);
     await page.click(`.server-tree li[data-channel="${ids.text2 ?? ids.text}"] .channel`);

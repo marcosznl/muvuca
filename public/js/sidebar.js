@@ -12,7 +12,7 @@ import { joinVoice, leaveVoice, watchStream, voiceChannelId, speakingNow, openUs
 import { musicChannelId } from './music.js';
 import { openServerSettings, openInviteDialog } from './settings.js';
 import { dmTree, dmTitle, openNewDm, totalDmUnread, realServers, inDmHome, selectDmHome } from './dms.js';
-import { gamesTree, openRoomsCount, inGames, inGamesHome, openGamesHome } from './games.js';
+import { openRoomsCount, inGames, openGamesHome } from './games.js';
 import { djTree, djRooms, djUnread, inDjHome, openCreateDjRoom, selectDjHome } from './dj.js';
 import { incomingCount } from './friends.js';
 import { openUserSettings } from './user-settings.js';
@@ -730,10 +730,11 @@ function toggleServer(id) {
   renderChannels();
 }
 
-// "Amigos", "Jogos" e "Assistir Junto": fechado, clicar abre e vai para a página; aberto e já na página, fecha
+// "Amigos" e "Assistir Junto": fechado, clicar abre e vai para a página; aberto e já na página, fecha
 // (o número vermelho aparece com ele fechado; aberto, cada conversa mostra o seu, e fica só `openBadge`)
+// content = null: item simples (Jogos), o clique só abre a página, sem lista embaixo
 function topFolder(key, ico, title, { here, go = null, badge = 0, openBadge = 0, count = 0, action = null }, content) {
-  const open = openServers.has(key);
+  const open = content !== null && openServers.has(key);
   const wrap = h('div', 'tree-server-wrap');
   const row = h('div', 'tree-server tree-top');
   row.classList.toggle('open', open);
@@ -741,6 +742,7 @@ function topFolder(key, ico, title, { here, go = null, badge = 0, openBadge = 0,
   const toggle = h('button', 'tree-server-toggle');
   toggle.append(icon(ico, 18), h('span', 'name', title));
   toggle.onclick = () => {
+    if (content === null) return go();
     if (open && (here || !go)) openServers.delete(key); // sem página própria (Salas de DJ): o clique só abre e fecha
     else { openServers.add(key); go?.(); }
     saveTree();
@@ -858,7 +860,7 @@ export function renderChannels() {
     topFolder('amigos', 'friends', 'Amigos', {
       here: inDmHome(), go: selectDmHome, badge: totalDmUnread() + incomingCount(), openBadge: incomingCount(), action: plusButton('Nova conversa', openNewDm),
     }, dmTree()),
-    topFolder('jogos', 'gamepad', 'Jogos', { here: inGamesHome(), go: openGamesHome, count: inGames() ? 0 : openRoomsCount() }, gamesTree()),
+    topFolder('jogos', 'gamepad', 'Jogos', { here: inGames(), go: openGamesHome, count: openRoomsCount() }, null),
     topFolder('dj', 'headphones', 'Assistir Junto', {
       here: inDjHome(), go: selectDjHome, badge: djUnread(), count: djRooms().length, action: plusButton('Nova sala', openCreateDjRoom),
     }, djTree()),
