@@ -6,6 +6,12 @@ Um lugar para o seu grupo de amigos conversar, entrar em call e jogar junto, do 
 
 Tudo em português do Brasil.
 
+<p align="center">
+  <a href="#instalação-passo-a-passo"><b>Montar o seu Muvuca</b></a>
+  &nbsp;·&nbsp; <a href="https://github.com/marcosznl/muvuca/releases/latest"><b>⬇︎ App para Mac e Windows</b></a>
+  &nbsp;·&nbsp; servidor num Mac &nbsp;·&nbsp; licença MIT
+</p>
+
 ![Chat do Muvuca](docs/img/chat.png)
 
 - [O que tem no Muvuca](#o-que-tem-no-muvuca)
