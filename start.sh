@@ -25,10 +25,6 @@ for d in $domains; do
   [[ -n "$PUBLIC_PORT" && "$PUBLIC_PORT" != 443 ]] && addrs+=("$d:$PUBLIC_PORT")
 done
 export SITE_ADDRESSES="${(j:, :)addrs}"
-# Painel administrativo: painel.<domínio principal> (e na porta extra do IPv4)
-paddrs=("painel.$DOMAIN")
-[[ -n "$PUBLIC_PORT" && "$PUBLIC_PORT" != 443 ]] && paddrs+=("painel.$DOMAIN:$PUBLIC_PORT")
-export PAINEL_ADDRESSES="${(j:, :)paddrs}"
 PUBLIC_URL="https://$DOMAIN"
 [[ -n "$PUBLIC_PORT" && "$PUBLIC_PORT" != 443 ]] && PUBLIC_URL="https://$DOMAIN:$PUBLIC_PORT"
 export LIVEKIT_URL="${PUBLIC_URL/https:/wss:}"

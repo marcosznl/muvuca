@@ -4,6 +4,7 @@ import { api, setSessionToken } from './net.js';
 
 let onDone = () => {};
 let mode = 'login';
+let voltarInicio = null; // veio da página inicial: link para voltar a ela
 
 export const pendingInvite = () => new URLSearchParams(location.search).get('convite');
 
@@ -13,14 +14,17 @@ export function clearInviteFromUrl() {
   history.replaceState(null, '', url.pathname + url.search);
 }
 
-export async function showAuth({ error = '', onLoggedIn } = {}) {
+export async function showAuth({ error = '', onLoggedIn, modo, voltar } = {}) {
   if (onLoggedIn) onDone = onLoggedIn;
+  if (modo) mode = modo;
+  if (voltar) voltarInicio = voltar;
   const invite = pendingInvite();
   // Chegou por convite e ainda não tem conta: abre direto no cadastro
   if (invite && mode === 'login' && !error) mode = 'register';
   $('app').hidden = true;
   const root = $('auth');
   root.hidden = false;
+  root.classList.remove('inicio');
   root.replaceChildren();
 
   const card = h('form', 'card auth-card');
@@ -85,6 +89,14 @@ export async function showAuth({ error = '', onLoggedIn } = {}) {
   link.onclick = () => { mode = isRegister ? 'login' : 'register'; showAuth(); };
   switcher.append(link);
   card.append(switcher);
+  if (voltarInicio) {
+    const voltar = h('button', 'link', '← Conheça o Muvuca');
+    voltar.type = 'button';
+    voltar.onclick = () => voltarInicio();
+    const p = h('p', 'muted small');
+    p.append(voltar);
+    card.append(p);
+  }
 
   card.onsubmit = async (e) => {
     e.preventDefault();
@@ -121,6 +133,7 @@ export function showForcedPasswordChange({ current = '', onDone: done } = {}) {
   $('app').hidden = true;
   const root = $('auth');
   root.hidden = false;
+  root.classList.remove('inicio');
   root.replaceChildren();
   const card = h('form', 'card auth-card');
   const brand = h('div', 'auth-brand');

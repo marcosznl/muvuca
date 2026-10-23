@@ -56,6 +56,7 @@ Tudo em português do Brasil.
 - Convites com validade e limite de usos; o cadastro exige um código de acesso ou um convite.
 - Lista de aparelhos conectados, com "sair deste aparelho".
 - Temas claro, escuro e 22 coloridos; aba de Novidades com o que mudou em cada versão.
+- Página inicial para quem abre o endereço pelo navegador sem estar logado: um resumo do Muvuca, com os botões para entrar e para baixar o app.
 - Notificações no celular: o site pode ser instalado na Tela de Início do iPhone e do Android.
 
 **Bot do Discord: salas de tela**
@@ -81,9 +82,9 @@ Tudo em português do Brasil.
   │   Caddy (HTTPS automático, portas 443 e 8443)                     │
   │     ├── seu-dominio ............► Muvuca (Node, porta 3000)       │
   │     │                               site, WebSocket, banco SQLite │
-  │     ├── seu-dominio/rtc ........► LiveKit (sinalização, 7880)     │
-  │     └── painel.seu-dominio .....► Painel (Node, porta 3002)       │
+  │     └── seu-dominio/rtc ........► LiveKit (sinalização, 7880)     │
   │                                                                   │
+  │   Painel (Node, porta 3002): só no próprio Mac, em localhost      │
   │   LiveKit: áudio e vídeo das calls (7881 TCP, 50000–50200 UDP)    │
   │            e TURN para redes restritas (5349 TCP, 3478 UDP)       │
   │   DuckDNS: mantém o domínio apontando para o IP de casa           │
@@ -94,7 +95,7 @@ Tudo em português do Brasil.
 - **O Muvuca em si** (`server.js`, `src/`, `db.js`) é um servidor Node.js. Ele entrega o site (`public/`), mantém uma conexão WebSocket com cada aba aberta e guarda tudo num banco **SQLite** (`data/muvuca.db`), usando o SQLite que já vem no Node, sem instalar nada à parte. Fotos, emojis e anexos ficam em `data/`.
 - **A voz e o vídeo** passam pelo [LiveKit](https://livekit.io), um servidor de mídia que roda no mesmo computador. O site pede ao Muvuca um "passe" para entrar numa sala de voz e se conecta direto ao LiveKit.
 - **O [Caddy](https://caddyserver.com)** fica na frente de tudo: tira e renova sozinho o certificado HTTPS (Let's Encrypt) e repassa cada endereço para o programa certo.
-- **O painel** (`painel/`) é um processo separado, com login próprio. Por isso continua no ar, e mostra o que aconteceu, quando o Muvuca cai.
+- **O painel** (`painel/`) é um processo separado, com login próprio, que só atende no próprio Mac (`http://localhost:3002`). Por isso continua no ar, e mostra o que aconteceu, quando o Muvuca cai.
 - **O `start.sh`** sobe o LiveKit, o Caddy, o atualizador do DuckDNS e o Muvuca juntos, e encerra tudo se uma das partes cair, para o sistema subir de novo. **O `server.sh`** transforma isso num serviço do macOS, que liga sozinho e se reinicia.
 - **O site** é JavaScript puro, sem etapa de build: os arquivos de `public/` são entregues como estão.
 
@@ -169,9 +170,7 @@ npm ci
 2. Crie um subdomínio, por exemplo `minha-turma`. O endereço vai ser `minha-turma.duckdns.org`.
 3. Copie o **token** que aparece no topo da página.
 
-O painel fica em `painel.minha-turma.duckdns.org`, e isso já funciona sem fazer nada a mais: o DuckDNS aponta os subdomínios junto.
-
-**Com domínio próprio:** crie dois registros no DNS apontando para o seu IP público, `seu-dominio.com` e `painel.seu-dominio.com`. Você mesmo precisa mantê-los atualizados se o IP mudar.
+**Com domínio próprio:** crie um registro no DNS apontando para o seu IP público (`seu-dominio.com`). Você mesmo precisa mantê-lo atualizado se o IP mudar.
 
 ### 4. Configure o `.env`
 
@@ -204,7 +203,7 @@ Depois, redirecione estas portas para esse IP:
 | Porta | Protocolo | Para quê |
 |---|---|---|
 | **443** | TCP | Site pelo IPv6 e **renovação do certificado HTTPS**. Sem ela, o certificado vence em ~90 dias. |
-| **8443** (ou o valor de `PUBLIC_PORT`) | TCP e UDP | Site e painel pelo IPv4 (o UDP deixa mais rápido). |
+| **8443** (ou o valor de `PUBLIC_PORT`) | TCP e UDP | Site pelo IPv4 (o UDP deixa mais rápido). |
 | **7881** | TCP | Voz, quando o UDP não passa |
 | **50000–50200** | UDP | Voz e vídeo das calls (a principal) |
 | **5349** | TCP | Voz para quem está em rede restrita (trabalho, faculdade, 4G) |
@@ -263,7 +262,7 @@ No Mac, ative **Ajustes do Sistema → Bateria (ou Economia de Energia) → Inic
 
 ![Painel](docs/img/painel.png)
 
-O painel fica em `https://painel.seu-dominio` (com `:8443` no fim, se você usa `PUBLIC_PORT`). Primeiro, crie o usuário e a senha dele:
+O painel só abre **no próprio Mac do servidor**, em [http://localhost:3002](http://localhost:3002): ele não tem endereço na internet, então ninguém de fora chega nele. Primeiro, crie o usuário e a senha dele:
 
 ```bash
 ./painel.sh senha
@@ -284,7 +283,7 @@ O que dá para fazer no painel:
 - **Conexão:** limite de velocidade dos downloads de arquivos (para não engasgar a call).
 - **Manutenção:** atualizar o Muvuca com um clique, voltar para uma versão anterior, backup e teste de restauração, aviso de manutenção, recarregar o site de todo mundo, reiniciar só a voz, desligar e ligar.
 - **Logs:** registros do servidor, erros que aconteceram no navegador das pessoas e histórico de quedas.
-- **Alertas no celular:** instale o painel na Tela de Início do celular e receba aviso quando o Muvuca cair ou o backup falhar.
+- **Alertas:** notificação quando o Muvuca cair ou o backup falhar, no navegador do Mac em que o painel está aberto ou instalado.
 
 ---
 

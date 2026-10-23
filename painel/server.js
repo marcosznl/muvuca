@@ -114,9 +114,10 @@ async function checkCredentials(user, password) {
   return okPass && okUser;
 }
 
-const cookieName = '__Host-painel';
+// O painel só atende no próprio Mac (http://localhost): o cookie não pode exigir HTTPS
+const cookieName = 'painel_sessao';
 function sessionOf(req) {
-  const m = String(req.headers.cookie ?? '').match(/(?:^|;\s*)__Host-painel=([a-f0-9]{64})/);
+  const m = String(req.headers.cookie ?? '').match(/(?:^|;\s*)painel_sessao=([a-f0-9]{64})/);
   if (!m) return null;
   const id = hashToken(m[1]);
   const s = sessions.get(id);
@@ -166,7 +167,7 @@ function startSession(req, res) {
   const token = crypto.randomBytes(32).toString('hex');
   sessions.set(hashToken(token), { created: now, last: now, ip, ua: ua(req), stamp: authStamp(loadAuth()) });
   audit('painel:login', { ip, detail: { aparelho: ua(req) } });
-  res.setHeader('Set-Cookie', `${cookieName}=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${SESSION_MAX_MS / 1000}`);
+  res.setHeader('Set-Cookie', `${cookieName}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_MAX_MS / 1000}`);
   return json(res, 200, { ok: true });
 }
 const ua = (req) => String(req.headers['user-agent'] ?? '').slice(0, 160);
@@ -174,7 +175,7 @@ const ua = (req) => String(req.headers['user-agent'] ?? '').slice(0, 160);
 function logout(req, res, s) {
   sessions.delete(s.id);
   audit('painel:logout', { ip: clientIp(req) });
-  res.setHeader('Set-Cookie', `${cookieName}=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0`);
+  res.setHeader('Set-Cookie', `${cookieName}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
   return json(res, 200, { ok: true });
 }
 
@@ -350,6 +351,7 @@ async function certificates() {
     let names = [];
     try { names = await fsp.readdir(path.join(CADDY_CERTS, ca)); } catch { continue; }
     for (const name of names) {
+      if (name.startsWith('painel.')) continue; // o painel não tem mais endereço público (o certificado antigo fica sem uso)
       try {
         const pem = await fsp.readFile(path.join(CADDY_CERTS, ca, name, `${name}.crt`), 'utf8');
         const cert = new crypto.X509Certificate(pem);

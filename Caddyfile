@@ -29,21 +29,4 @@
 	}
 }
 
-# Painel administrativo (processo separado, ver painel.sh): endereço próprio, então o login do
-# painel não se mistura com o do Muvuca
-{$PAINEL_ADDRESSES} {
-	encode zstd gzip
-	reverse_proxy 127.0.0.1:3002
-	# As consultas automáticas do painel (a cada poucos segundos) não entram no log: só login e ações
-	@leitura {
-		method GET
-		path /api/* /sw.js /manifest.webmanifest
-	}
-	log_skip @leitura
-	log {
-		output file ./logs/caddy-painel.log {
-			roll_size 5MiB
-			roll_keep 2
-		}
-	}
-}
+# O painel administrativo não passa por aqui: ele só atende no próprio Mac (http://localhost:3002)

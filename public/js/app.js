@@ -12,6 +12,7 @@ import {
 import { renderCallChat } from './call-chat.js';
 import { connect, disconnect, request, send, api, sessionToken, setSessionToken } from './net.js';
 import { showAuth, pendingInvite, clearInviteFromUrl, showForcedPasswordChange } from './auth.js';
+import { showInicio, usaInicio } from './inicio.js';
 import { renderServerHeader, renderChannels, renderUserPanel, renderVoicePanel, applyServerOrder } from './sidebar.js';
 import {
   openTextChannel, onHistory, onMessage, onMessageEdit, onMessageDelete, onUserPurged, onReactions, onRead, onTyping, renderComposer, updateTitle, onPollVotes,
@@ -421,6 +422,7 @@ if (store.get('hideMembers') === '1') $('app').classList.add('hide-members');
 
 setupPush(); // service worker: notificações e "instalar na tela inicial"
 if (sessionToken()) start();
+else if (usaInicio()) showInicio({ onLoggedIn: start }); // chegou pelo navegador: resumo do Muvuca antes do login
 else showAuth({ onLoggedIn: start });
 
 export { toast };

@@ -1,4 +1,4 @@
-// Lateral (Amigos, Jogos, Assistir Junto e os servidores, cada um abre e fecha com um clique), painel "Voz conectada" e painel do usuário
+// Lateral (Amigos, Jogos e os servidores, cada um abre e fecha com um clique), painel "Voz conectada" e painel do usuário
 import { $, h, makeAvatar, paintServerIcon, toast, showBanner, store } from './util.js';
 import { openMePopout } from './profile.js';
 import { icon } from './icons.js';
