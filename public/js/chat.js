@@ -258,8 +258,8 @@ export function renderMessages() {
       const who = others.map((m) => m.name).join(', ') || 'você';
       welcome.append(big, h('h2', '', server.dmName || who), h('div', 'muted', `Este é o começo da sua conversa com ${who}. Só vocês veem o que está aqui.`));
     } else {
-      big.append(icon(channel.type === 'music' ? 'headphones' : 'hash', 40));
-      const label = channel.type === 'music' ? channel.name : `#${channel.name}`;
+      big.append(icon('hash', 40));
+      const label = `#${channel.name}`;
       welcome.append(big, h('h2', '', `Boas-vindas a ${label}!`), h('div', 'muted', channel.topic || `Este é o começo do canal ${label}.`));
     }
     b.append(welcome);
@@ -294,16 +294,16 @@ function buildMessage(msg, prev, server = findChannel(msg.channel).server) {
   const frag = document.createDocumentFragment();
   const newDay = !prev || !sameDay(prev.ts, msg.ts);
   if (newDay) frag.append(h('div', 'day-divider', fmtDay(msg.ts)));
-  // Aviso do sistema: música tocando, alguém chegou/saiu, sala de jogo aberta
+  // Aviso do sistema: alguém chegou/saiu, sala de jogo aberta, ligação
   if (msg.system) {
-    const kind = msg.kind ?? 'music';
+    const kind = msg.kind ?? 'join';
     const row = h('div', `msg system ${kind}`);
     row.dataset.id = msg.id;
     const text = h('span', 'system-text');
     appendRich(text, msg.text);
     text.classList.remove('jumbo');
     row.append(h('div', 'gutter', hhmm(new Date(msg.ts))),
-      icon({ music: 'headphones', join: 'arrow-right', leave: 'arrow-left', game: 'gamepad', call: 'phone', rename: 'pencil', event: 'calendar', owner: 'crown' }[kind] ?? 'headphones', 14), text);
+      icon({ join: 'arrow-right', leave: 'arrow-left', game: 'gamepad', call: 'phone', rename: 'pencil', event: 'calendar', owner: 'crown' }[kind] ?? 'headphones', 14), text);
     if (kind === 'game' && msg.meta?.roomId) {
       const join = h('button', 'btn small primary', 'Entrar na sala');
       join.type = 'button';
@@ -624,7 +624,7 @@ export function renderComposer() {
   const input = $('chat-input');
   input.disabled = !allowed;
   const others = server?.kind === 'dm' ? server.members.filter((m) => m.id !== state.me?.id).map((m) => m.name) : null;
-  const label = server?.dmName || (others ? others.join(', ') : channel.type === 'music' ? channel.name : `#${channel.name}`);
+  const label = server?.dmName || (others ? others.join(', ') : `#${channel.name}`);
   // Modo lento (quem gerencia mensagens ou canais não espera, então não precisa do aviso)
   const slow = channel.slowmode && !canIn(server, PERMS.MANAGE_MESSAGES) && !canIn(server, PERMS.MANAGE_CHANNELS) ? channel.slowmode : 0;
   const slowTime = slow < 60 ? `${slow} s` : slow < 3600 ? `${slow / 60} min` : '1 h';

@@ -31,7 +31,6 @@ export const DB_FILE = process.env.DB_FILE || defaultDbFile();
 // Emojis, fotos e anexos ficam ao lado do banco (um banco de teste nunca mexe nos arquivos reais)
 export const DATA_DIR = path.dirname(DB_FILE);
 export const PUBLIC_DIR = path.resolve(process.env.PUBLIC_DIR || path.join(ROOT, 'public'));
-export const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || '';
 export const GIPHY_API_KEY = process.env.GIPHY_API_KEY || '';
 // Endereço do site para montar links (o start.sh preenche; sem ele, o do modo local)
 export const PUBLIC_URL = (process.env.PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/+$/, '');

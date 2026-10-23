@@ -7,7 +7,6 @@ import { state, findChannel, canIn, PERMS, rememberedTextChannel } from './state
 import { api, send, request } from './net.js';
 import { selectChannel } from './app.js';
 import { renderChannels, renderUserPanel, renderVoicePanel } from './sidebar.js';
-import { applyVolume as applyMusicVolume } from './music.js';
 // Qualidades da câmera e da tela e a janela "Transmitir tela": as mesmas da sala de tela do bot do Discord
 import { CAN_BOOST, MAX_PERSON_VOLUME, CAMERA_VIDEO, screenShareOptions, lockScreenQuality, openScreenDialog } from './transmissao.js';
 import { somDoApp } from './desktop-audio.js';
@@ -550,7 +549,6 @@ $('btn-mic').onclick = () => {
   store.set('deafened', state.deafened ? '1' : null);
   renderUserPanel();
   applyAudioState();
-  applyMusicVolume(); // ligar o microfone também tira o ensurdecer
 };
 
 $('btn-deaf').onclick = () => {
@@ -558,7 +556,6 @@ $('btn-deaf').onclick = () => {
   store.set('deafened', state.deafened ? '1' : null);
   renderUserPanel();
   applyAudioState();
-  applyMusicVolume(); // ensurdecer também silencia a música, como no Discord
 };
 
 export async function watchStream(channelId, identity) {

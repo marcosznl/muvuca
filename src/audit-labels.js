@@ -58,7 +58,6 @@ export const AUDIT_LABELS = {
   'emoji:rename': 'Renomeou emoji',
   'emoji:delete': 'Apagou emoji',
   'sound:delete': 'Apagou som',
-  'music:kick': 'Tirou alguém da cabine de música',
   'game:word:add': 'Adicionou palavra no Desenha aí',
   'game:word:remove': 'Tirou palavra do Desenha aí',
   // Perfil
@@ -84,8 +83,6 @@ export const AUDIT_LABELS = {
   'painel:maintenance': 'Modo manutenção',
   'painel:deploy': 'Atualizou o Muvuca',
   'painel:xp': 'Ajustou XP de uma conta (o XP saiu do Muvuca)',
-  'dj:create': 'Criou sala de DJ',
-  'dj:delete': 'Apagou sala de DJ',
   'painel:service': 'Serviços pelo painel (recarregar, voz, desligar/ligar)',
   'painel:server:rename': 'Renomeou um servidor (painel)',
   'painel:server:transfer': 'Passou a posse de um servidor (painel)',
@@ -113,7 +110,7 @@ export const AUDIT_LABELS = {
 export const AUDIT_GROUPS = {
   seguranca: ['painel:user:reset-password', 'painel:user:delete', 'painel:passkey:add', 'painel:passkey:remove', 'auth:login:fail', 'auth:login:blocked', 'painel:user:block', 'painel:user:unblock', 'painel:ip:block', 'painel:ip:unblock', 'painel:user:disconnect', 'auth:register:fail', 'auth:password', 'auth:password:fail', 'painel:login', 'painel:login:fail', 'painel:logout'],
   contas: ['auth:login', 'auth:register', 'auth:logout', 'auth:password', 'voice:join'],
-  moderacao: ['filter:block', 'filter:mask', 'server:filter', 'channel:privacy', 'channel:slowmode', 'member:nick', 'voice:move', 'spam:timeout', 'painel:msg:delete', 'painel:file:delete', 'msg:purge', 'member:kick', 'member:roles', 'msg:delete:other', 'msg:pin', 'music:kick', 'emoji:delete', 'sound:delete', 'invite:revoke'],
+  moderacao: ['filter:block', 'filter:mask', 'server:filter', 'channel:privacy', 'channel:slowmode', 'member:nick', 'voice:move', 'spam:timeout', 'painel:msg:delete', 'painel:file:delete', 'msg:purge', 'member:kick', 'member:roles', 'msg:delete:other', 'msg:pin', 'emoji:delete', 'sound:delete', 'invite:revoke'],
   painel: ['painel:user:reset-password', 'painel:user:delete', 'painel:login', 'painel:login:fail', 'painel:logout', 'painel:restart', 'painel:backup', 'painel:speedtest', 'painel:user:disconnect', 'painel:user:block', 'painel:user:unblock', 'painel:ip:block', 'painel:ip:unblock', 'painel:maintenance', 'painel:deploy', 'painel:rollback', 'painel:xp', 'painel:msg:delete', 'painel:file:delete', 'painel:invite:create', 'painel:invite:revoke', 'painel:alerts', 'painel:passkey:add', 'painel:passkey:remove', 'painel:server:rename', 'painel:server:transfer', 'painel:server:delete', 'painel:service'],
   minecraft: ['painel:mc:start', 'painel:mc:stop', 'painel:mc:restart', 'painel:mc:autostop', 'painel:mc:wake', 'painel:mc:backup', 'painel:mc:cmd', 'painel:mc:settings'],
 };

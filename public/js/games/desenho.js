@@ -257,7 +257,7 @@ function renderTools(ctx, s) {
 
 // Manda um desenho da galeria como imagem para o último canal de texto usado
 async function shareToChat(item) {
-  const server = serverById(store.get('lastServer')) ?? state.servers.find((x) => x.kind !== 'dm' && x.kind !== 'dj');
+  const server = serverById(store.get('lastServer')) ?? state.servers.find((x) => x.kind !== 'dm');
   const channel = server && rememberedTextChannel(server);
   if (!channel) return showBanner('Abra um canal de texto primeiro.', { timeout: 4000 });
   const ok = await confirmDialog({ title: 'Mandar para o chat', message: `Mandar o desenho de ${item.name} ("${item.word}") para #${channel.name} em ${server.name}?`, confirm: 'Mandar', danger: false });

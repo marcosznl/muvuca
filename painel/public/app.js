@@ -303,7 +303,7 @@ async function buscar() {
   const rows = [
     ...sec('Pessoas', d.users.map((u) => item(() => openPessoa(u.id), h('b', {}, u.name), h('span', { class: 'muted small' }, ` @${u.username}`), u.online ? h('span', { class: 'pill good' }, 'online') : null))),
     ...sec('Servidores', (d.servers ?? []).map((sv) => item(() => openServerDetail(sv.id), h('b', {}, sv.name)))),
-    ...sec('Canais', (d.channels ?? []).map((c) => item(() => openServerDetail(c.server_id), h('b', {}, `${{ text: '#', voice: '🔊', music: '🎵' }[c.type] ?? '#'}${c.name}`), h('span', { class: 'muted small' }, ` · ${c.server}`)))),
+    ...sec('Canais', (d.channels ?? []).map((c) => item(() => openServerDetail(c.server_id), h('b', {}, `${c.type === 'voice' ? '🔊' : '#'}${c.name}`), h('span', { class: 'muted small' }, ` · ${c.server}`)))),
     ...sec('IPs', d.ips.map((r) => item(() => { auditFilters = { ip: r.ip }; openTab('auditoria'); }, h('span', { class: 'mono' }, r.ip), h('span', { class: 'muted small' }, ` · ${r.who.join(', ') || 'sem conta'} · ${ago(r.last)}`)))),
     ...sec('Mensagens', d.messages.map((m) => item(() => { msgQuery = { q, user: '' }; openTab('mensagens'); }, h('b', {}, m.name ?? '?'), h('span', { class: 'muted small' }, ` · ${m.where}`), h('div', { class: 'busca-trecho' }, (m.text || '📎 anexo').slice(0, 120))))),
   ];
@@ -545,7 +545,7 @@ async function viewAoVivo() {
           v.people ? voicePeopleTable(v.people) : null,
         )) : h('p', { class: 'empty' }, 'Ninguém em call.')),
     ),
-    h('div', { class: 'section grid two' },
+    h('div', { class: 'section' },
       h('div', { class: 'card' }, h('h2', {}, 'Salas de jogo'),
         table([
           { label: 'Jogo', get: (g) => g.game },
@@ -553,12 +553,6 @@ async function viewAoVivo() {
           { label: 'Jogadores', get: (g) => g.players.join(', ') },
           { label: 'Assistindo', num: true, get: (g) => g.spectators },
         ], m.games, { empty: 'Nenhuma sala aberta.' })),
-      h('div', { class: 'card' }, h('h2', {}, 'Salas de música'),
-        table([
-          { label: 'Canal', get: (r) => `${r.name} · ${r.server}` },
-          { label: 'Ouvindo', num: true, get: (r) => r.listeners },
-          { label: 'Tocando', get: (r) => r.track ?? '—' },
-        ], m.music, { empty: 'Ninguém ouvindo música.' })),
     ),
   );
 }
@@ -662,7 +656,7 @@ async function viewServidores() {
       h('div', { class: 'sv-stats' },
         h('span', {}, h('b', {}, num(sv.members)), ' membros'), h('span', {}, h('b', {}, num(sv.online)), ' online'),
         sv.inCall ? h('span', { class: 'pill good' }, `${sv.inCall} em call`) : null),
-      h('div', { class: 'muted small' }, `${sv.channels.text} texto · ${sv.channels.voice} voz · ${sv.channels.music} música · ${num(sv.msgs7)} mensagens em 7 dias · ${bytes(sv.bytes)} de anexos`),
+      h('div', { class: 'muted small' }, `${sv.channels.text} texto · ${sv.channels.voice} voz · ${num(sv.msgs7)} mensagens em 7 dias · ${bytes(sv.bytes)} de anexos`),
       h('div', { class: 'muted small' }, `criado em ${when(sv.createdAt)}`)))));
 }
 
@@ -670,7 +664,7 @@ async function serverDetailView(id) {
   let d;
   try { d = await api(`/api/server?id=${encodeURIComponent(id)}`); } catch (err) { serverSel = null; throw err; }
   const back = h('button', { class: 'btn small ghost', onclick: () => { serverSel = null; openTab('servidores'); } }, '← Todos os servidores');
-  const typeIcon = { text: '#', voice: '🔊', music: '🎵' };
+  const typeIcon = { text: '#', voice: '🔊' };
   const maxDay = Math.max(1, ...d.perDay);
   const top = [...d.channels].sort((a, b) => b.msgs7 - a.msgs7)[0];
   const rename = () => {
@@ -1056,7 +1050,7 @@ async function restartMuvuca(btn) {
 const reloadAll = () => act('/api/service', { what: 'reload' }, { confirmText: 'Recarregar o Muvuca em todas as abas e apps abertos? Quem está em call volta sozinho para a call; mensagem que alguém estava digitando pode se perder.' });
 const restartVoice = () => {
   const inVoice = (status?.main?.voice ?? []).reduce((n, v) => n + v.count, 0);
-  return act('/api/service', { what: 'voice' }, { confirmText: `Reiniciar só a voz (LiveKit)? ${inVoice ? `As ${inVoice} pessoas em call caem por uns segundos e voltam sozinhas.` : 'Ninguém está em call agora.'} O chat, os jogos e a música continuam.`, reload: tab });
+  return act('/api/service', { what: 'voice' }, { confirmText: `Reiniciar só a voz (LiveKit)? ${inVoice ? `As ${inVoice} pessoas em call caem por uns segundos e voltam sozinhas.` : 'Ninguém está em call agora.'} O chat e os jogos continuam.`, reload: tab });
 };
 function stopMuvuca() {
   const typed = prompt('DESLIGAR o Muvuca?\n\nTodo mundo sai (site, calls, jogos) até você ligar de novo por aqui. O painel continua funcionando. Para um aviso rápido, use o modo manutenção.\n\nPara confirmar, digite DESLIGAR:', '');
@@ -1077,7 +1071,7 @@ async function viewManutencao() {
     maintenanceCard(mt),
     svc('Recarregar o site de todos', 'Faz todas as abas e apps abertos recarregarem a página (nada reinicia no servidor). Útil depois de publicar uma atualização do site ou se algo ficou estranho na tela de todo mundo. Quem está em call volta sozinho.',
       h('button', { class: 'btn', onclick: reloadAll }, 'Recarregar o site de todos')),
-    svc('Reiniciar só a voz', 'Reinicia só o LiveKit (calls, câmeras e lives). As calls caem por uns segundos e voltam sozinhas; o chat, os jogos e a música não caem. Bom para voz travada ou alguém que não consegue entrar.',
+    svc('Reiniciar só a voz', 'Reinicia só o LiveKit (calls, câmeras e lives). As calls caem por uns segundos e voltam sozinhas; o chat e os jogos não caem. Bom para voz travada ou alguém que não consegue entrar.',
       h('button', { class: 'btn', onclick: restartVoice }, 'Reiniciar só a voz')),
     svc(off ? 'Ligar o Muvuca' : 'Desligar o Muvuca', off ? 'Liga o site, a voz e o HTTPS de novo (uns 10 segundos).' : 'Desliga tudo (site, voz, HTTPS) até você ligar de novo por aqui. Para manutenções longas; para avisos rápidos, use o modo manutenção.',
       off ? h('button', { class: 'btn primary', onclick: startMuvuca }, 'Ligar o Muvuca') : h('button', { class: 'btn danger-ghost', onclick: stopMuvuca }, 'Desligar o Muvuca')),

@@ -5,15 +5,12 @@ import { state, currentServer, statusOf, STATUS_LABEL } from './state.js';
 import { nameColor } from './permissions.js';
 import { openMemberMenu } from './settings.js';
 import { openProfileCard } from './profile.js';
-import { renderSide } from './music.js';
 import { selectGames } from './app.js';
 import { enterRoom } from './games.js';
 
 export function renderMembers() {
   const s = currentServer();
   const list = $('member-list');
-  // No canal de música, o painel da direita vira a cabine de DJs / fila / ouvintes
-  if (s?.channels.find((c) => c.id === state.view.channelId)?.type === 'music') return renderSide(list);
   list.replaceChildren();
   if (!s) return;
 

@@ -2,7 +2,6 @@
 // e o modo manutenção (aviso para todo mundo e, se quiser, acesso travado para todos menos o dono).
 import { db, HOME_SERVER } from './store.js';
 import { sockets, send, sendToUser, broadcastPresence, sendToServer, pushServer } from './realtime.js';
-import { leaveMusicOf } from './music-rooms.js';
 import { removeImage } from './images.js';
 import { removeEmojiFile } from './emojis.js';
 import { removeFiles } from './attachments.js';
@@ -170,7 +169,6 @@ export async function deleteAccount(userId) {
   if (!db.userById(userId)) throw new Error('Conta não encontrada.');
   if (userId === ownerId()) throw new Error('A conta do dono do servidor principal não pode ser excluída.');
   kick(userId, 'auth', 'Sua conta foi excluída.');
-  for (const sid of db.serverIdsOf({ id: userId })) leaveMusicOf(sid, userId);
   const r = db.deleteAccount(userId);
   // Arquivos no disco (anexos, foto, banner, e o que era dos servidores que sumiram)
   await removeFiles(r.files).catch(() => {});

@@ -20,7 +20,7 @@ const run = promisify(execFile);
 const ENV = { ...process.env, PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin' };
 const KEEP = 10; // versões guardadas (as mais antigas são apagadas a cada publicação)
 // O que faz parte de uma versão do Muvuca (o painel fica de fora)
-const APP_FILES = ['server.js', 'db.js', 'music.js', 'gifs.js', 'channels.json', 'package.json', 'package-lock.json',
+const APP_FILES = ['server.js', 'db.js', 'gifs.js', 'channels.json', 'package.json', 'package-lock.json',
   'start.sh', 'Caddyfile', 'livekit.yaml', 'backup.sh', 'server.sh', 'ddns-update.sh'];
 const APP_DIRS = ['src', 'public'];
 

@@ -7,6 +7,16 @@
 //   itens:  o que mudou, um por linha
 export const NOVIDADES = [
   {
+    versao: '2026-10-23',
+    data: '2026-10-23',
+    titulo: 'O Assistir Junto saiu',
+    itens: [
+      'O Assistir Junto (as salas de música com a cabine de DJ) saiu do Muvuca. Para ouvir música junto com a galera, use o Som na Caixa: som-na-caixa.onrender.com',
+      'A lateral agora tem só Amigos, Jogos e os servidores. As salas de música e o chat delas foram apagados.',
+      'Nos cargos, sumiram as permissões "Tocar como DJ" e "Gerenciar música".',
+    ],
+  },
+  {
     versao: '2026-10-19',
     data: '2026-10-19',
     titulo: 'Live a 60 FPS e sala de tela sem o som do Discord',

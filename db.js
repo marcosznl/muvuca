@@ -81,7 +81,7 @@ export function openDb(file) {
     CREATE TABLE IF NOT EXISTS channels (
       id         TEXT    PRIMARY KEY,        -- também é o nome da sala no LiveKit (canais de voz)
       server_id  TEXT    NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-      type       TEXT    NOT NULL CHECK (type IN ('text', 'voice', 'music')),
+      type       TEXT    NOT NULL CHECK (type IN ('text', 'voice', 'music')), -- 'music' não é mais usado (fica pela migração abaixo)
       name       TEXT    NOT NULL,
       position   INTEGER NOT NULL,           -- ordem dentro da categoria
       created_at INTEGER NOT NULL,
@@ -105,16 +105,6 @@ export function openDb(file) {
       created_at  INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS messages_by_channel ON messages(channel_id, id);
-
-    CREATE TABLE IF NOT EXISTS music_plays (
-      id         INTEGER PRIMARY KEY,
-      channel_id TEXT    NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
-      video_id   TEXT    NOT NULL,
-      title      TEXT    NOT NULL,
-      dj_id      INTEGER REFERENCES users(id) ON DELETE SET NULL,
-      started_at INTEGER NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS plays_by_channel ON music_plays(channel_id, id);
 
     CREATE TABLE IF NOT EXISTS emojis (
       id         TEXT    PRIMARY KEY,        -- também é o nome do arquivo em data/emojis/
@@ -274,7 +264,7 @@ export const VOICE_BITRATE = { min: 16, max: 320, default: 128 };
 // Limite de pessoas por canal de voz (0 = sem limite, até o teto do LiveKit em livekit.yaml)
 export const VOICE_LIMIT_MAX = 25;
 
-const DEFAULT_CATEGORIES = [['text', 'Canais de texto'], ['voice', 'Canais de voz'], ['music', 'Canais de música']];
+const DEFAULT_CATEGORIES = [['text', 'Canais de texto'], ['voice', 'Canais de voz']];
 
 // Ajustes em bancos criados por versões anteriores
 function migrate(db) {
@@ -357,7 +347,6 @@ function migrate(db) {
     for (const { id: serverId } of db.prepare('SELECT id FROM servers').all()) {
       let pos = 0;
       for (const [type, name] of DEFAULT_CATEGORIES) {
-        if (type === 'music' && !hasType.get(serverId, type)) continue;
         const catId = randomId('k');
         addCat.run(catId, serverId, name, pos++, Date.now());
         assign.run(catId, serverId, type);
@@ -424,22 +413,6 @@ function migrate(db) {
              FROM members mem JOIN channels c ON c.server_id = mem.server_id WHERE c.type != 'voice'`);
     db.prepare("INSERT INTO meta (key, value) VALUES ('read_state_v1', ?)").run(new Date().toISOString());
   }
-  // Permissão nova "Tocar como DJ" entra no @everyone dos servidores que já existiam
-  const done = db.prepare("SELECT value FROM meta WHERE key = 'perm_music_dj'").get();
-  if (!done) {
-    db.prepare('UPDATE roles SET permissions = permissions | ? WHERE is_default = 1').run(PERMS.MUSIC_DJ);
-    db.prepare("INSERT INTO meta (key, value) VALUES ('perm_music_dj', ?)").run(new Date().toISOString());
-  }
-  // Salas de DJ (fora dos servidores, para todo mundo): quem criou a sala e a senha (opcional)
-  const djCols = db.prepare('PRAGMA table_info(channels)').all().map((c) => c.name);
-  if (!djCols.includes('owner_id')) db.exec('ALTER TABLE channels ADD COLUMN owner_id INTEGER');
-  if (!djCols.includes('password_hash')) db.exec('ALTER TABLE channels ADD COLUMN password_hash TEXT');
-  // Quem já digitou a senha de uma sala (não precisa digitar de novo até a senha mudar)
-  db.exec(`CREATE TABLE IF NOT EXISTS dj_access (
-    channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
-    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    PRIMARY KEY (channel_id, user_id)
-  )`);
 }
 
 // ---------- Senhas e tokens ----------
@@ -470,9 +443,8 @@ const publicUser = (row) => row && {
 // Tipos de mensagem de sistema (coluna messages.system)
 // Conversa direta: mensagens, fixar e ligar (voz, câmera e tela)
 const DM_PERMS = PERMS.SEND_MESSAGES | PERMS.PIN_MESSAGES | PERMS.CONNECT | PERMS.SPEAK | PERMS.VIDEO;
-// Salas de DJ: conversar no chat da sala e tocar na cabine (criar, mudar e apagar sala têm ações próprias)
-const DJ_PERMS = PERMS.SEND_MESSAGES | PERMS.MUSIC_DJ;
 
+// 1 era o aviso das salas de música (o Assistir Junto saiu): não reaproveitar
 export const SYSTEM = { music: 1, join: 2, leave: 3, game: 4, call: 5, rename: 6, event: 7, owner: 8 };
 const SYSTEM_KIND = Object.fromEntries(Object.entries(SYSTEM).map(([k, v]) => [v, k]));
 
@@ -530,7 +502,7 @@ function groupReactions(rows) {
 // mensagem enviada. Fica guardado até alguma escrita no banco poder mudá-lo (ou por no máximo 1 minuto).
 // Escritas só nestas tabelas não mudam o snapshot (nenhuma tabela do snapshot depende delas):
 const OUTSIDE_SNAPSHOT = new Set([
-  'sessions', 'invites', 'messages', 'music_plays', 'files', 'images', 'reactions', 'read_state', 'game_results',
+  'sessions', 'invites', 'messages', 'files', 'images', 'reactions', 'read_state', 'game_results',
   'game_players', 'poll_votes', 'mutes', 'friends', 'game_words', 'audit_log', 'call_minutes', 'blocked_ips', 'push_subs', 'client_errors',
 ]);
 // Colunas de users que não aparecem no snapshot
@@ -609,7 +581,7 @@ class Store {
       deleteServer: p('DELETE FROM servers WHERE id = ?'),
       ownedCount: p('SELECT COUNT(*) AS n FROM servers WHERE owner_id = ?'),
       serversOfUser: p(`SELECT m.server_id FROM members m JOIN servers s ON s.id = m.server_id WHERE m.user_id = ?
-                        ORDER BY s.kind = 'dj', m.rail_pos IS NULL, m.rail_pos, m.joined_at`), // a ordem que a pessoa escolheu; os novos no fim (salas de DJ por último)
+                        ORDER BY m.rail_pos IS NULL, m.rail_pos, m.joined_at`), // a ordem que a pessoa escolheu; os novos no fim
       members: p(`SELECT u.id, u.username, u.display_name, u.avatar, u.bio, u.banner, u.banner_image, u.status_text, m.joined_at, m.nick FROM members m JOIN users u ON u.id = m.user_id
                   WHERE m.server_id = ? ORDER BY m.joined_at`),
       memberRoles: p('SELECT user_id, role_id FROM member_roles WHERE server_id = ?'),
@@ -634,7 +606,6 @@ class Store {
       setChannelPlace: p('UPDATE channels SET category_id = ?, position = ? WHERE id = ?'),
       channel: p('SELECT * FROM channels WHERE id = ?'),
       allVoiceChannels: p("SELECT id, server_id FROM channels WHERE type = 'voice'"),
-      allMusicChannels: p("SELECT id, server_id FROM channels WHERE type = 'music'"),
       countChannels: p('SELECT COUNT(*) AS n FROM channels WHERE server_id = ? AND type = ?'),
       maxChannelPos: p('SELECT COALESCE(MAX(position), -1) AS p FROM channels WHERE server_id = ? AND category_id IS ?'),
       insertChannel: p('INSERT INTO channels (id, server_id, type, name, position, created_at, category_id) VALUES (?, ?, ?, ?, ?, ?, ?)'),
@@ -674,9 +645,6 @@ class Store {
       staleFiles: p('SELECT id FROM files WHERE message_id IS NULL AND created_at < ?'),
       deleteFile: p('DELETE FROM files WHERE id = ?'),
       insertSystemMessage: p("INSERT INTO messages (channel_id, user_id, author_name, text, created_at, system) VALUES (?, NULL, '', ?, ?, 1)"),
-      insertPlay: p('INSERT INTO music_plays (channel_id, video_id, title, dj_id, started_at) VALUES (?, ?, ?, ?, ?)'),
-      recentPlays: p(`SELECT p.video_id, p.title, p.started_at, u.display_name FROM music_plays p
-                      LEFT JOIN users u ON u.id = p.dj_id WHERE p.channel_id = ? ORDER BY p.id DESC LIMIT ?`),
       editMessage: p('UPDATE messages SET text = ?, edited_at = ? WHERE id = ?'),
       pinMessage: p('UPDATE messages SET pinned_at = ? WHERE id = ?'),
       countPins: p('SELECT COUNT(*) AS n FROM messages WHERE channel_id = ? AND pinned_at IS NOT NULL'),
@@ -981,7 +949,6 @@ class Store {
       this.db.prepare('DELETE FROM files WHERE owner_id = ?').run(id);
       for (const img of images) this.db.prepare('DELETE FROM images WHERE id = ?').run(img);
       this.db.prepare('DELETE FROM call_minutes WHERE user_id = ?').run(id);
-      this.db.prepare('UPDATE channels SET owner_id = NULL WHERE owner_id = ?').run(id); // salas de DJ dela continuam
       for (const s of servers) {
         const others = this.db.prepare('SELECT user_id FROM members WHERE server_id = ? AND user_id != ? ORDER BY joined_at').all(s.id, id);
         const gone = s.kind === 'dm' ? others.length <= 1 : s.owner_id === id && others.length === 0;
@@ -1059,8 +1026,6 @@ class Store {
         ...(c.private ? { private: true, roles: channelRoles.get(c.id) ?? [] } : {}),
         ...(c.slowmode ? { slowmode: c.slowmode } : {}),
         ...(c.type === 'voice' ? { bitrate: c.bitrate ?? VOICE_BITRATE.default, userLimit: c.user_limit ?? 0 } : {}),
-        ...(s.kind === 'dj' ? { ownerId: c.owner_id ? uid(c.owner_id) : null } : {}),
-        ...(s.kind === 'dj' && c.password_hash ? { locked: true, access: this.djAccess(c.id) } : {}),
       })),
       roles: this.q.roles.all(serverId).map((r) => ({
         id: r.id, name: r.name, color: r.color, position: r.position, permissions: r.permissions, isDefault: r.is_default === 1,
@@ -1117,10 +1082,9 @@ class Store {
 
   channel(id) { return this.q.channel.get(String(id)); }
   voiceChannels() { return this.q.allVoiceChannels.all(); }
-  musicChannels() { return this.q.allMusicChannels.all(); }
   countChannels(serverId, type) { return this.q.countChannels.get(serverId, type).n; }
 
-  createChannel({ serverId, type, name, categoryId = null, id = randomId({ text: 't', voice: 'v', music: 'm' }[type]) }) {
+  createChannel({ serverId, type, name, categoryId = null, id = randomId({ text: 't', voice: 'v' }[type]) }) {
     const position = this.q.maxChannelPos.get(serverId, categoryId).p + 1;
     this.q.insertChannel.run(id, serverId, type, name, position, Date.now(), categoryId);
     return id;
@@ -1334,7 +1298,7 @@ class Store {
   countPins(channelId) { return this.q.countPins.get(channelId).n; }
   pinnedMessages(channelId) { return this.q.pinnedIds.all(channelId).map((r) => this.message(r.id)); }
 
-  addSystemMessage(channelId, text, kind = SYSTEM.music, meta = null) {
+  addSystemMessage(channelId, text, kind, meta = null) {
     const { lastInsertRowid } = this.q.insertSystemMeta.run(channelId, text, Date.now(), kind, meta ? JSON.stringify(meta) : null);
     return toMessage(this.q.messageById.get(lastInsertRowid));
   }
@@ -1460,18 +1424,6 @@ class Store {
   deletePushSub(endpoint) { this.q.deletePushSub.run(endpoint); }
   deleteUserPushSub(userId, endpoint) { this.q.deleteUserPushSub.run(unum(userId), endpoint); }
 
-  // ---------- Músicas tocadas ----------
-
-  addPlay({ channelId, videoId, title, djId, startedAt }) {
-    this.q.insertPlay.run(channelId, videoId, title, unum(djId), startedAt);
-  }
-
-  recentPlays(channelId, limit = 10) {
-    return this.q.recentPlays.all(channelId, limit).map((r) => ({
-      videoId: r.video_id, title: r.title, dj: r.display_name ?? '?', ts: r.started_at,
-    }));
-  }
-
   // Página de mensagens (mais antigas que `beforeId`), em ordem cronológica
   messages(channelId, beforeId = Number.MAX_SAFE_INTEGER) {
     const rows = this.q.messagesBefore.all(channelId, beforeId, PAGE_SIZE + 1);
@@ -1490,57 +1442,22 @@ class Store {
     };
   }
 
-  // ---------- Salas de DJ ----------
-  // Ficam numa área escondida (kind = 'dj') da qual todo mundo é membro, fora da lista de servidores.
-  // Na primeira vez, os canais de música que existiam nos servidores viram salas (com o histórico).
-  seedDjLobby() {
-    let id = this.meta('dj_server');
-    if (!id || !this.server(id)) {
-      id = this.createServer({ name: 'Assistir Junto', owner: null, withDefaultChannels: false });
-      this.q.setKind.run('dj', id);
-      this.setMeta('dj_server', id);
-    }
-    this.q.setRolePerms.run(DJ_PERMS, id);
-    this.db.prepare("UPDATE servers SET name = 'Assistir Junto' WHERE id = ?").run(id); // não é um servidor: só o nome da área
+  // O Assistir Junto (salas de música com cabine de DJ) saiu do Muvuca: apaga a área das salas, os canais
+  // de música que sobraram (com o chat deles), os registros de auditoria dele e as tabelas que só ele usava.
+  // Roda uma vez.
+  removeMusicRooms() {
+    if (this.meta('assistir_junto_removido')) return;
     this.transaction(() => {
-      this.db.prepare(`UPDATE channels SET owner_id = (SELECT owner_id FROM servers WHERE servers.id = channels.server_id),
-        server_id = ?, category_id = NULL WHERE type = 'music' AND server_id != ?`).run(id, id);
-      // A categoria "Canais de música" que ficou vazia sai dos servidores
-      this.db.prepare(`DELETE FROM categories WHERE name = 'Canais de música' AND server_id != ?
-        AND NOT EXISTS (SELECT 1 FROM channels WHERE channels.category_id = categories.id)`).run(id);
-      this.db.prepare('INSERT OR IGNORE INTO members (server_id, user_id, joined_at) SELECT ?, id, ? FROM users').run(id, Date.now());
-    });
-    return id;
-  }
-  djRoom(channelId) {
-    const c = this.db.prepare("SELECT c.* FROM channels c JOIN servers s ON s.id = c.server_id WHERE c.id = ? AND s.kind = 'dj' AND c.type = 'music'").get(String(channelId));
-    return c ? { id: c.id, name: c.name, serverId: c.server_id, ownerId: c.owner_id ? uid(c.owner_id) : null, passwordHash: c.password_hash ?? null } : null;
-  }
-  djRoomCount(serverId, userId = null) {
-    return userId
-      ? this.db.prepare("SELECT COUNT(*) n FROM channels WHERE server_id = ? AND type = 'music' AND owner_id = ?").get(serverId, unum(userId)).n
-      : this.db.prepare("SELECT COUNT(*) n FROM channels WHERE server_id = ? AND type = 'music'").get(serverId).n;
-  }
-  async createDjRoom(serverId, { name, owner, password = '' }) {
-    const id = this.createChannel({ serverId, type: 'music', name });
-    this.db.prepare('UPDATE channels SET owner_id = ?, password_hash = ? WHERE id = ?').run(unum(owner.id), password ? await hashPassword(password) : null, id);
-    return id;
-  }
-  renameDjRoom(channelId, name) { this.db.prepare('UPDATE channels SET name = ? WHERE id = ?').run(name, channelId); }
-  // Senha nova (ou sem senha): quem tinha liberado precisa digitar de novo
-  async setDjPassword(channelId, password) {
-    const hash = password ? await hashPassword(password) : null;
-    this.transaction(() => {
-      this.db.prepare('UPDATE channels SET password_hash = ? WHERE id = ?').run(hash, channelId);
-      this.db.prepare('DELETE FROM dj_access WHERE channel_id = ?').run(channelId);
+      for (const { id } of this.db.prepare("SELECT id FROM servers WHERE kind = 'dj'").all()) this.q.deleteServer.run(id);
+      this.db.prepare("DELETE FROM channels WHERE type = 'music'").run();
+      this.db.prepare(`DELETE FROM categories WHERE name = 'Canais de música'
+        AND NOT EXISTS (SELECT 1 FROM channels WHERE channels.category_id = categories.id)`).run();
+      this.db.exec('DROP TABLE IF EXISTS music_plays; DROP TABLE IF EXISTS dj_access');
+      this.db.prepare("DELETE FROM audit_log WHERE action LIKE 'dj:%' OR action LIKE 'music:%'").run();
+      this.db.prepare("DELETE FROM meta WHERE key = 'dj_server'").run();
+      this.setMeta('assistir_junto_removido', new Date().toISOString());
     });
   }
-  async checkDjPassword(channelId, password) {
-    const row = this.db.prepare('SELECT password_hash FROM channels WHERE id = ?').get(channelId);
-    return !!row?.password_hash && verifyPassword(String(password), row.password_hash);
-  }
-  grantDjAccess(channelId, userId) { this.db.prepare('INSERT OR IGNORE INTO dj_access (channel_id, user_id) VALUES (?, ?)').run(channelId, unum(userId)); }
-  djAccess(channelId) { return this.db.prepare('SELECT user_id FROM dj_access WHERE channel_id = ?').all(channelId).map((r) => uid(r.user_id)); }
 
   // O primeiro servidor ("home") nasce do channels.json, mantendo os ids dos canais (histórico e salas de voz)
   seedHomeServer(config) {

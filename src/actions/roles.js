@@ -5,7 +5,6 @@ import { db } from '../store.js';
 import { sendToUser, pushServer } from '../realtime.js';
 import { requireServer, requirePerm, requireBelow } from '../guards.js';
 import { syncVoicePermissions } from '../voice.js';
-import { leaveMusicOf } from '../music-rooms.js';
 import { fail, clean, validColor } from '../util.js';
 import { PERMS, ALL_PERMS, can, topPosition } from '../../public/js/permissions.js';
 
@@ -130,7 +129,6 @@ export default {
     if (!target || target.id === user.id) fail('Membro não encontrado.');
     if (target.id === ctx.snap.ownerId) fail('O dono não pode ser expulso.');
     if (!isBelow(ctx, target.id)) fail('Esse membro tem cargo igual ou acima do seu.');
-    leaveMusicOf(ctx.snap.id, target.id);
     db.removeMember(ctx.snap.id, target.id);
     sendToUser(target.id, { t: 'server:removed', serverId: ctx.snap.id, reason: `Você foi removido do servidor ${ctx.snap.name}.` });
     await changed(ctx);

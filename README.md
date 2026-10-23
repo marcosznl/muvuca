@@ -1,8 +1,8 @@
 # Muvuca
 
-![Muvuca: chat, calls, jogos e música para a sua turma, num computador seu](docs/img/previa-social.png)
+![Muvuca: chat, calls e jogos para a sua turma, num computador seu](docs/img/previa-social.png)
 
-Um lugar para o seu grupo de amigos conversar, entrar em call, jogar e ouvir música junto, do jeito do Discord, mas **rodando num computador seu**. As conversas, as fotos e as contas ficam guardadas na sua máquina, sem anúncios e sem depender de nenhuma empresa.
+Um lugar para o seu grupo de amigos conversar, entrar em call e jogar junto, do jeito do Discord, mas **rodando num computador seu**. As conversas, as fotos e as contas ficam guardadas na sua máquina, sem anúncios e sem depender de nenhuma empresa.
 
 Tudo em português do Brasil.
 
@@ -43,12 +43,6 @@ Tudo em português do Brasil.
 - Stop, Desenha aí e Bomberman, jogados direto no navegador, com placar da semana.
 
 ![Jogos](docs/img/jogos.png)
-
-**Assistir Junto**
-- Salas para ouvir músicas do YouTube juntos, como no antigo plug.dj: cada pessoa entra na cabine de DJ e toca a sua vez, e todo mundo ouve sincronizado.
-- Qualquer pessoa cria uma sala, aberta ou com senha.
-
-![Assistir Junto](docs/img/assistir-junto.png)
 
 **Organização e segurança**
 - Cargos com permissões (gerenciar canais, expulsar, mover pessoas na call, fixar mensagens e outras), cor no nome e apelido por servidor.
@@ -137,7 +131,6 @@ Tudo em português do Brasil.
 - **Um domínio.** O [DuckDNS](https://www.duckdns.org) dá um de graça (`seu-nome.duckdns.org`) e o Muvuca já sabe mantê-lo atualizado. Também dá para usar um domínio próprio.
 
 **Opcional**
-- Chave da **YouTube Data API v3** (Google Cloud), para buscar músicas pelo nome no Assistir Junto. Sem ela, cola-se o link do vídeo.
 - Chave da **API do Giphy**, para os GIFs do chat.
 
 ---
@@ -190,7 +183,7 @@ Abra o `.env` num editor de texto e preencha. Cada item tem uma explicação no 
 | `DUCKDNS_SUBDOMAIN` e `DUCKDNS_TOKEN` | O subdomínio (sem `.duckdns.org`) e o token do passo 3. |
 | `DOMAIN` | Só se for usar domínio próprio em vez do DuckDNS. |
 | `PUBLIC_PORT` | Porta extra para o site no IPv4, normalmente `8443`. Veja a explicação em [Portas](#5-abra-as-portas-no-roteador). |
-| `YOUTUBE_API_KEY`, `GIPHY_API_KEY` | Opcionais. |
+| `GIPHY_API_KEY` | Opcional. |
 
 O `.env` tem senhas: ele fica fora do git e nunca deve ser publicado.
 

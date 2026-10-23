@@ -9,7 +9,6 @@ import { DATA_DIR } from './config.js';
 import { db } from './store.js';
 import { sockets, statusOf } from './realtime.js';
 import { voiceAll } from './voice.js';
-import { music } from './music-rooms.js';
 import { listRooms } from './games/lobby.js';
 import { statsOf } from './voice-stats.js';
 import { bandwidthStats } from './throttle.js';
@@ -57,13 +56,6 @@ export function internalStats(startedAt) {
       people: people.map((p) => ({ name: p.name, muted: !!p.muted, deafened: !!p.deafened, camera: !!p.camera, streaming: !!p.streaming, net: statsOf(p.id) })),
     });
   }
-  const musicRooms = [];
-  for (const c of db.musicChannels()) {
-    const r = music.rooms.get(c.id);
-    if (!r || !r.listeners.size) continue;
-    const snap = music.snapshot(c.id);
-    musicRooms.push({ name: c.name, server: db.server(c.server_id)?.name ?? '?', listeners: snap.listeners.length, booth: snap.booth.length, track: snap.track?.title ?? null });
-  }
   const games = listRooms().map((r) => ({ game: r.game, status: r.status, players: r.players.map((p) => p.name), spectators: r.spectators }));
   const mem = process.memoryUsage();
   return {
@@ -76,7 +68,7 @@ export function internalStats(startedAt) {
     loopDelayMs: Math.max(0, Math.round((loopDelay.mean / 1e6 - 20) * 10) / 10),
     loopDelayMaxMs: Math.max(0, Math.round(loopDelay.max / 1e6 - 20)),
     connections: [...sockets.values()].reduce((n, s) => n + s.size, 0),
-    users, voice, music: musicRooms, games,
+    users, voice, games,
     bandwidth: bandwidthStats(),
   };
 }

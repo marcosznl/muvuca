@@ -9,11 +9,9 @@ import { request } from './net.js';
 import { contextMenu, promptText, confirmDialog, openModal, button } from './dialogs.js';
 import { selectServer, selectChannel } from './app.js';
 import { joinVoice, leaveVoice, watchStream, voiceChannelId, speakingNow, openUserVolumeMenu } from './voice.js';
-import { musicChannelId } from './music.js';
 import { openServerSettings, openInviteDialog } from './settings.js';
 import { dmTree, dmTitle, openNewDm, totalDmUnread, realServers, inDmHome, selectDmHome } from './dms.js';
 import { openRoomsCount, inGames, openGamesHome } from './games.js';
-import { djTree, djRooms, djUnread, inDjHome, openCreateDjRoom, selectDjHome } from './dj.js';
 import { incomingCount } from './friends.js';
 import { openUserSettings } from './user-settings.js';
 import { openNovidades, temNovidade } from './novidades.js';
@@ -383,7 +381,6 @@ async function deleteChannel(c) {
     message: {
       text: `Tem certeza de que quer excluir #${c.name}? Todas as mensagens dele serão apagadas.`,
       voice: `Tem certeza de que quer excluir "${c.name}"? Quem estiver nele será desconectado.`,
-      music: `Tem certeza de que quer excluir "${c.name}"? A música para para todo mundo e o chat dele é apagado.`,
     }[c.type],
     confirm: 'Excluir canal',
   });
@@ -680,14 +677,6 @@ function channelItem(s, c, canManage) {
       members.append(row);
     }
     li.append(members);
-  } else {
-    const listeners = state.music[c.id]?.listeners?.length ?? 0;
-    btn.classList.toggle('connected', musicChannelId() === c.id);
-    btn.append(icon('headphones'), h('span', 'name', c.name));
-    if (listeners) btn.append(h('span', 'count', String(listeners)));
-    const playing = state.music[c.id]?.nowPlaying;
-    btn.title = playing ? `Tocando: ${playing}` : c.name;
-    btn.onclick = () => selectChannel(c.id);
   }
 
   if (c.private) { // cadeado: canal privado
@@ -721,8 +710,6 @@ const openServers = new Set(JSON.parse(store.get('treeOpen') || '[]'));
 const saveTree = () => store.set('treeOpen', JSON.stringify([...openServers]));
 let autoOpened = store.get('lastServer'); // servidor aberto sozinho ao entrar nele (recarregar não reabre o que você fechou)
 let firstTime = store.get('treeOpen') == null; // primeira vez com a lateral nova: tudo aberto
-// Salas de DJ chegaram depois: abertas na primeira vez para todo mundo ver que existem
-if (!store.get('treeDj')) { openServers.add('dj'); store.set('treeDj', '1'); store.set('treeOpen', JSON.stringify([...openServers])); }
 
 function toggleServer(id) {
   if (openServers.has(id)) openServers.delete(id); else openServers.add(id);
@@ -825,7 +812,7 @@ function serverChannels(s) {
     const hide = k && collapsed.has(k.id);
     for (const c of list) {
       // Recolhida, a categoria ainda mostra o canal aberto e as salas em que você está
-      if (hide && state.view.channelId !== c.id && voiceChannelId() !== c.id && musicChannelId() !== c.id) continue;
+      if (hide && state.view.channelId !== c.id && voiceChannelId() !== c.id) continue;
       ul.append(channelItem(s, c, canManage));
     }
     group.append(ul);
@@ -842,7 +829,6 @@ export function renderChannels() {
     firstTime = false;
     for (const x of realServers()) openServers.add(x.id);
     openServers.add('amigos');
-    openServers.add('dj');
     saveTree();
   }
   const cur = state.view.serverId;
@@ -861,9 +847,6 @@ export function renderChannels() {
       here: inDmHome(), go: selectDmHome, badge: totalDmUnread() + incomingCount(), openBadge: incomingCount(), action: plusButton('Nova conversa', openNewDm),
     }, dmTree()),
     topFolder('jogos', 'gamepad', 'Jogos', { here: inGames(), go: openGamesHome, count: openRoomsCount() }, null),
-    topFolder('dj', 'headphones', 'Assistir Junto', {
-      here: inDjHome(), go: selectDjHome, badge: djUnread(), count: djRooms().length, action: plusButton('Nova sala', openCreateDjRoom),
-    }, djTree()),
     h('div', 'tree-sep'),
     ...realServers().map(serverFolder),
     addWrap,
@@ -896,7 +879,7 @@ export function renderUserPanel() {
 
 // App do Mac: estado do microfone (menu da barra de menus) e se está em call/música (o Mac não pode "cochilar" o app)
 export function syncDesktopVoiceState() {
-  window.muvucaDesktop?.setVoiceState({ muted: !state.micOn || state.deafened, inCall: !!voiceChannelId() || !!musicChannelId() });
+  window.muvucaDesktop?.setVoiceState({ muted: !state.micOn || state.deafened, inCall: !!voiceChannelId() });
 }
 
 // "Mais opções" do seu cartão (clique na sua foto lá embaixo): sons, notificações, atalhos e tema

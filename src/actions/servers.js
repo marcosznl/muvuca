@@ -4,7 +4,6 @@ import { db, HOME_SERVER } from '../store.js';
 import { sendToUser, sendToServer, pushServer } from '../realtime.js';
 import { requireServer, requirePerm } from '../guards.js';
 import { voiceFor, syncVoicePermissions, closeVoiceRoom } from '../voice.js';
-import { music, leaveMusicOf } from '../music-rooms.js';
 import { removeEmojiFile } from '../emojis.js';
 import { removeImage } from '../images.js';
 import { fail, clean, validColor } from '../util.js';
@@ -24,7 +23,6 @@ function openServerFor(userId, serverId) {
 // Excluir um servidor (pelo dono no site ou pelo painel administrativo)
 export async function deleteServerNow(snap) {
   if (snap.id === HOME_SERVER) fail('O servidor principal não pode ser excluído.');
-  for (const ch of snap.channels.filter((c) => c.type === 'music')) music.dropChannel(ch.id);
   const emojiIds = db.emojiIds(snap.id);
   db.deleteServer(snap.id);
   for (const id of emojiIds) removeEmojiFile(id);
@@ -104,9 +102,7 @@ export default {
   async 'server:leave'(user, m) {
     const ctx = requireServer(user, m.serverId);
     if (ctx.snap.ownerId === user.id) fail('O dono não pode sair do próprio servidor (exclua-o ou transfira).');
-    if (ctx.snap.kind === 'dj') fail('As salas do Assistir Junto são de todo mundo: é só não entrar.');
     if (ctx.snap.kind === 'dm' && ctx.snap.members.length <= 2) fail('Conversa com uma pessoa não dá para sair; dá para esconder.');
-    leaveMusicOf(ctx.snap.id, user.id);
     db.removeMember(ctx.snap.id, user.id);
     sendToUser(user.id, { t: 'server:removed', serverId: ctx.snap.id, reason: null });
     pushServer(ctx.snap.id);

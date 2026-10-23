@@ -5,7 +5,6 @@ import { VOICE_BITRATE, VOICE_LIMIT_MAX } from '../../db.js';
 import { pushServer } from '../realtime.js';
 import { requireServer, requirePerm, requireCategory, requireChannelView } from '../guards.js';
 import { closeVoiceRoom, voicePeople, roomService } from '../voice.js';
-import { music } from '../music-rooms.js';
 import { fail, clean, textChannelName } from '../util.js';
 import { PERMS, canSeeChannel } from '../../public/js/permissions.js';
 
@@ -35,8 +34,6 @@ export default {
   'channel:create'(user, m) {
     const ctx = requireServer(user, m.serverId);
     requirePerm(ctx, PERMS.MANAGE_CHANNELS, 'Você não tem permissão para criar canais.');
-    if (m.type === 'music') fail('As salas de música agora ficam fora dos servidores: crie em "Assistir Junto", na lateral.');
-    if (ctx.snap.kind === 'dj') fail('Crie a sala pelo "+" de "Assistir Junto".');
     const type = m.type === 'voice' ? 'voice' : 'text';
     const name = channelName(type, m.name);
     if (!name) fail('Dê um nome ao canal.');
@@ -67,7 +64,6 @@ export default {
     db.deleteChannel(channel.id);
     pushServer(ctx.snap.id);
     if (channel.type === 'voice') await closeVoiceRoom(channel.id);
-    if (channel.type === 'music') music.dropChannel(channel.id);
   },
 
   // Configurações do canal de voz: nome, qualidade do áudio e limite de pessoas
@@ -87,7 +83,7 @@ export default {
   },
 
   // Canal privado: só os cargos escolhidos enxergam e entram (dono e administradores sempre).
-  // Quem perdeu o acesso sai na hora da voz e da música daquele canal.
+  // Quem perdeu o acesso sai na hora da voz daquele canal.
   async 'channel:privacy'(user, m) {
     const { channel, ctx } = manageChannel(user, m.channelId, 'Você não tem permissão para editar canais.');
     if (ctx.snap.kind === 'dm') fail('Conversa privada já é privada.');
@@ -101,7 +97,6 @@ export default {
     if (channel.type === 'voice') {
       for (const p of voicePeople(channel.id)) if (!canSeeChannel(snap, p.id, ch)) await roomService.removeParticipant(channel.id, p.id).catch(() => {});
     }
-    if (channel.type === 'music') for (const id of music.listenersOf(channel.id)) if (!canSeeChannel(snap, id, ch)) music.leave(channel.id, id);
   },
 
   // Modo lento: cada pessoa manda 1 mensagem a cada N segundos (0 desliga). Quem gerencia mensagens não espera.

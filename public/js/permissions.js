@@ -11,8 +11,7 @@ export const PERMS = {
   CONNECT: 1 << 7,         // entrar nos canais de voz
   SPEAK: 1 << 8,           // usar o microfone
   VIDEO: 1 << 9,           // câmera e transmissão de tela
-  MUSIC_DJ: 1 << 10,       // entrar na cabine e tocar músicas nos canais de música
-  MUSIC_MANAGE: 1 << 11,   // pular a música dos outros e tirar gente da cabine
+  // 1 << 10 e 1 << 11 eram "tocar como DJ" e "gerenciar música" (o Assistir Junto saiu): não reaproveitar
   MANAGE_EMOJIS: 1 << 12,  // enviar, renomear e excluir os emojis do servidor
   MANAGE_MESSAGES: 1 << 13, // apagar mensagens de outras pessoas
   PIN_MESSAGES: 1 << 14,    // fixar e desafixar mensagens
@@ -25,7 +24,7 @@ export const PERMS = {
 export const ALL_PERMS = Object.values(PERMS).reduce((a, b) => a | b, 0);
 
 // Padrão do cargo @everyone: conversar, falar, transmitir e convidar (sem gerenciar nada)
-export const DEFAULT_PERMS = PERMS.CREATE_INVITE | PERMS.SEND_MESSAGES | PERMS.CONNECT | PERMS.SPEAK | PERMS.VIDEO | PERMS.MUSIC_DJ | PERMS.PIN_MESSAGES;
+export const DEFAULT_PERMS = PERMS.CREATE_INVITE | PERMS.SEND_MESSAGES | PERMS.CONNECT | PERMS.SPEAK | PERMS.VIDEO | PERMS.PIN_MESSAGES;
 
 // Textos da tela de cargos, na ordem em que aparecem
 export const PERM_INFO = [
@@ -39,8 +38,6 @@ export const PERM_INFO = [
   ['CONNECT', 'Conectar', 'Entrar nos canais de voz.'],
   ['SPEAK', 'Falar', 'Usar o microfone nos canais de voz.'],
   ['VIDEO', 'Vídeo', 'Ligar a câmera e transmitir a tela.'],
-  ['MUSIC_DJ', 'Tocar como DJ', 'Entrar na cabine e tocar músicas nos canais de música.'],
-  ['MUSIC_MANAGE', 'Gerenciar música', 'Pular a música dos outros e tirar pessoas da cabine.'],
   ['MANAGE_EMOJIS', 'Gerenciar emojis', 'Enviar, renomear e excluir os emojis personalizados do servidor.'],
   ['MANAGE_MESSAGES', 'Gerenciar mensagens', 'Apagar mensagens de outras pessoas nos canais de texto.'],
   ['PIN_MESSAGES', 'Fixar mensagens', 'Fixar e desafixar mensagens no topo do canal.'],
@@ -65,9 +62,7 @@ export function computePerms(server, userId) {
 export const can = (perms, flag) => (perms & flag) === flag;
 
 // Canal privado: só o dono, administradores e quem tem um dos cargos escolhidos enxergam (e entram).
-// Sala de DJ com senha: só quem criou e quem já digitou a senha (os outros veem a sala, mas não entram)
 export function canSeeChannel(server, userId, channel) {
-  if (channel?.locked) return channel.ownerId === userId || (channel.access ?? []).includes(userId);
   if (!channel?.private) return true;
   if (!server || server.ownerId === userId) return true;
   if (can(computePerms(server, userId), PERMS.ADMINISTRATOR)) return true;
@@ -77,9 +72,6 @@ export function canSeeChannel(server, userId, channel) {
 
 // O servidor como aquela pessoa enxerga: sem os canais privados dela não ter acesso
 export function serverViewFor(server, userId) {
-  if (server?.kind === 'dj') { // a sala com senha aparece na lista, sem dizer quem tem acesso
-    return { ...server, channels: server.channels.map(({ access, ...c }) => (c.locked ? { ...c, open: canSeeChannel(server, userId, { ...c, access }) } : c)) };
-  }
   if (!server || !server.channels.some((c) => c.private)) return server;
   return { ...server, channels: server.channels.filter((c) => canSeeChannel(server, userId, c)) };
 }

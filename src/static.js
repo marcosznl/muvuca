@@ -13,7 +13,7 @@ const TYPES = {
 };
 
 // CSP das páginas: só roda script do próprio Muvuca (e os embutidos no HTML, pela impressão digital exata),
-// do YouTube (player da música) e worklets de áudio (blob:). Imagens https de fora (GIFs, prévias de link).
+// e worklets de áudio (blob:). Imagens https de fora (GIFs, prévias de link); vídeos do YouTube no chat em iframe.
 // O LiveKit no modo local fica em ws://…:7880 (fora da porta do site).
 const cspCache = new Map(); // etag -> cabeçalho
 function cspFor(html) {
@@ -22,7 +22,7 @@ function cspFor(html) {
   return [
     "default-src 'self'",
     // 'wasm-unsafe-eval': só deixa rodar WebAssembly (a supressão de ruído por IA); sem ele o microfone da call ficava mudo
-    `script-src 'self' blob: 'wasm-unsafe-eval' ${hashes.join(' ')} https://www.youtube.com https://s.ytimg.com`,
+    `script-src 'self' blob: 'wasm-unsafe-eval' ${hashes.join(' ')}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "media-src 'self' blob: https:",

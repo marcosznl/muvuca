@@ -48,16 +48,6 @@
       <div id="server-name" class="server-name"></div>
       <div id="channel-list" class="channels"></div>
 
-      <div id="music-panel" class="music-panel" hidden>
-        <div class="vp-info">
-          <div class="mp-status"><span data-icon="headphones" data-size="16"></span>Tocando agora</div>
-          <div id="mp-title" class="mp-title"></div>
-          <button id="mp-channel" class="vp-channel link"></button>
-        </div>
-        <button id="mp-mute" class="icon-btn" title="Silenciar música"></button>
-        <button id="mp-leave" class="icon-btn danger-hover" title="Sair do canal de música" data-icon="close"></button>
-      </div>
-
       <div id="voice-panel" class="voice-panel" hidden>
         <div class="vp-info">
           <div class="vp-status">
@@ -139,7 +129,6 @@
 
       <!-- Área de jogos (ícone fixo 🎮) -->
       <section id="games-view" class="games-view" hidden></section>
-      <section id="dj-view" class="games-view" hidden></section>
 
       <!-- Canal de voz -->
       <section id="voice-view" class="voice-view" hidden>
@@ -164,19 +153,6 @@
           </div>
           <div id="call-chat-slot" class="call-chat-slot"></div>
         </aside>
-      </section>
-      <!-- Canal de música: o player fica sempre montado (fora da tela quando você está em outro canal) -->
-      <section id="music-view" class="music-view offscreen">
-        <div class="music-stage">
-          <div class="music-screen">
-            <div id="music-player" class="music-player"></div>
-            <div id="music-overlay" class="music-overlay"></div>
-          </div>
-          <div id="music-info" class="music-info"></div>
-        </div>
-        <div id="music-resizer" class="music-resizer" role="separator" aria-orientation="horizontal" tabindex="0"
-          title="Arraste para aumentar o vídeo ou o chat (duplo clique volta ao padrão)"></div>
-        <div id="music-chat-slot" class="music-chat"></div>
       </section>
     </main>
 

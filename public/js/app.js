@@ -23,12 +23,8 @@ import { setupPush, pushAfterLogin } from './push.js';
 import { closeEmojiPanel } from './chat-picker.js';
 import { renderStage, leaveVoice, voiceChannelId, applyAudioState, updateMediaButtons, mergeSelfIntoVoice, onVoiceMove, syncMiniPlayer, resumeCall } from './voice.js';
 import { renderMembers } from './members.js';
-import {
-  joinMusic, musicChannelId, onMusicState, onMusicQueue, rejoinMusic, musicChannelGone, placeMusicView, renderAllMusic,
-} from './music.js';
 import { refreshSettings, closeServerSettings } from './settings.js';
 import { dmTitle, unhideDm, selectDmHome, renameGroup } from './dms.js';
-import { renderDjHome } from './dj.js';
 import { renderFriendsView } from './friends.js';
 import { onCallEvent, onVoiceChanged, renderCallBar } from './calls.js';
 import { renderMaintBar } from './maintenance.js';
@@ -68,19 +64,9 @@ export function selectGames() {
   openGames();
 }
 
-// Página do Assistir Junto (salas de música, como a dos jogos): a música e a voz continuam tocando
-export function selectDjHome() {
-  state.view = { serverId: null, channelId: null, djHome: true, dms: true };
-  $('app').classList.remove('show-sidebar'); // no celular, fecha a lateral
-  $('scrim').hidden = true;
-  showChannel();
-}
-
 export function selectChannel(channelId) {
   const { server, channel } = findChannel(channelId);
   if (!channel) {
-    // Sala de música apagada: volta para a página das salas
-    if (serverById(state.view.serverId)?.kind === 'dj') return selectDjHome();
     // Canal sumiu (ex.: excluído): fica só no servidor
     state.view = { serverId: state.view.serverId, channelId: null };
     return showChannel();
@@ -89,8 +75,6 @@ export function selectChannel(channelId) {
   if (channel.type !== 'voice') state.unread[channelId] = 0;
   if (channel.type === 'text') rememberTextChannel(server.id, channelId);
   showChannel();
-  // Clicar num canal de música já entra e começa a ouvir (o clique libera o som no navegador)
-  if (channel.type === 'music' && musicChannelId() !== channelId) joinMusic(channelId);
 }
 
 export const showChannelView = () => showChannel();
@@ -99,34 +83,20 @@ function showChannel() {
   closeOverlays();
   closeEmojiPanel();
   const games = inGames();
-  const djHome = !!state.view.djHome;
   $('games-view').hidden = !games;
-  $('dj-view').hidden = !djHome;
-  $('app').classList.toggle('games-mode', games || djHome);
-  if (djHome) {
-    for (const id of ['text-view', 'voice-view', 'empty-view', 'friends-view']) $(id).hidden = true;
-    $('app').classList.remove('music-mode', 'friends-home');
-    placeMusicView();
-    renderAll();
-    return;
-  }
+  $('app').classList.toggle('games-mode', games);
   if (games) {
     for (const id of ['text-view', 'voice-view', 'empty-view', 'friends-view']) $(id).hidden = true;
-    $('app').classList.remove('music-mode');
-    placeMusicView();
     renderAll();
     renderGamesView();
     return;
   }
   const { channel } = findChannel(state.view.channelId);
   const isVoice = channel?.type === 'voice';
-  const isMusic = channel?.type === 'music';
-  // O chat é o mesmo componente: embaixo do player nos canais de música, sozinho nos de texto
-  // Só move quando muda de lugar: mover o elemento zera a rolagem (o chat "pulava" a cada atualização)
   // Na call com o chat ao lado ligado: o mesmo chat vai para a direita da call (canal de texto escolhido)
+  // Só move quando muda de lugar: mover o elemento zera a rolagem (o chat "pulava" a cada atualização)
   const callChat = isVoice && !!chatChannelId();
-  if (isMusic) { if ($('text-view').parentElement !== $('music-chat-slot')) $('music-chat-slot').append($('text-view')); }
-  else if (callChat) { if ($('text-view').parentElement !== $('call-chat-slot')) $('call-chat-slot').append($('text-view')); }
+  if (callChat) { if ($('text-view').parentElement !== $('call-chat-slot')) $('call-chat-slot').append($('text-view')); }
   else if ($('text-view').previousElementSibling !== $('empty-view')) $('empty-view').after($('text-view'));
   $('text-view').hidden = (isVoice && !callChat) || !channel;
   $('voice-view').hidden = !isVoice;
@@ -134,8 +104,6 @@ function showChannel() {
   $('empty-view').hidden = !!channel || friendsHome;
   $('friends-view').hidden = !friendsHome;
   $('app').classList.toggle('friends-home', friendsHome); // a barra de abas dos amigos vira o topo (sem cabeçalho repetido)
-  placeMusicView();
-  $('app').classList.toggle('music-mode', isMusic); // painel da direita mais largo nos canais de música
   const server = findChannel(state.view.channelId).server;
   if (server?.kind === 'dm') {
     $('view-icon').replaceChildren(icon('chat', 22));
@@ -149,7 +117,7 @@ function showChannel() {
     $('view-title').classList.remove('renamable');
     $('view-title').title = '';
     $('view-title').onclick = null;
-    $('view-icon').replaceChildren(channel ? icon({ voice: 'speaker', music: 'headphones' }[channel.type] ?? 'hash', 22) : '');
+    $('view-icon').replaceChildren(channel ? icon(channel.type === 'voice' ? 'speaker' : 'hash', 22) : '');
     $('view-title').textContent = channel?.name ?? '';
   }
   $('view-topic').textContent = channel?.topic ?? '';
@@ -181,8 +149,6 @@ export function renderAll() {
   renderVoicePanel();
   renderComposer();
   updateMediaButtons();
-  renderAllMusic();
-  renderDjHome();
   updateTitle();
 }
 
@@ -218,7 +184,6 @@ function handle(m) {
       state.status = m.status ?? {};
       state.activity = m.activity ?? {};
       state.voice = m.voice;
-      state.music = m.music ?? {};
       // Não lidas que ficaram guardadas no servidor (de antes de recarregar, ou de quando estava fora)
       state.readState = m.readState ?? {};
       state.mutes = new Set(m.mutes ?? []);
@@ -234,12 +199,10 @@ function handle(m) {
       const fromLink = findChannel(new URLSearchParams(location.search).get('canal')).channel; // tocou numa notificação
       if (fromLink) { history.replaceState(null, '', location.pathname); selectChannel(fromLink.id); }
       else if (state.view.games) selectGames();
-      else if (state.view.djHome) selectDjHome();
       else if (state.view.dms && !keep) selectDmHome();
       else if (keep) selectServer(keep.id);
       else selectServer(serverById(store.get('lastServer'))?.id ?? state.servers[0]?.id);
       if (!state.servers.length) showChannel();
-      rejoinMusic(); // reconectou: volta para a sala de música em que estava
       resumeCall(); // recarregou a página no meio de uma call: entra de novo sozinho
       reportClientInfo(); // app/versão deste aparelho (painel) e erros guardados enquanto estava sem conexão
       request({ t: 'games:list' }).then(onGamesRooms).catch(() => {}); // salas abertas no bloco "Jogos" da lateral
@@ -256,7 +219,6 @@ function handle(m) {
       const isNew = !serverById(m.server.id);
       upsertServer(m.server);
       refreshSettings(m.server.id);
-      musicChannelGone();
       if (m.select) return selectServer(m.server.id);
       if (isNew) { renderChannels(); return; } // conversa ou servidor novo aparece na lista
       // Meu canal atual ainda existe? Minhas permissões mudaram?
@@ -273,7 +235,6 @@ function handle(m) {
       if (inVoiceThere) leaveVoice({ keepView: true });
       removeServer(m.serverId);
       refreshSettings(m.serverId);
-      musicChannelGone();
       if (m.reason) showBanner(m.reason, { timeout: 6000 });
       if (wasCurrent) selectServer(state.servers[0]?.id);
       renderAll();
@@ -311,16 +272,6 @@ function handle(m) {
       break;
     case 'history':
       onHistory(m);
-      break;
-    case 'music:state':
-      onMusicState(m);
-      break;
-    case 'music:queue':
-      onMusicQueue(m);
-      break;
-    case 'music:presence':
-      state.music[m.channelId] = { listeners: m.listeners, nowPlaying: m.nowPlaying };
-      renderChannels();
       break;
     case 'msg':
       onMessage(m.msg);

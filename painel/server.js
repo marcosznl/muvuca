@@ -560,7 +560,6 @@ function serversList() {
   const rows = all(`SELECT s.id, s.name, s.color, s.icon, s.created_at, s.owner_id, u.username owner_user, u.display_name owner_name,
       (SELECT COUNT(*) FROM channels c WHERE c.server_id = s.id AND c.type = 'text') texts,
       (SELECT COUNT(*) FROM channels c WHERE c.server_id = s.id AND c.type = 'voice') voices,
-      (SELECT COUNT(*) FROM channels c WHERE c.server_id = s.id AND c.type = 'music') musics,
       (SELECT COUNT(*) FROM messages m JOIN channels c ON c.id = m.channel_id WHERE c.server_id = s.id AND m.created_at > ? AND m.system = 0) msgs7,
       (SELECT COALESCE(SUM(f.size), 0) FROM files f JOIN channels c ON c.id = f.channel_id WHERE c.server_id = s.id) bytes
     FROM servers s LEFT JOIN users u ON u.id = s.owner_id WHERE s.kind = 'server' ORDER BY s.created_at`, now - 7 * DAY);
@@ -578,7 +577,7 @@ function serversList() {
       id: r.id, name: r.name, color: r.color, icon: r.icon ?? null, createdAt: r.created_at, home: r.id === home,
       owner: r.owner_id ? { id: r.owner_id, username: r.owner_user, name: r.owner_name } : null,
       members: mem.length, online: mem.filter((id) => online.has(id)).length, inCall,
-      channels: { text: r.texts, voice: r.voices, music: r.musics }, msgs7: r.msgs7, bytes: r.bytes,
+      channels: { text: r.texts, voice: r.voices }, msgs7: r.msgs7, bytes: r.bytes,
     };
   });
 }

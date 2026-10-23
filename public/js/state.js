@@ -7,7 +7,6 @@ export const state = {
   servers: [],          // snapshots: { id, name, color, ownerId, channels, roles, members }
   online: new Set(),    // ids de quem está com o site aberto
   voice: {},            // canal de voz -> [{ id, name, muted, deafened, camera, streaming }]
-  music: {},            // canal de música -> { listeners, nowPlaying }
   view: { serverId: null, channelId: null },
   messages: new Map(),  // canal de texto -> { list, hasMore, loaded, loading }
   unread: {},           // canal de texto -> quantidade

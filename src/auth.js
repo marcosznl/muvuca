@@ -1,6 +1,6 @@
 // Contas: cadastro e login (HTTP), com limite de tentativas por IP
 import { ACCESS_PASSWORD, OWNER_USERNAME } from './config.js';
-import { db, HOME_SERVER, DJ_SERVER } from './store.js';
+import { db, HOME_SERVER } from './store.js';
 import { announceJoin } from './welcome.js';
 import { pushServer } from './realtime.js';
 import { HttpError, readBody, sameSecret, clean, clientIp, sleep, bearer } from './util.js';
@@ -64,7 +64,6 @@ export async function register(req) {
   const user = await db.createUser({ username, displayName, password });
   const serverId = viaAccessCode ? HOME_SERVER : inviteInfo.serverId;
   db.addMember(serverId, user);
-  db.addMember(DJ_SERVER, user); // salas de DJ: todo mundo participa
   if (inviteInfo) db.useInvite(inviteInfo.code);
   // Dono do servidor principal: o usuário de OWNER_USERNAME (no .env) ou, sem ele, o primeiro a se cadastrar
   if (!db.server(HOME_SERVER).owner_id && (!OWNER_USERNAME || OWNER_USERNAME.toLowerCase() === username.toLowerCase())) {

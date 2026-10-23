@@ -9,7 +9,6 @@ import { voiceToken, voiceFor, pollVoice, voiceAll } from './src/voice.js';
 import { serverViewFor } from './public/js/permissions.js';
 import { setBusyCheck, setBandwidth } from './src/throttle.js';
 import { INVITE_EXPIRY, deleteServerNow, transferServer, renameServer } from './src/actions/servers.js';
-import { music, musicFor } from './src/music-rooms.js';
 import { uploadEmoji, serveEmoji } from './src/emojis.js';
 import { uploadImage, serveImage } from './src/images.js';
 import { uploadAttachment, serveFile, cleanupFiles } from './src/attachments.js';
@@ -194,14 +193,12 @@ function welcome(ws, token) {
     status: presence.status,
     activity: presence.activity,
     voice: voiceFor(user.id),
-    music: musicFor(user.id),
     unread: Object.fromEntries(Object.entries(db.unread(user.id)).filter(([id]) => visible.has(id))),
     mutes: db.mutes(user.id),
     friends: db.friendsOf(user.id),
     readState: db.readState(user.id),
     maintenance: maintenance(),
   });
-  music.cancelLeave(user.id); // voltou a tempo depois de uma queda: continua na sala de música
   if (firstSocket) broadcastPresence();
   return user;
 }
@@ -258,7 +255,6 @@ wss.on('connection', (ws, req) => {
       db.touchUser(user.id);
       autoIdle.delete(user.id);
       broadcastPresence();
-      music.disconnected(user.id);
       leaveRoom(user.id); // fechou o site: sai da sala de jogo
     }
   });

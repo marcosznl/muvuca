@@ -79,7 +79,7 @@ function checkSlowmode(ctx, user, channel, now) {
   return () => slowTimes.set(key, now); // só conta depois que a mensagem for aceita
 }
 
-// Canal com chat (texto ou música) de um servidor da pessoa
+// Canal de texto de um servidor da pessoa
 function requireChatChannel(user, channelId) {
   const channel = db.channel(channelId);
   if (!channel || channel.type === 'voice') fail('Canal não encontrado.');

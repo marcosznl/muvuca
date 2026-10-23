@@ -8,16 +8,14 @@ const { state, chatChannelId, callChatChannel } = await import('../public/js/sta
 
 const server = { id: 's1', channels: [
   { id: 't-geral', type: 'text', name: 'geral' }, { id: 't-jogos', type: 'text', name: 'jogos' },
-  { id: 'v-sala', type: 'voice', name: 'Sala 1' }, { id: 'm-som', type: 'music', name: 'Som' },
+  { id: 'v-sala', type: 'voice', name: 'Sala 1' },
 ] };
 state.servers = [server];
 const k = (key) => `calldireta:${key}`;
 
-test('canal de texto ou de música: o chat é o próprio canal', () => {
+test('canal de texto: o chat é o próprio canal', () => {
   state.view = { serverId: 's1', channelId: 't-jogos' };
   assert.equal(chatChannelId(), 't-jogos');
-  state.view = { serverId: 's1', channelId: 'm-som' };
-  assert.equal(chatChannelId(), 'm-som');
 });
 
 test('call sem o chat ao lado: nenhum chat à vista', () => {

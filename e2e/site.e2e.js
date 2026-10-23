@@ -188,11 +188,11 @@ test('cara de app do Mac: no site e no app do Mac (só o app tem a coluna transl
   await context.close();
 });
 
-test('lateral: Amigos, Jogos e Assistir Junto; os servidores abrem e fecham com um clique, e fica guardado depois do F5', async () => {
+test('lateral: Amigos e Jogos; os servidores abrem e fecham com um clique, e fica guardado depois do F5', async () => {
   const page = await openAs(browser, stack, 'ana', { token: ana.token });
   try { // falhou no meio: fecha o navegador do mesmo jeito (senão o teste fica preso até estourar o tempo)
     const titles = await page.$$eval('.tree-top .name', (t) => t.map((x) => x.textContent));
-    assert.deepEqual(titles, ['Amigos', 'Jogos', 'Assistir Junto']);
+    assert.deepEqual(titles, ['Amigos', 'Jogos']);
     assert.equal(await page.$('.tree-block'), null); // sem os títulos "Amigos", "Jogos" e "Servidores"
     assert.equal(await page.$('.tree-server:not(.tree-top) .tree-server-toggle .ico'), null); // servidores sem a seta
     const server = '.tree-server:not(.tree-top) .tree-server-toggle';
